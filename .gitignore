@@ -1,0 +1,19 @@
+# Ambiente
+.env
+
+# Maven
+target/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+
+# Java
+*.class
+
+# Docs internos
+docs/
+
+# OS
+.DS_Store
