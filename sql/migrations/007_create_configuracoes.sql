@@ -15,7 +15,7 @@ INSERT INTO configuracoes (chave, valor, descricao) VALUES
     ('horario_inicio_expediente', '08:00', 'Início do expediente de entregas'),
     ('horario_fim_expediente', '18:00', 'Fim do expediente de entregas'),
     ('intervalo_reotimizacao_min', '30', 'Minutos entre recálculos automáticos de rotas'),
-    ('deposito_latitude', '-16.7244', 'Latitude do depósito/armazém'),
-    ('deposito_longitude', '-43.8636', 'Longitude do depósito/armazém');
+    ('deposito_latitude', '-16.734440968489228', 'Latitude do depósito/armazém'),
+    ('deposito_longitude', '-43.877211192130325', 'Longitude do depósito/armazém');
 
 COMMENT ON TABLE configuracoes IS 'Parâmetros configuráveis do sistema';

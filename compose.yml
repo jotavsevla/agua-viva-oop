@@ -33,5 +33,45 @@ services:
       timeout: 5s
       retries: 5
 
+  # Nominatim — geocoding local (endereco → lat/lon)
+  # Importa o .pbf automaticamente no primeiro start (~30min para MG)
+  nominatim:
+    image: mediagis/nominatim:4.4
+    container_name: nominatim-agua-viva
+    environment:
+      PBF_URL: https://download.geofabrik.de/south-america/brazil/sudeste-latest.osm.pbf
+      NOMINATIM_PASSWORD: nominatim
+    ports:
+      - "8088:8080"
+    volumes:
+      - nominatim-data:/var/lib/postgresql/14/main
+    shm_size: 1g
+    restart: unless-stopped
+
+  # OSRM — servidor de rotas com dados OSM locais
+  # Antes de subir: cd solver/osrm && ./prepare.sh
+  osrm:
+    image: osrm/osrm-backend
+    container_name: osrm-agua-viva
+    ports:
+      - "5000:5000"
+    volumes:
+      - ./solver/osrm/data:/data
+    command: osrm-routed --algorithm mld /data/sudeste-latest.osrm
+    restart: unless-stopped
+
+  # Solver Python — otimizador de rotas (OR-Tools + FastAPI)
+  solver:
+    build: ./solver
+    container_name: solver-agua-viva
+    ports:
+      - "8080:8080"
+    environment:
+      - OSRM_URL=http://osrm:5000
+    depends_on:
+      - osrm
+    restart: unless-stopped
+
 volumes:
   pgdata-oop-dev:
+  nominatim-data:
