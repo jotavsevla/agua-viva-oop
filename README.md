@@ -18,8 +18,9 @@ com **PostgreSQL isolado em Docker** (SQL puro, sem ORM).
 | Driver    | JDBC (postgresql) | Queries parametrizadas diretas   |
 | Pool      | HikariCP          | Pool de conexoes leve            |
 | Hash      | BCrypt (jBCrypt)  | Hash de senhas com salt          |
+| JSON      | Gson              | Comunicacao com solver Python    |
 | Config    | dotenv-java       | Variaveis de ambiente via .env   |
-| Container | Docker Compose    | PostgreSQL containerizado        |
+| Container | Docker Compose    | PostgreSQL + OSRM + Solver       |
 | Testes    | JUnit 5           | TDD — teste antes de implementar |
 
 **Nao usa**: ORM (Hibernate/JPA), Spring Boot, Lombok, geradores de codigo.
@@ -31,7 +32,7 @@ com **PostgreSQL isolado em Docker** (SQL puro, sem ORM).
 ```
 agua-viva/
 ├── pom.xml
-├── compose.yml                         # PostgreSQL dev (5434) + test (5435)
+├── compose.yml                         # PostgreSQL + OSRM + Nominatim + Solver
 ├── .env.example
 ├── apply-migrations.sh
 ├── sql/
@@ -53,14 +54,36 @@ agua-viva/
 │   │   │       ├── User.java           # Entidade com comportamento
 │   │   │       └── UserPapel.java      # Enum com hierarquia de papeis
 │   │   ├── repository/
-│   │   │   └── ConnectionFactory.java  # Pool JDBC via HikariCP
-│   │   └── service/
+│   │   │   ├── ConnectionFactory.java  # Pool JDBC via HikariCP
+│   │   │   └── UserRepository.java     # CRUD de usuarios
+│   │   └── solver/
+│   │       ├── SolverClient.java       # HTTP client pro solver Python
+│   │       ├── SolverRequest.java      # Request — deposito, pedidos, entregadores
+│   │       ├── SolverResponse.java     # Response — rotas otimizadas
+│   │       ├── Coordenada.java         # Value Object — lat/lon
+│   │       ├── PedidoSolver.java       # Pedido formatado pro solver
+│   │       ├── Parada.java             # Parada na rota (ordem, hora prevista)
+│   │       └── RotaSolver.java         # Rota com entregador e paradas
 │   └── test/java/com/aguaviva/
 │       ├── domain/user/
 │       │   ├── PasswordTest.java       # 18 testes unitarios
 │       │   └── UserTest.java           # 27 testes unitarios
-│       └── repository/
-│           └── ConnectionFactoryTest.java  # 2 testes de integracao
+│       ├── repository/
+│       │   ├── ConnectionFactoryTest.java
+│       │   └── UserRepositoryTest.java
+│       └── solver/
+│           └── SolverClientTest.java   # 10 testes (serializacao/deserializacao)
+├── solver/                             # Solver Python (segregado)
+│   ├── main.py                         # FastAPI — POST /solve
+│   ├── vrp.py                          # OR-Tools CVRPTW
+│   ├── matrix.py                       # Cliente OSRM + fallback Haversine
+│   ├── models.py                       # Pydantic — contratos entrada/saida
+│   ├── visualize.py                    # Folium — mapa de debug
+│   ├── requirements.txt
+│   ├── Dockerfile
+│   ├── osrm/
+│   │   └── prepare.sh                  # Baixa e processa mapa OSM (rodar 1x)
+│   └── tests/                          # 24 testes pytest
 └── docs/
 ```
 
@@ -68,7 +91,37 @@ agua-viva/
 
 ## Arquitetura
 
-Tres camadas com separacao rigida:
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Docker Compose                       │
+│                                                             │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────────┐  │
+│  │PostgreSQL│  │  OSRM    │  │Nominatim │  │  Solver    │  │
+│  │  :5434   │  │  :5000   │  │  :8088   │  │  :8080     │  │
+│  │          │  │ distancias│  │ geocoding│  │ OR-Tools   │  │
+│  │          │  │ reais    │  │ endereco │  │ CVRPTW     │  │
+│  │          │  │ por vias │  │ → lat/lon│  │            │  │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └─────┬──────┘  │
+│       │              │             │              │          │
+└───────┼──────────────┼─────────────┼──────────────┼──────────┘
+        │              │             │              │
+   ┌────┴──────────────┴─────────────┴──────────────┴──────┐
+   │                    Java Backend                        │
+   │                                                        │
+   │  domain/     → Regras de negocio (OOP pura)            │
+   │  repository/ → JDBC (leitura/gravacao)                 │
+   │  solver/     → SolverClient (HTTP + JSON)              │
+   │  service/    → Orquestracao (a construir)              │
+   └───────────────────────┬────────────────────────────────┘
+                           │
+                    ┌──────┴──────┐
+                    │   Browser   │
+                    │ Leaflet.js  │
+                    │ (mapa)      │
+                    └─────────────┘
+```
+
+**Tres camadas Java com separacao rigida:**
 
 **Domain** (`domain/`) — Java puro. Zero imports de java.sql.
 Objetos com comportamento, validacoes no construtor, Value Objects imutaveis.
@@ -76,8 +129,32 @@ Objetos com comportamento, validacoes no construtor, Value Objects imutaveis.
 **Repository** (`repository/`) — JDBC puro com PreparedStatement.
 Converte entre ResultSet e objetos de dominio. Sem logica de negocio.
 
-**Service** (`service/`) — Orquestra domain + repository.
+**Solver** (`solver/`) — Integracao com o solver Python via HTTP + Gson.
+Classes imutaveis que espelham o contrato JSON do solver.
+
+**Service** (`service/`) — Orquestra domain + repository + solver.
 Gerencia transacoes e coordena fluxos de negocio.
+
+---
+
+## Solver Python (segregado)
+
+O solver e um servico **independente** que resolve o problema de roteamento
+de veiculos (CVRPTW — Capacitated Vehicle Routing Problem with Time Windows).
+
+Recebe JSON com pedidos, devolve JSON com rotas otimizadas. Stateless.
+
+| Restricao | Como trata |
+| --------- | ---------- |
+| Capacidade | Max 5 galoes por viagem |
+| Time windows | Pedidos HARD com horario obrigatorio |
+| Multiplas viagens | Ate 3 viagens por entregador por dia |
+| Pedidos inviaveis | Devolvidos em `nao_atendidos` |
+
+**Comunicacao**: Java monta `SolverRequest` → `POST /solve` → recebe `SolverResponse`.
+
+O OSRM fornece distancias reais por vias (nao linha reta).
+O Nominatim converte endereco texto em lat/lon (geocoding).
 
 ---
 
@@ -88,28 +165,35 @@ Gerencia transacoes e coordena fluxos de negocio.
 - Java 21+
 - Maven
 - Docker + Docker Compose
+- Python 3.12+ (para testes locais do solver)
 
 ### Subir o banco
 
 ```bash
-# Subir PostgreSQL dev + test
-docker compose up -d
-
-# Aplicar migrations no banco de dev
+docker compose up -d postgres-oop-dev postgres-oop-test
 ./apply-migrations.sh
 ```
 
-### Compilar e testar
+### Compilar e testar (Java)
 
 ```bash
-# Rodar todos os testes (unitarios + integracao)
-mvn test
+mvn test           # 78 testes (unitarios + integracao)
+mvn clean compile  # compilar sem testes
+```
 
-# Compilar sem testes
-mvn clean compile
+### Preparar e subir o solver
 
-# Gerar JAR
-mvn clean package
+```bash
+# 1. Baixar e processar mapa OSM (rodar uma vez, ~15min)
+cd solver/osrm && ./prepare.sh
+
+# 2. Subir OSRM + Nominatim + Solver
+docker compose up -d osrm nominatim solver
+
+# 3. Testar solver localmente (opcional)
+cd solver && python3 -m venv .venv && source .venv/bin/activate
+pip install -r requirements.txt
+pytest tests/ -v   # 24 testes
 ```
 
 ### Variaveis de ambiente
@@ -132,12 +216,23 @@ O banco de teste roda na porta **5435** com dados em memoria (tmpfs).
 
 ---
 
+## Servicos Docker
+
+| Servico    | Porta | Funcao                                   |
+| ---------- | ----- | ---------------------------------------- |
+| PostgreSQL | 5434  | Banco de dados (dev)                     |
+| PostgreSQL | 5435  | Banco de dados (test, tmpfs)             |
+| OSRM       | 5000  | Distancias reais por vias (OpenStreetMap)|
+| Nominatim  | 8088  | Geocoding — endereco para lat/lon        |
+| Solver     | 8080  | Otimizador de rotas (OR-Tools + FastAPI) |
+
+---
+
 ## Dominio
 
-O dominio e o mesmo do projeto Next.js — distribuidora de agua mineral:
-clientes, pedidos, rotas de entrega, vales, usuarios.
+Distribuidora de agua mineral — clientes, pedidos, rotas de entrega, vales, usuarios.
 
-### Entidades e conceitos implementados
+### Entidades implementadas
 
 | Classe    | Tipo         | Descricao                                    |
 | --------- | ------------ | -------------------------------------------- |
@@ -147,23 +242,29 @@ clientes, pedidos, rotas de entrega, vales, usuarios.
 
 ### Banco de dados
 
-Schema identico ao projeto Next.js (8 migrations SQL).
+Schema com 8 migrations SQL.
 PostgreSQL com views, CTEs, window functions, indices parciais e constraints de negocio.
 
 ---
 
 ## Testes
 
-47 testes — TDD (teste antes de implementar).
+78 testes — TDD (teste antes de implementar).
 
-| Suite                 | Tipo       | Testes |
-| --------------------- | ---------- | ------ |
-| PasswordTest          | Unitario   | 18     |
-| UserTest              | Unitario   | 27     |
-| ConnectionFactoryTest | Integracao | 2      |
+| Suite                 | Linguagem | Tipo       | Testes |
+| --------------------- | --------- | ---------- | ------ |
+| PasswordTest          | Java      | Unitario   | 18     |
+| UserTest              | Java      | Unitario   | 27     |
+| ConnectionFactoryTest | Java      | Integracao | 2      |
+| UserRepositoryTest    | Java      | Integracao | 21     |
+| SolverClientTest      | Java      | Unitario   | 10     |
+| test_vrp              | Python    | Unitario   | 14     |
+| test_models           | Python    | Unitario   | 6      |
+| test_matrix           | Python    | Unitario   | 5      |
 
 ```bash
-mvn test
+mvn test                              # Java (78 testes)
+cd solver && pytest tests/ -v         # Python (24 testes, dentro do venv)
 ```
 
 ---
@@ -172,9 +273,14 @@ mvn test
 
 - [x] **Fase 1** — Fundacao (pom.xml, Docker, migrations, ConnectionFactory, health check)
 - [x] **Fase 2** — Domain: User + UserPapel + Password (TDD)
-- [ ] **Fase 3** — Repository + Service (UserRepository, UserService, ClienteRepository...)
-- [ ] **Fase 4** — Maquina de estados do Pedido (PedidoStatus, transicoes)
-- [ ] **Fase 5** — Vales (debito atomico, saldo, movimentacoes)
+- [x] **Fase 3** — Repository: UserRepository (TDD)
+- [x] **Fase 4** — Solver Python: OR-Tools CVRPTW + OSRM + Nominatim
+- [x] **Fase 5** — Integracao Java-Solver: SolverClient + Gson
+- [ ] **Fase 6** — Repository: ClienteRepository + PedidoRepository
+- [ ] **Fase 7** — Service: RotaService (orquestra solver + repositorios)
+- [ ] **Fase 8** — Maquina de estados do Pedido (transicoes de status)
+- [ ] **Fase 9** — Vales (debito atomico, saldo, movimentacoes)
+- [ ] **Fase 10** — Frontend: Leaflet.js (mapa com rotas)
 
 ---
 
@@ -187,9 +293,9 @@ mvn test
 | Persistencia    | pg (SQL puro)        | JDBC (SQL puro)              |
 | Models          | models/\*.js         | domain/\*_/_.java (OOP pura) |
 | Testes          | Jest + TDD           | JUnit 5 + TDD                |
+| Solver          | —                    | Python (OR-Tools, segregado) |
 | ORM             | Nao                  | Nao                          |
 | Framework       | Next.js              | Nenhum (Java puro)           |
-| Objetivo        | SQL puro + MVC       | OOP verdadeira + SGBD puro   |
 
 ---
 

@@ -15,5 +15,11 @@ target/
 # Docs internos
 docs/
 
+# Solver Python
+solver/.venv/
+**/__pycache__/
+**/.pytest_cache/
+solver/osrm/data/
+
 # OS
 .DS_Store
