@@ -48,6 +48,13 @@
             <version>3.0.2</version>
         </dependency>
 
+        <!-- JSON (comunicacao com solver Python) -->
+        <dependency>
+            <groupId>com.google.code.gson</groupId>
+            <artifactId>gson</artifactId>
+            <version>2.11.0</version>
+        </dependency>
+
         <!-- Testes -->
         <dependency>
             <groupId>org.junit.jupiter</groupId>
