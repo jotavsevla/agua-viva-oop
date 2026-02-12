@@ -34,6 +34,13 @@
             <version>5.1.0</version>
         </dependency>
 
+        <!-- BCrypt para hashing de senhas -->
+        <dependency>
+            <groupId>org.mindrot</groupId>
+            <artifactId>jbcrypt</artifactId>
+            <version>0.4</version>
+        </dependency>
+
         <!-- Dotenv para carregar .env -->
         <dependency>
             <groupId>io.github.cdimascio</groupId>
