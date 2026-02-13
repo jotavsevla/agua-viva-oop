@@ -32,9 +32,9 @@ O ciclo e sempre o mesmo:
 2. **Green** — implementa o minimo para passar
 3. **Refactor** — limpa sem quebrar testes
 
-Isso vale para domain, repository e solver. Nenhuma classe existe sem teste.
+Isso vale para domain, repository, service e solver. Nenhuma classe existe sem teste.
 
-**159 testes** (135 Java + 24 Python), zero falhas. Os testes nao sao formais —
+**161 testes** (137 Java + 24 Python), zero falhas. Os testes nao sao formais —
 eles documentam o comportamento esperado do sistema.
 
 ### Objetos com comportamento, nao DTOs
@@ -204,7 +204,7 @@ FROM metricas_brutas mb JOIN users u ON u.id = mb.entregador_id;
    │  domain/     → Regras de negocio (OOP pura)            │
    │  repository/ → JDBC (leitura/gravacao)                 │
    │  solver/     → SolverClient (HTTP + JSON)              │
-   │  service/    → Orquestracao (a construir)              │
+   │  service/    → Orquestracao (RotaService inicial)      │
    └───────────────────────┬────────────────────────────────┘
                            │
                     ┌──────┴──────┐
@@ -228,8 +228,9 @@ Constraints do banco viram excecoes semanticas (`IllegalArgumentException`).
 Classes imutaveis que espelham o contrato JSON do solver.
 Gson com `LOWER_CASE_WITH_UNDERSCORES` converte `capacidadeVeiculo` → `capacidade_veiculo`.
 
-**Service** (`service/`) — A construir. Orquestra domain + repository + solver.
-Gerencia transacoes e coordena fluxos de negocio.
+**Service** (`service/`) — Em implementacao. Orquestra domain + repository + solver.
+Gerencia transacoes e coordena fluxos de negocio. `RotaService` inicial ja implementa
+planejamento de rotas com transacao JDBC e persistencia em `rotas`/`entregas`.
 
 Dependencias apontam sempre para o centro: `service → repository → domain ← solver`.
 
@@ -329,7 +330,7 @@ Validado por constraints no banco e (futuro) por maquina de estados no dominio.
 
 ## Testes
 
-**159 testes** — TDD (teste escrito antes da implementacao).
+**161 testes** — TDD (teste escrito antes da implementacao).
 
 ### Testes unitarios (87 Java + 24 Python)
 
@@ -346,7 +347,7 @@ Testam logica pura sem dependencias externas (sem banco, sem rede, sem Docker).
 | test_models      | 6      | Validacao Pydantic, defaults, galoes >= 1                       |
 | test_matrix      | 5      | Haversine, simetria, fallback OSRM → Haversine                 |
 
-### Testes de integracao (48 Java)
+### Testes de integracao (50 Java)
 
 Testam interacao com PostgreSQL real (porta 5435, tmpfs, dados em memoria).
 
@@ -356,6 +357,7 @@ Testam interacao com PostgreSQL real (porta 5435, tmpfs, dados em memoria).
 | UserRepositoryTest    | 21     | CRUD completo, email unico, todos os enum, soft delete, hash persistido |
 | ClienteRepositoryTest | 13     | CRUD completo, telefone unico, mapeamento de enum e coordenadas |
 | PedidoRepositoryTest  | 12     | CRUD completo, filtros por cliente/pendentes, FKs e status/janelas |
+| RotaServiceTest       | 2      | Fluxo fim-a-fim de roteirizacao (solver stub + transacao + persistencia) |
 
 Isolamento entre testes: limpeza por `TRUNCATE ... RESTART IDENTITY CASCADE` nos testes de repositorio.
 Sem mocks. Banco real em tmpfs.
@@ -363,11 +365,11 @@ Sem mocks. Banco real em tmpfs.
 ### Rodando os testes
 
 ```bash
-# Java (135 testes — pre-requisito: postgres-oop-test rodando)
+# Java (137 testes — pre-requisito: postgres-oop-test rodando)
 mvn test
 
-# Python (24 testes — dentro do venv)
-cd solver && pytest tests/ -v
+# Python (24 testes — dentro do venv do solver)
+cd solver && .venv/bin/python -m pytest tests/ -v
 ```
 
 ---
@@ -410,6 +412,9 @@ agua-viva/
 │   │   │   ├── UserRepository.java     # CRUD de usuarios
 │   │   │   ├── ClienteRepository.java  # CRUD de clientes
 │   │   │   └── PedidoRepository.java   # CRUD de pedidos
+│   │   ├── service/
+│   │   │   ├── RotaService.java        # Orquestra solver + persistencia de rotas/entregas
+│   │   │   └── PlanejamentoResultado.java # Resultado da execucao de roteirizacao
 │   │   └── solver/
 │   │       ├── SolverClient.java       # HTTP client pro solver Python
 │   │       ├── SolverRequest.java      # Request — deposito, pedidos, entregadores
@@ -432,6 +437,8 @@ agua-viva/
 │       │   ├── UserRepositoryTest.java    # 21 testes de integracao
 │       │   ├── ClienteRepositoryTest.java # 13 testes de integracao
 │       │   └── PedidoRepositoryTest.java  # 12 testes de integracao
+│       ├── service/
+│       │   └── RotaServiceTest.java    # 2 testes de integracao (solver stub + banco real)
 │       └── solver/
 │           └── SolverClientTest.java   # 10 testes (serializacao/deserializacao)
 ├── solver/                             # Solver Python (segregado)
@@ -481,7 +488,7 @@ docker compose up -d postgres-oop-dev postgres-oop-test
 ### Compilar e testar (Java)
 
 ```bash
-mvn test           # 135 testes (unitarios + integracao)
+mvn test           # 137 testes (unitarios + integracao)
 mvn clean compile  # compilar sem testes
 ```
 
@@ -528,7 +535,7 @@ O banco de teste roda na porta **5435** com dados em memoria (tmpfs).
 - [x] **Fase 4** — Solver Python: OR-Tools CVRPTW + OSRM + Nominatim (24 testes)
 - [x] **Fase 5** — Integracao Java-Solver: SolverClient + Gson (10 testes)
 - [x] **Fase 6** — Repository: ClienteRepository + PedidoRepository
-- [ ] **Fase 7** — Service: RotaService (orquestra solver + repositorios)
+- [ ] **Fase 7** — Service: RotaService (em andamento: fluxo inicial + testes de integracao)
 - [ ] **Fase 8** — Maquina de estados do Pedido (transicoes de status)
 - [ ] **Fase 9** — Vales (debito atomico, saldo, movimentacoes)
 - [ ] **Fase 10** — Frontend: Leaflet.js (mapa com rotas)

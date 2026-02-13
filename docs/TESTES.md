@@ -18,11 +18,12 @@ Metodologia TDD: teste escrito **antes** da implementacao.
 | UserRepositoryTest    | Java      | Integracao | 21     | Repository |
 | ClienteRepositoryTest | Java      | Integracao | 13     | Repository |
 | PedidoRepositoryTest  | Java      | Integracao | 12     | Repository |
+| RotaServiceTest       | Java      | Integracao | 2      | Service    |
 | test_vrp              | Python    | Unitario   | 14     | Solver     |
 | test_models           | Python    | Unitario   | 6      | Solver     |
 | test_matrix           | Python    | Unitario   | 5      | Solver     |
 
-**Total: 159 testes** (135 Java + 24 Python)
+**Total: 161 testes** (137 Java + 24 Python)
 
 ---
 
@@ -56,6 +57,9 @@ cd solver
 python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 pytest tests/ -v
+
+# alternativa sem ativar venv (mais robusta)
+.venv/bin/python -m pytest tests/ -v
 ```
 
 ---
@@ -88,6 +92,7 @@ Testam a **interacao com o banco PostgreSQL real** (porta 5435, tmpfs).
 | `UserRepositoryTest`   | CRUD completo (save, findById, findByEmail, findAll, update, desativar), constraints de email unico, mapeamento de todos os enum `UserPapel`, campos opcionais (telefone), hash de senha persistido corretamente |
 | `ClienteRepositoryTest`| CRUD completo (save, findById, findByTelefone, findAll, update), constraint de telefone unico, mapeamento de enum `ClienteTipo` e coordenadas |
 | `PedidoRepositoryTest` | CRUD completo (save, findById, findByCliente, findPendentes, update), mapeamento de `JanelaTipo`/`PedidoStatus`, validacao de FKs (`cliente_id`, `criado_por`) |
+| `RotaServiceTest`      | Orquestracao fim-a-fim da roteirizacao (solver stub HTTP + PostgreSQL real), persistencia de `rotas`/`entregas` e atualizacao de status dos pedidos atendidos |
 
 **Caracteristicas:**
 - Precisam de `postgres-oop-test` rodando (Docker)
@@ -326,6 +331,6 @@ void limparTabela() throws Exception {
 
 | Fase | Testes planejados                                         |
 | ---- | --------------------------------------------------------- |
-| 7    | RotaServiceTest (orquestracao solver + repos)              |
+| 7    | Expandir RotaServiceTest (rollback, erro de solver, idempotencia) |
 | 8    | PedidoStateMachineTest (transicoes de status)              |
 | 9    | ValeServiceTest (debito atomico, saldo, movimentacoes)     |

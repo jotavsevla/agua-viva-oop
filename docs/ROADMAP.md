@@ -1,7 +1,7 @@
 # Roadmap — Agua Viva OOP
 
 Plano de desenvolvimento em 10 fases.
-Fases 1-6 concluidas, 7-10 pendentes.
+Fases 1-6 concluidas, 7 em andamento, 8-10 pendentes.
 
 ---
 
@@ -63,22 +63,27 @@ Objetivo: persistencia de clientes e pedidos via JDBC.
 
 ---
 
-## Fases Pendentes
+## Fase em Andamento
 
 ### Fase 7 — Service: RotaService
 
 Objetivo: orquestrar domain + repository + solver.
 
-- [ ] `RotaService.java` — fluxo principal:
+- [x] `RotaService.java` — fluxo principal:
   1. Busca pedidos pendentes
   2. Busca entregadores ativos
   3. Monta SolverRequest
   4. Chama solver (POST /solve)
   5. Persiste rotas e entregas no banco
-- [ ] Gerenciamento de transacoes JDBC
-- [ ] Testes de integracao (com solver mockado ou real)
+- [x] Gerenciamento de transacoes JDBC
+- [x] Testes de integracao (`RotaServiceTest` com solver stub HTTP + banco real)
+- [ ] Cobrir cenarios de rollback/erro (falha ao persistir entrega, duplicidade de rota, indisponibilidade do solver)
 
 **Dependencias:** Fase 6 (repositorios de cliente/pedido).
+
+---
+
+## Fases Pendentes
 
 ### Fase 8 — Maquina de Estados do Pedido
 
@@ -137,10 +142,10 @@ Fase 3  ██████████ Repository User
 Fase 4  ██████████ Solver Python
 Fase 5  ██████████ Integracao Java-Solver
 Fase 6  ██████████ Repository Cliente + Pedido
-Fase 7  ░░░░░░░░░░ Service RotaService
+Fase 7  ██████░░░░ Service RotaService
 Fase 8  ░░░░░░░░░░ Maquina de Estados
 Fase 9  ░░░░░░░░░░ Sistema de Vales
 Fase 10 ░░░░░░░░░░ Frontend Leaflet.js
 ```
 
-**Status:** 6/10 fases concluidas — 159 testes mapeados (135 Java + 24 Python).
+**Status:** 6/10 fases concluidas + Fase 7 em andamento — 161 testes mapeados (137 Java + 24 Python).
