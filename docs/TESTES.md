@@ -19,13 +19,17 @@ Metodologia TDD: teste escrito **antes** da implementacao.
 | UserRepositoryTest    | Java      | Integracao | 21     | Repository |
 | ClienteRepositoryTest | Java      | Integracao | 13     | Repository |
 | PedidoRepositoryTest  | Java      | Integracao | 12     | Repository |
-| RotaServiceTest       | Java      | Integracao | 8      | Service    |
+| RotaServiceTest       | Java      | Integracao | 9      | Service    |
+| PedidoLifecycleServiceTest | Java | Integracao | 3      | Service    |
+| AtendimentoTelefonicoServiceTest | Java | Integracao | 5      | Service    |
+| ExecucaoEntregaServiceTest | Java | Integracao | 4      | Service    |
+| ReplanejamentoWorkerServiceTest | Java | Integracao | 3      | Service    |
 | test_vrp              | Python    | Unitario   | 14     | Solver     |
 | test_models           | Python    | Unitario   | 6      | Solver     |
 | test_matrix           | Python    | Unitario   | 5      | Solver     |
 | test_main_async       | Python    | Unitario   | 2      | Solver     |
 
-**Total: 180 testes** (153 Java + 27 Python)
+**Total: 196 testes** (169 Java + 27 Python)
 
 ---
 
@@ -34,22 +38,30 @@ Metodologia TDD: teste escrito **antes** da implementacao.
 ### Java (JUnit 5)
 
 ```bash
-# Todos os testes (unitarios + integracao)
+# 0) preparar ambiente local (uma vez)
+cp .env.example .env
+
+# 1) banco de teste
+docker compose up -d postgres-oop-test
+CONTAINER_NAME=postgres-oop-test POSTGRES_DB=agua_viva_oop_test ./apply-migrations.sh
+
+# 2) todos os testes Java (unitarios + integracao)
 mvn test
 
 # Apenas uma classe de teste
 mvn test -Dtest=PasswordTest
 mvn test -Dtest=UserRepositoryTest
+mvn -Dtest=AtendimentoTelefonicoServiceTest,ExecucaoEntregaServiceTest,ReplanejamentoWorkerServiceTest test
 
 # Com output detalhado
 mvn test -Dsurefire.useFile=false
 ```
 
-**Pre-requisito para testes de integracao:** banco de teste rodando.
+**Pre-requisito para testes de integracao:** `postgres-oop-test` rodando e migracoes `001-011` aplicadas no banco de teste.
 
 ```bash
 docker compose up -d postgres-oop-test
-./apply-migrations.sh
+CONTAINER_NAME=postgres-oop-test POSTGRES_DB=agua_viva_oop_test ./apply-migrations.sh
 ```
 
 ### Python (pytest)
@@ -61,6 +73,16 @@ pip install -r requirements.txt
 pytest tests/ -v
 
 # alternativa sem ativar venv (mais robusta)
+.venv/bin/python -m pytest tests/ -v
+
+# alternativa quando python do sistema nao enxerga dependencias do projeto
+python3 -m pytest tests/ -v
+```
+
+Se aparecer `ModuleNotFoundError` ou `No module named pytest`, rode o pytest usando o interpretador do proprio venv:
+
+```bash
+cd solver
 .venv/bin/python -m pytest tests/ -v
 ```
 
@@ -98,6 +120,10 @@ Testam a **interacao com o banco PostgreSQL real** (porta 5435, tmpfs).
 | `ClienteRepositoryTest`| CRUD completo (save, findById, findByTelefone, findAll, update), constraint de telefone unico, mapeamento de enum `ClienteTipo` e coordenadas |
 | `PedidoRepositoryTest` | CRUD completo (save, findById, findByCliente, findPendentes, update), mapeamento de `JanelaTipo`/`PedidoStatus`, validacao de FKs (`cliente_id`, `criado_por`) |
 | `RotaServiceTest`      | Orquestracao fim-a-fim da roteirizacao (solver stub HTTP + PostgreSQL real), persistencia de `rotas`/`entregas`, rollback transacional, idempotencia, reprocessamento sem conflito de `numero_no_dia` e short-circuit quando nao ha elegiveis |
+| `PedidoLifecycleServiceTest` | Porta unica de transicao de status com lock pessimista (`SELECT ... FOR UPDATE`) e efeitos financeiros de cancelamento |
+| `AtendimentoTelefonicoServiceTest` | Intake telefonico transacional com normalizacao de telefone e idempotencia por `external_call_id` |
+| `ExecucaoEntregaServiceTest` | Aplicacao dos eventos operacionais (`ROTA_INICIADA`, `PEDIDO_ENTREGUE`, `PEDIDO_FALHOU`, `PEDIDO_CANCELADO`) |
+| `ReplanejamentoWorkerServiceTest` | Debounce de eventos no outbox `dispatch_events`, lock distribuido e marcacao de processamento |
 
 **Caracteristicas:**
 - Precisam de `postgres-oop-test` rodando (Docker)
@@ -246,6 +272,34 @@ Metadados async
   deveDeserializarResultadoDeJobAsync
 ```
 
+### Suites Service (24 testes)
+
+```
+RotaServiceTest (9 testes)
+  Planejamento completo com solver stub + persistencia de rotas/entregas
+  Rollback em falhas e short-circuit sem elegiveis
+  Idempotencia e reprocessamento sem duplicacao
+
+PedidoLifecycleServiceTest (3 testes)
+  Transicao centralizada com lock pessimista
+  Cobranca em cancelamento em rota (PENDENTE/NAO_APLICAVEL)
+  Rejeicao de transicao invalida pelo dominio
+
+AtendimentoTelefonicoServiceTest (5 testes)
+  Normalizacao de telefone e criacao de cliente minimo
+  Criacao de pedido em PENDENTE
+  Idempotencia por `external_call_id`
+
+ExecucaoEntregaServiceTest (4 testes)
+  Eventos `ROTA_INICIADA`, `PEDIDO_ENTREGUE`, `PEDIDO_FALHOU`, `PEDIDO_CANCELADO`
+  Atualizacao consistente de `rotas`, `entregas` e `pedidos`
+
+ReplanejamentoWorkerServiceTest (3 testes)
+  Debounce por janela de tempo
+  Lock distribuido para evitar worker concorrente
+  Marcacao de eventos processados no outbox `dispatch_events`
+```
+
 ### Testes Python (27 testes)
 
 ```
@@ -345,5 +399,5 @@ void limparTabela() throws Exception {
 | Fase | Testes planejados                                         |
 | ---- | --------------------------------------------------------- |
 | 7    | Expandir RotaServiceTest (concorrencia multi-instancia e conflitos simultaneos) |
-| 8    | Integracao da state machine no service/repository (evitar update direto de status) |
+| 8    | Trilha de auditoria por transicao e regras de cobranca/compensacao por janela operacional |
 | 9    | ValeServiceTest (debito atomico, saldo, movimentacoes)     |

@@ -34,7 +34,7 @@ O ciclo e sempre o mesmo:
 
 Isso vale para domain, repository, service e solver. Nenhuma classe existe sem teste.
 
-**180 testes** (153 Java + 27 Python), zero falhas. Os testes nao sao formais —
+**196 testes mapeados** (169 Java + 27 Python), zero falhas. Os testes nao sao formais —
 eles documentam o comportamento esperado do sistema.
 
 ### Objetos com comportamento, nao DTOs
@@ -229,9 +229,12 @@ Classes imutaveis que espelham o contrato JSON do solver.
 Gson com `LOWER_CASE_WITH_UNDERSCORES` converte `capacidadeVeiculo` → `capacidade_veiculo`.
 
 **Service** (`service/`) — Em implementacao. Orquestra domain + repository + solver.
-Gerencia transacoes e coordena fluxos de negocio. `RotaService` ja implementa
-planejamento com transacao JDBC, `plan_version`, cancelamento best-effort de jobs anteriores
-e reaproveitamento local de slots cancelados/falhos em rotas do dia.
+Gerencia transacoes e coordena fluxos de negocio. Ja inclui:
+- `RotaService` com planejamento transacional, `plan_version`, cancelamento best-effort e reaproveitamento local
+- `PedidoLifecycleService` como porta unica de transicao de status (state machine + lock)
+- `AtendimentoTelefonicoService` com idempotencia por `external_call_id`
+- `ExecucaoEntregaService` para eventos operacionais (`ROTA_INICIADA`, `PEDIDO_ENTREGUE`, `PEDIDO_FALHOU`, `PEDIDO_CANCELADO`)
+- `ReplanejamentoWorkerService` com debounce e lock via `pg_try_advisory_xact_lock`
 
 Dependencias apontam sempre para o centro: `service → repository → domain ← solver`.
 
@@ -304,7 +307,7 @@ reconstroi quem e quem na resposta.
 
 ## Banco de Dados
 
-Schema com **9 migrations SQL** — PostgreSQL com enums nativos, indices parciais,
+Schema com **11 migrations SQL** — PostgreSQL com enums nativos, indices parciais,
 constraints de negocio, views com CTEs, window functions e funcoes SQL.
 
 | Migration | Tabela                | Descricao                                 |
@@ -318,6 +321,8 @@ constraints de negocio, views com CTEs, window functions e funcoes SQL.
 | 007       | configuracoes         | Parametros do sistema (capacidade, horarios) |
 | 008       | views, funcoes        | Dashboard entregador, pedidos pro solver, performance, extrato |
 | 009       | controles dinamicos   | `plan_version`, `solver_jobs`, cancelamento/cobranca em operacao dinamica |
+| 010       | idempotencia telefonica | `pedidos.external_call_id` (UNIQUE) para retries sem duplicacao |
+| 011       | outbox de despacho    | `dispatch_events` para coalescencia/debounce de replanejamento |
 
 ### Status do pedido
 
@@ -333,7 +338,7 @@ a integracao completa desse fluxo no service segue em andamento.
 
 ## Testes
 
-**180 testes** — TDD (teste escrito antes da implementacao).
+**196 testes mapeados** — TDD (teste escrito antes da implementacao).
 
 ### Testes unitarios (97 Java + 27 Python)
 
@@ -352,7 +357,7 @@ Testam logica pura sem dependencias externas (sem banco, sem rede, sem Docker).
 | test_matrix      | 5      | Haversine, simetria, fallback OSRM → Haversine                 |
 | test_main_async  | 2      | Fluxo async de job e cancelamento antecipado no solver          |
 
-### Testes de integracao (56 Java)
+### Testes de integracao (72 Java)
 
 Testam interacao com PostgreSQL real (porta 5435, tmpfs, dados em memoria).
 
@@ -362,7 +367,11 @@ Testam interacao com PostgreSQL real (porta 5435, tmpfs, dados em memoria).
 | UserRepositoryTest    | 21     | CRUD completo, email unico, todos os enum, soft delete, hash persistido |
 | ClienteRepositoryTest | 13     | CRUD completo, telefone unico, mapeamento de enum e coordenadas |
 | PedidoRepositoryTest  | 12     | CRUD completo, filtros por cliente/pendentes, FKs e status/janelas |
-| RotaServiceTest       | 8      | Fluxo fim-a-fim + rollback + idempotencia + reprocessamento de pendentes |
+| RotaServiceTest       | 9      | Fluxo fim-a-fim + rollback + idempotencia + reprocessamento de pendentes |
+| PedidoLifecycleServiceTest | 3 | Transicao com lock pessimista + efeitos de cancelamento/cobranca |
+| AtendimentoTelefonicoServiceTest | 5 | Entrada telefonica idempotente por `external_call_id` e normalizacao de telefone |
+| ExecucaoEntregaServiceTest | 4 | Eventos mobile/operacionais e transicoes de status de execucao |
+| ReplanejamentoWorkerServiceTest | 3 | Coalescencia por debounce + lock distribuido + marcacao do outbox |
 
 Isolamento entre testes: limpeza por `TRUNCATE ... RESTART IDENTITY CASCADE` nos testes de repositorio.
 Sem mocks. Banco real em tmpfs.
@@ -370,7 +379,7 @@ Sem mocks. Banco real em tmpfs.
 ### Rodando os testes
 
 ```bash
-# Java (153 testes — pre-requisito: postgres-oop-test rodando)
+# Java (169 testes — pre-requisito: postgres-oop-test rodando e migrations 001-011)
 mvn test
 
 # Python (27 testes — dentro do venv do solver)
@@ -397,10 +406,14 @@ agua-viva/
 │       ├── 006_create_rotas_entregas.sql
 │       ├── 007_create_configuracoes.sql
 │       ├── 008_create_views_cte.sql
-│       └── 009_add_dynamic_dispatch_controls.sql
+│       ├── 009_add_dynamic_dispatch_controls.sql
+│       ├── 010_add_external_call_id_to_pedidos.sql
+│       └── 011_create_dispatch_events.sql
 ├── src/
 │   ├── main/java/com/aguaviva/
 │   │   ├── App.java                    # Entry point (health check)
+│   │   ├── api/
+│   │   │   └── ApiServer.java          # API HTTP nativa (atendimento/eventos/replanejamento)
 │   │   ├── domain/
 │   │   │   ├── user/
 │   │   │   │   ├── Password.java       # Value Object — hash, compare, validate
@@ -422,6 +435,11 @@ agua-viva/
 │   │   │   └── PedidoRepository.java   # CRUD de pedidos
 │   │   ├── service/
 │   │   │   ├── RotaService.java        # Orquestra solver + persistencia de rotas/entregas
+│   │   │   ├── PedidoLifecycleService.java   # Porta unica de transicao de status
+│   │   │   ├── AtendimentoTelefonicoService.java # Entrada telefonica idempotente
+│   │   │   ├── ExecucaoEntregaService.java   # Eventos operacionais de rota/entrega
+│   │   │   ├── DispatchEventService.java     # Outbox em `dispatch_events`
+│   │   │   ├── ReplanejamentoWorkerService.java # Worker de replanejamento com debounce
 │   │   │   └── PlanejamentoResultado.java # Resultado da execucao de roteirizacao
 │   │   └── solver/
 │   │       ├── SolverClient.java       # HTTP client pro solver Python
@@ -449,7 +467,11 @@ agua-viva/
 │       │   ├── ClienteRepositoryTest.java # 13 testes de integracao
 │       │   └── PedidoRepositoryTest.java  # 12 testes de integracao
 │       ├── service/
-│       │   └── RotaServiceTest.java    # 8 testes de integracao (solver stub + banco real)
+│       │   ├── RotaServiceTest.java    # 9 testes de integracao (solver stub + banco real)
+│       │   ├── PedidoLifecycleServiceTest.java
+│       │   ├── AtendimentoTelefonicoServiceTest.java
+│       │   ├── ExecucaoEntregaServiceTest.java
+│       │   └── ReplanejamentoWorkerServiceTest.java
 │       └── solver/
 │           └── SolverClientTest.java   # 12 testes (serializacao/deserializacao + async)
 ├── solver/                             # Solver Python (segregado)
@@ -489,17 +511,20 @@ agua-viva/
 - Docker + Docker Compose
 - Python 3.12+ (para testes locais do solver)
 
-### Subir o banco
+### Subir banco e aplicar schema completo (001-011)
 
 ```bash
 docker compose up -d postgres-oop-dev postgres-oop-test
 ./apply-migrations.sh
+
+# aplicar tambem no banco de teste (porta 5435)
+CONTAINER_NAME=postgres-oop-test POSTGRES_DB=agua_viva_oop_test ./apply-migrations.sh
 ```
 
 ### Compilar e testar (Java)
 
 ```bash
-mvn test           # 153 testes (unitarios + integracao)
+mvn test           # 169 testes (unitarios + integracao)
 mvn clean compile  # compilar sem testes
 ```
 
@@ -518,6 +543,20 @@ pip install -r requirements.txt
 pytest tests/ -v   # 27 testes
 ```
 
+### Subir API Java (atendimento/eventos/replanejamento)
+
+```bash
+# com solver ja disponivel em http://localhost:8080
+SOLVER_URL=http://localhost:8080 API_PORT=8081 \
+  mvn -DskipTests exec:java -Dexec.mainClass=com.aguaviva.App -Dexec.args=api
+```
+
+Endpoints:
+- `GET /health`
+- `POST /api/atendimento/pedidos`
+- `POST /api/eventos`
+- `POST /api/replanejamento/run`
+
 ### Variaveis de ambiente
 
 Copie `.env.example` para `.env`:
@@ -533,6 +572,8 @@ cp .env.example .env
 | POSTGRES_USER     | postgres          | Usuario            |
 | POSTGRES_PASSWORD | postgres          | Senha              |
 | POSTGRES_DB       | agua_viva_oop_dev | Nome do banco dev  |
+| SOLVER_URL        | http://localhost:8080 | URL do solver Python |
+| API_PORT          | 8081              | Porta da API Java  |
 
 O banco de teste roda na porta **5435** com dados em memoria (tmpfs).
 
@@ -546,8 +587,8 @@ O banco de teste roda na porta **5435** com dados em memoria (tmpfs).
 - [x] **Fase 4** — Solver Python: OR-Tools CVRPTW + OSRM + Nominatim + fluxo async/cancel (27 testes)
 - [x] **Fase 5** — Integracao Java-Solver: SolverClient + Gson + contrato async/cancel (12 testes)
 - [x] **Fase 6** — Repository: ClienteRepository + PedidoRepository
-- [ ] **Fase 7** — Service: RotaService (em andamento: transacao + idempotencia + reuso local + `plan_version`)
-- [ ] **Fase 8** — Maquina de estados do Pedido (parcial: transicoes e testes unitarios; falta integrar no service)
+- [ ] **Fase 7** — Service: RotaService (em andamento: transacao + idempotencia + reuso local + `plan_version` + worker/outbox)
+- [ ] **Fase 8** — Maquina de estados do Pedido (parcial: transicoes, testes e integracao no service; faltam trilhas completas de auditoria)
 - [ ] **Fase 9** — Vales (debito atomico, saldo, movimentacoes)
 - [ ] **Fase 10** — Frontend: Leaflet.js (mapa com rotas)
 
@@ -558,7 +599,7 @@ O banco de teste roda na porta **5435** com dados em memoria (tmpfs).
 | Aspecto         | Next.js (agua-viva)  | Java (agua-viva-oop)          |
 | --------------- | -------------------- | ----------------------------- |
 | Dominio         | Mesmo                | Mesmo                         |
-| Schema do banco | Mesmo (9 migrations) | Mesmo (9 migrations)          |
+| Schema do banco | Mesmo (11 migrations) | Mesmo (11 migrations)          |
 | Persistencia    | pg (SQL puro)        | JDBC (SQL puro)               |
 | Models          | models/\*.js         | domain/\*/\*.java (OOP pura)  |
 | Testes          | Jest + TDD           | JUnit 5 + TDD                 |

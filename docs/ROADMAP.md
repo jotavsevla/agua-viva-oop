@@ -1,7 +1,18 @@
 # Roadmap — Agua Viva OOP
 
 Plano de desenvolvimento em 10 fases.
-Fases 1-6 concluidas, 7 em andamento, 8 parcial, 9-10 pendentes.
+Fases 1-6 concluidas, 7 avancada, 8 parcial, 9 pendente e 10 iniciada (API base).
+
+---
+
+## Dependencias Criticas (estado atual)
+
+Para executar com consistencia o que ja foi entregue:
+
+- Migracoes `001` a `011` aplicadas em dev e test
+- `postgres-oop-test` ativo na porta `5435` para suites Java de integracao
+- Solver Python acessivel em `SOLVER_URL` para execucao da API de roteirizacao
+- `.env` com credenciais e portas alinhadas (`POSTGRES_*`, `SOLVER_URL`, `API_PORT`)
 
 ---
 
@@ -11,9 +22,9 @@ Fases 1-6 concluidas, 7 em andamento, 8 parcial, 9-10 pendentes.
 
 - [x] pom.xml com Java 21 + JUnit 5
 - [x] Docker Compose (PostgreSQL dev + test)
-- [x] 9 migrations SQL
+- [x] 11 migrations SQL
 - [x] ConnectionFactory (HikariCP)
-- [x] App.java (health check)
+- [x] App.java (entrypoint + modo API)
 - [x] apply-migrations.sh
 
 ### Fase 2 — Domain: User
@@ -43,7 +54,7 @@ Fases 1-6 concluidas, 7 em andamento, 8 parcial, 9-10 pendentes.
 
 - [x] SolverClient (HTTP client)
 - [x] SolverRequest / SolverResponse (DTOs imutaveis)
-- [x] SolverAsyncAccepted / SolverJobResult (contrato assíncrono)
+- [x] SolverAsyncAccepted / SolverJobResult (contrato assincrono)
 - [x] Coordenada, PedidoSolver, Parada, RotaSolver
 - [x] Gson com snake_case
 - [x] 12 testes (serializacao/deserializacao + metadados async)
@@ -64,9 +75,9 @@ Objetivo: persistencia de clientes e pedidos via JDBC.
 
 ---
 
-## Fase em Andamento
+## Fases em Andamento
 
-### Fase 7 — Service: RotaService
+### Fase 7 — Service: Orquestracao de Operacao
 
 Objetivo: orquestrar domain + repository + solver.
 
@@ -82,8 +93,12 @@ Objetivo: orquestrar domain + repository + solver.
 - [x] Cobrir idempotencia/reprocessamento de roteirizacao (sem duplicar entrega/rota em retries)
 - [x] Incluir `plan_version`/`job_id` para evitar aplicacao de plano obsoleto e habilitar cancelamento cooperativo
 - [x] Reaproveitar slots de entregas canceladas/falhas antes de chamar solver (insercao local)
+- [x] Ordenacao de elegiveis por FIFO com filtro operacional de capacidade/saldo
+- [x] `AtendimentoTelefonicoService` com idempotencia por `external_call_id`
+- [x] `ExecucaoEntregaService` para eventos operacionais (`ROTA_INICIADA`, `PEDIDO_ENTREGUE`, `PEDIDO_FALHOU`, `PEDIDO_CANCELADO`)
+- [x] `ReplanejamentoWorkerService` com debounce e lock distribuido (`pg_try_advisory_xact_lock`)
+- [x] API HTTP minima (`ApiServer`) para atendimento, eventos e disparo de replanejamento
 - [ ] Endurecer concorrencia para multiplas instancias (colisoes simultaneas no mesmo entregador/dia)
-- [ ] Integrar com a maquina de estados de pedido da Fase 8 (evitar update direto de status fora do dominio)
 
 **Dependencias:** Fase 6 (repositorios de cliente/pedido).
 
@@ -102,9 +117,11 @@ PENDENTE → CONFIRMADO → EM_ROTA → ENTREGUE
 
 - [x] Transicoes validas encapsuladas no dominio (`PedidoStateMachine`)
 - [x] Validacao: transicao invalida lanca excecao
-- [ ] Registro de timestamp em cada transicao
 - [x] Testes unitarios para transicoes e regra de cobranca (`PedidoStateMachineTest`)
-- [ ] Integracao obrigatoria no service/repository (parar update direto de status)
+- [x] Integracao obrigatoria via `PedidoLifecycleService` (lock pessimista + transicao centralizada)
+- [x] Uso do lifecycle no `RotaService` e no fluxo de eventos operacionais
+- [ ] Registro de timestamp por transicao e trilha de auditoria detalhada de status
+- [ ] Politica completa de compensacao financeira para cancelamentos tardios integrada com vales
 
 **Regras:**
 - PENDENTE → CONFIRMADO: pedido aceito
@@ -132,11 +149,12 @@ Objetivo: credito pre-pago (vale-agua).
 
 Objetivo: visualizacao de rotas em mapa interativo.
 
+- [x] Base de API HTTP para alimentar UI e app operacional
 - [ ] Mapa com rotas (Leaflet.js)
 - [ ] Marcadores de clientes com informacoes
 - [ ] Rotas coloridas por entregador
 - [ ] Painel de status das entregas
-- [ ] Integracao com API Java (a definir: servlets, Javalin, etc.)
+- [ ] Integracao de UI com API Java e fluxo de eventos em tempo quase real
 
 ---
 
@@ -149,10 +167,10 @@ Fase 3  ██████████ Repository User
 Fase 4  ██████████ Solver Python
 Fase 5  ██████████ Integracao Java-Solver
 Fase 6  ██████████ Repository Cliente + Pedido
-Fase 7  ████████░░ Service RotaService
-Fase 8  ████░░░░░░ Maquina de Estados
+Fase 7  █████████░ Service Orquestracao
+Fase 8  ██████░░░░ Maquina de Estados
 Fase 9  ░░░░░░░░░░ Sistema de Vales
-Fase 10 ░░░░░░░░░░ Frontend Leaflet.js
+Fase 10 ██░░░░░░░░ Frontend/API Produto
 ```
 
-**Status:** 6/10 fases concluidas + Fases 7 e 8 em andamento — 180 testes mapeados (153 Java + 27 Python).
+**Status:** 6/10 fases concluidas + Fase 7 avancada + Fase 8 parcial + Fase 10 iniciada — 196 testes mapeados (169 Java + 27 Python).
