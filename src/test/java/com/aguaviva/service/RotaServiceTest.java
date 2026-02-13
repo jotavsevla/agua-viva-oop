@@ -30,9 +30,12 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 
 class RotaServiceTest {
 
@@ -69,6 +72,9 @@ class RotaServiceTest {
 
     @BeforeEach
     void limparAntes() throws Exception {
+        solverStub.setStatusCode(200);
+        solverStub.setSolveResponse("{\"rotas\":[],\"nao_atendidos\":[]}");
+        solverStub.resetRequestCount();
         limparBanco();
     }
 
@@ -102,6 +108,30 @@ class RotaServiceTest {
                 "Rua Teste",
                 BigDecimal.valueOf(-16.7210),
                 BigDecimal.valueOf(-43.8610),
+                null
+        );
+        int clienteId = clienteRepository.save(cliente).getId();
+
+        try (Connection conn = factory.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                     "INSERT INTO saldo_vales (cliente_id, quantidade) VALUES (?, ?)")
+        ) {
+            stmt.setInt(1, clienteId);
+            stmt.setInt(2, saldo);
+            stmt.executeUpdate();
+        }
+
+        return clienteId;
+    }
+
+    private int criarClienteSemCoordenadaComSaldo(String telefone, int saldo) throws Exception {
+        Cliente cliente = new Cliente(
+                "Cliente sem coord " + telefone,
+                telefone,
+                ClienteTipo.PF,
+                "Rua sem coordenada",
+                null,
+                null,
                 null
         );
         int clienteId = clienteRepository.save(cliente).getId();
@@ -201,6 +231,194 @@ class RotaServiceTest {
         assertEquals("PENDENTE", statusDoPedido(pedidoNaoAtendido.getId()));
     }
 
+    @Test
+    void deveFazerRollbackQuandoFalhaAoPersistirEntregaNoMeioDaTransacao() throws Exception {
+        int atendenteId = criarAtendenteId("atendente3@teste.com");
+        int entregadorId = criarEntregadorId("entregador3@teste.com", true);
+        int clienteId = criarClienteComSaldo("(38) 99999-7201", 10);
+
+        Pedido pedido = pedidoRepository.save(new Pedido(clienteId, 2, JanelaTipo.ASAP, null, null, atendenteId));
+
+        solverStub.setSolveResponse("""
+                {
+                  "rotas": [
+                    {
+                      "entregador_id": %d,
+                      "numero_no_dia": 1,
+                      "paradas": [
+                        {"ordem": 1, "pedido_id": %d, "lat": -16.7210, "lon": -43.8610, "hora_prevista": "09:30"},
+                        {"ordem": 2, "pedido_id": %d, "lat": -16.7211, "lon": -43.8611, "hora_prevista": "09:45"}
+                      ]
+                    }
+                  ],
+                  "nao_atendidos": []
+                }
+                """.formatted(entregadorId, pedido.getId(), pedido.getId()));
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> criarService().planejarRotasPendentes());
+
+        assertEquals("Falha ao planejar rotas", ex.getMessage());
+        assertInstanceOf(Exception.class, ex.getCause());
+
+        assertEquals(0, contarLinhas("rotas"));
+        assertEquals(0, contarLinhas("entregas"));
+        assertEquals("PENDENTE", statusDoPedido(pedido.getId()));
+    }
+
+    @Test
+    void deveFazerRollbackQuandoSolverRetornaErroHttp() throws Exception {
+        int atendenteId = criarAtendenteId("atendente4@teste.com");
+        criarEntregadorId("entregador4@teste.com", true);
+        int clienteId = criarClienteComSaldo("(38) 99999-7301", 10);
+        Pedido pedido = pedidoRepository.save(new Pedido(clienteId, 1, JanelaTipo.ASAP, null, null, atendenteId));
+
+        solverStub.setStatusCode(500);
+        solverStub.setSolveResponse("{\"erro\":\"solver indisponivel\"}");
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> criarService().planejarRotasPendentes());
+
+        assertEquals("Falha ao planejar rotas", ex.getMessage());
+        assertEquals(0, contarLinhas("rotas"));
+        assertEquals(0, contarLinhas("entregas"));
+        assertEquals("PENDENTE", statusDoPedido(pedido.getId()));
+    }
+
+    @Test
+    void deveSerIdempotenteQuandoPlanejamentoForExecutadoDuasVezesSemNovosPendentes() throws Exception {
+        int atendenteId = criarAtendenteId("atendente5@teste.com");
+        int entregadorId = criarEntregadorId("entregador5@teste.com", true);
+        int clienteId = criarClienteComSaldo("(38) 99999-7401", 10);
+
+        Pedido pedido = pedidoRepository.save(new Pedido(clienteId, 1, JanelaTipo.ASAP, null, null, atendenteId));
+
+        solverStub.setSolveResponse("""
+                {
+                  "rotas": [
+                    {
+                      "entregador_id": %d,
+                      "numero_no_dia": 1,
+                      "paradas": [
+                        {"ordem": 1, "pedido_id": %d, "lat": -16.7210, "lon": -43.8610, "hora_prevista": "08:30"}
+                      ]
+                    }
+                  ],
+                  "nao_atendidos": []
+                }
+                """.formatted(entregadorId, pedido.getId()));
+
+        PlanejamentoResultado primeiraExecucao = criarService().planejarRotasPendentes();
+        PlanejamentoResultado segundaExecucao = criarService().planejarRotasPendentes();
+
+        assertEquals(1, primeiraExecucao.rotasCriadas());
+        assertEquals(1, primeiraExecucao.entregasCriadas());
+        assertEquals(0, primeiraExecucao.pedidosNaoAtendidos());
+
+        assertEquals(0, segundaExecucao.rotasCriadas());
+        assertEquals(0, segundaExecucao.entregasCriadas());
+        assertEquals(0, segundaExecucao.pedidosNaoAtendidos());
+
+        assertEquals(1, contarLinhas("rotas"));
+        assertEquals(1, contarLinhas("entregas"));
+        assertEquals(1, solverStub.requestCount());
+    }
+
+    @Test
+    void deveReprocessarPendentesMesmoComNumeroNoDiaRepetidoPeloSolver() throws Exception {
+        int atendenteId = criarAtendenteId("atendente6@teste.com");
+        int entregadorId = criarEntregadorId("entregador6@teste.com", true);
+        int cliente1 = criarClienteComSaldo("(38) 99999-7501", 10);
+        int cliente2 = criarClienteComSaldo("(38) 99999-7502", 10);
+
+        Pedido pedidoAtendidoPrimeiraExecucao = pedidoRepository.save(
+                new Pedido(cliente1, 1, JanelaTipo.ASAP, null, null, atendenteId)
+        );
+        Pedido pedidoFicaPendente = pedidoRepository.save(
+                new Pedido(cliente2, 1, JanelaTipo.ASAP, null, null, atendenteId)
+        );
+
+        solverStub.setSolveResponse("""
+                {
+                  "rotas": [
+                    {
+                      "entregador_id": %d,
+                      "numero_no_dia": 1,
+                      "paradas": [
+                        {"ordem": 1, "pedido_id": %d, "lat": -16.7210, "lon": -43.8610, "hora_prevista": "08:30"}
+                      ]
+                    }
+                  ],
+                  "nao_atendidos": [%d]
+                }
+                """.formatted(entregadorId, pedidoAtendidoPrimeiraExecucao.getId(), pedidoFicaPendente.getId()));
+
+        PlanejamentoResultado primeiraExecucao = criarService().planejarRotasPendentes();
+        assertEquals(1, primeiraExecucao.rotasCriadas());
+        assertEquals(1, primeiraExecucao.entregasCriadas());
+        assertEquals(1, primeiraExecucao.pedidosNaoAtendidos());
+
+        solverStub.setSolveResponse("""
+                {
+                  "rotas": [
+                    {
+                      "entregador_id": %d,
+                      "numero_no_dia": 1,
+                      "paradas": [
+                        {"ordem": 1, "pedido_id": %d, "lat": -16.7220, "lon": -43.8620, "hora_prevista": "10:00"}
+                      ]
+                    }
+                  ],
+                  "nao_atendidos": []
+                }
+                """.formatted(entregadorId, pedidoFicaPendente.getId()));
+
+        PlanejamentoResultado segundaExecucao = criarService().planejarRotasPendentes();
+
+        assertEquals(1, segundaExecucao.rotasCriadas());
+        assertEquals(1, segundaExecucao.entregasCriadas());
+        assertEquals(0, segundaExecucao.pedidosNaoAtendidos());
+
+        assertEquals(2, contarLinhas("rotas"));
+        assertEquals(2, contarLinhas("entregas"));
+        assertEquals("CONFIRMADO", statusDoPedido(pedidoAtendidoPrimeiraExecucao.getId()));
+        assertEquals("CONFIRMADO", statusDoPedido(pedidoFicaPendente.getId()));
+        assertEquals(2, maxNumeroNoDiaDoEntregador(entregadorId));
+    }
+
+    @Test
+    void deveRetornarSemChamarSolverQuandoNaoHaEntregadoresAtivos() throws Exception {
+        int atendenteId = criarAtendenteId("atendente7@teste.com");
+        int clienteId = criarClienteComSaldo("(38) 99999-7601", 10);
+        Pedido pedido = pedidoRepository.save(new Pedido(clienteId, 1, JanelaTipo.ASAP, null, null, atendenteId));
+
+        PlanejamentoResultado resultado = criarService().planejarRotasPendentes();
+
+        assertEquals(0, resultado.rotasCriadas());
+        assertEquals(0, resultado.entregasCriadas());
+        assertEquals(0, resultado.pedidosNaoAtendidos());
+        assertEquals(0, solverStub.requestCount());
+        assertEquals(0, contarLinhas("rotas"));
+        assertEquals("PENDENTE", statusDoPedido(pedido.getId()));
+    }
+
+    @Test
+    void deveRetornarSemChamarSolverQuandoNaoHaPedidosElegiveisParaSolver() throws Exception {
+        int atendenteId = criarAtendenteId("atendente8@teste.com");
+        criarEntregadorId("entregador8@teste.com", true);
+        int clienteSemCoordenada = criarClienteSemCoordenadaComSaldo("(38) 99999-7701", 10);
+        Pedido pedido = pedidoRepository.save(new Pedido(clienteSemCoordenada, 1, JanelaTipo.ASAP, null, null, atendenteId));
+
+        PlanejamentoResultado resultado = criarService().planejarRotasPendentes();
+
+        assertEquals(0, resultado.rotasCriadas());
+        assertEquals(0, resultado.entregasCriadas());
+        assertEquals(0, resultado.pedidosNaoAtendidos());
+        assertEquals(0, solverStub.requestCount());
+        assertEquals(0, contarLinhas("rotas"));
+        assertEquals("PENDENTE", statusDoPedido(pedido.getId()));
+    }
+
     private int contarLinhas(String tabela) throws Exception {
         try (Connection conn = factory.getConnection();
              Statement stmt = conn.createStatement();
@@ -234,9 +452,24 @@ class RotaServiceTest {
         }
     }
 
+    private int maxNumeroNoDiaDoEntregador(int entregadorId) throws Exception {
+        try (Connection conn = factory.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                     "SELECT COALESCE(MAX(numero_no_dia), 0) FROM rotas WHERE entregador_id = ?")
+        ) {
+            stmt.setInt(1, entregadorId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                rs.next();
+                return rs.getInt(1);
+            }
+        }
+    }
+
     private static final class SolverStubServer {
         private HttpServer server;
         private volatile String solveResponse = "{\"rotas\":[],\"nao_atendidos\":[]}";
+        private volatile int statusCode = 200;
+        private final AtomicInteger requestCount = new AtomicInteger(0);
 
         void start() throws IOException {
             server = HttpServer.create(new InetSocketAddress(0), 0);
@@ -252,6 +485,18 @@ class RotaServiceTest {
             this.solveResponse = json;
         }
 
+        void setStatusCode(int statusCode) {
+            this.statusCode = statusCode;
+        }
+
+        int requestCount() {
+            return requestCount.get();
+        }
+
+        void resetRequestCount() {
+            requestCount.set(0);
+        }
+
         String baseUrl() {
             return "http://localhost:" + server.getAddress().getPort();
         }
@@ -259,9 +504,10 @@ class RotaServiceTest {
         private final class SolveHandler implements HttpHandler {
             @Override
             public void handle(HttpExchange exchange) throws IOException {
+                requestCount.incrementAndGet();
                 byte[] bytes = solveResponse.getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().add("Content-Type", "application/json");
-                exchange.sendResponseHeaders(200, bytes.length);
+                exchange.sendResponseHeaders(statusCode, bytes.length);
                 try (OutputStream os = exchange.getResponseBody()) {
                     os.write(bytes);
                 }
