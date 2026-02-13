@@ -4,6 +4,8 @@ import com.aguaviva.domain.cliente.Cliente;
 import com.aguaviva.domain.cliente.ClienteTipo;
 import com.aguaviva.domain.pedido.JanelaTipo;
 import com.aguaviva.domain.pedido.Pedido;
+import com.aguaviva.domain.pedido.PedidoStatus;
+import com.aguaviva.domain.pedido.PedidoTransitionResult;
 import com.aguaviva.domain.user.Password;
 import com.aguaviva.domain.user.User;
 import com.aguaviva.domain.user.UserPapel;
@@ -155,6 +157,14 @@ class RotaServiceTest {
         );
     }
 
+    private RotaService criarService(PedidoLifecycleService lifecycleService) {
+        return new RotaService(
+                new SolverClient(solverStub.baseUrl()),
+                factory,
+                lifecycleService
+        );
+    }
+
     @Test
     void devePlanejarRotasEPersistirEntregasAtualizandoStatusDosPedidosAtendidos() throws Exception {
         int atendenteId = criarAtendenteId("atendente@teste.com");
@@ -280,6 +290,45 @@ class RotaServiceTest {
                 () -> criarService().planejarRotasPendentes());
 
         assertEquals("Falha ao planejar rotas", ex.getMessage());
+        assertEquals(0, contarLinhas("rotas"));
+        assertEquals(0, contarLinhas("entregas"));
+        assertEquals("PENDENTE", statusDoPedido(pedido.getId()));
+    }
+
+    @Test
+    void deveFazerRollbackQuandoLifecycleDePedidoFalha() throws Exception {
+        int atendenteId = criarAtendenteId("atendente4b@teste.com");
+        int entregadorId = criarEntregadorId("entregador4b@teste.com", true);
+        int clienteId = criarClienteComSaldo("(38) 99999-7302", 10);
+        Pedido pedido = pedidoRepository.save(new Pedido(clienteId, 1, JanelaTipo.ASAP, null, null, atendenteId));
+
+        solverStub.setSolveResponse("""
+                {
+                  "rotas": [
+                    {
+                      "entregador_id": %d,
+                      "numero_no_dia": 1,
+                      "paradas": [
+                        {"ordem": 1, "pedido_id": %d, "lat": -16.7210, "lon": -43.8610, "hora_prevista": "09:30"}
+                      ]
+                    }
+                  ],
+                  "nao_atendidos": []
+                }
+                """.formatted(entregadorId, pedido.getId()));
+
+        PedidoLifecycleService lifecycleComFalha = new PedidoLifecycleService() {
+            @Override
+            public PedidoTransitionResult transicionar(Connection conn, int pedidoId, PedidoStatus statusDestino) {
+                throw new IllegalStateException("falha simulada no lifecycle");
+            }
+        };
+
+        IllegalStateException ex = assertThrows(IllegalStateException.class,
+                () -> criarService(lifecycleComFalha).planejarRotasPendentes());
+
+        assertEquals("Falha ao planejar rotas", ex.getMessage());
+        assertEquals("falha simulada no lifecycle", ex.getCause().getMessage());
         assertEquals(0, contarLinhas("rotas"));
         assertEquals(0, contarLinhas("entregas"));
         assertEquals("PENDENTE", statusDoPedido(pedido.getId()));
