@@ -34,7 +34,7 @@ O ciclo e sempre o mesmo:
 
 Isso vale para domain, repository e solver. Nenhuma classe existe sem teste.
 
-**102 testes** (78 Java + 24 Python), zero falhas. Os testes nao sao formais —
+**159 testes** (135 Java + 24 Python), zero falhas. Os testes nao sao formais —
 eles documentam o comportamento esperado do sistema.
 
 ### Objetos com comportamento, nao DTOs
@@ -329,9 +329,9 @@ Validado por constraints no banco e (futuro) por maquina de estados no dominio.
 
 ## Testes
 
-**102 testes** — TDD (teste escrito antes da implementacao).
+**159 testes** — TDD (teste escrito antes da implementacao).
 
-### Testes unitarios (55 Java + 24 Python)
+### Testes unitarios (87 Java + 24 Python)
 
 Testam logica pura sem dependencias externas (sem banco, sem rede, sem Docker).
 
@@ -340,11 +340,13 @@ Testam logica pura sem dependencias externas (sem banco, sem rede, sem Docker).
 | PasswordTest     | 18     | Politica de senha, BCrypt, matching, reconstrucao, Value Object |
 | UserTest         | 27     | Invariantes, hierarquia (10 combinacoes), identidade, email     |
 | SolverClientTest | 10     | Serializacao/deserializacao JSON, roundtrip, construcao         |
+| ClienteTest      | 16     | Invariantes de cliente, coordenadas, identidade da entidade     |
+| PedidoTest       | 16     | Invariantes de pedido, janela HARD/ASAP, identidade da entidade |
 | test_vrp         | 14     | Solver CVRPTW, capacidade, time windows, multiplas viagens      |
 | test_models      | 6      | Validacao Pydantic, defaults, galoes >= 1                       |
 | test_matrix      | 5      | Haversine, simetria, fallback OSRM → Haversine                 |
 
-### Testes de integracao (23 Java)
+### Testes de integracao (48 Java)
 
 Testam interacao com PostgreSQL real (porta 5435, tmpfs, dados em memoria).
 
@@ -352,14 +354,16 @@ Testam interacao com PostgreSQL real (porta 5435, tmpfs, dados em memoria).
 | --------------------- | ------ | ------------------------------------------------------------ |
 | ConnectionFactoryTest | 2      | Conexao valida, versao do PostgreSQL                         |
 | UserRepositoryTest    | 21     | CRUD completo, email unico, todos os enum, soft delete, hash persistido |
+| ClienteRepositoryTest | 13     | CRUD completo, telefone unico, mapeamento de enum e coordenadas |
+| PedidoRepositoryTest  | 12     | CRUD completo, filtros por cliente/pendentes, FKs e status/janelas |
 
-Isolamento entre testes: `DELETE FROM users` + `ALTER SEQUENCE ... RESTART` no `@BeforeEach`.
+Isolamento entre testes: limpeza por `TRUNCATE ... RESTART IDENTITY CASCADE` nos testes de repositorio.
 Sem mocks. Banco real em tmpfs.
 
 ### Rodando os testes
 
 ```bash
-# Java (78 testes — pre-requisito: postgres-oop-test rodando)
+# Java (135 testes — pre-requisito: postgres-oop-test rodando)
 mvn test
 
 # Python (24 testes — dentro do venv)
@@ -390,13 +394,22 @@ agua-viva/
 │   ├── main/java/com/aguaviva/
 │   │   ├── App.java                    # Entry point (health check)
 │   │   ├── domain/
-│   │   │   └── user/
-│   │   │       ├── Password.java       # Value Object — hash, compare, validate
-│   │   │       ├── User.java           # Entidade com comportamento
-│   │   │       └── UserPapel.java      # Enum com hierarquia de papeis
+│   │   │   ├── user/
+│   │   │   │   ├── Password.java       # Value Object — hash, compare, validate
+│   │   │   │   ├── User.java           # Entidade com comportamento
+│   │   │   │   └── UserPapel.java      # Enum com hierarquia de papeis
+│   │   │   ├── cliente/
+│   │   │   │   ├── Cliente.java        # Entidade com invariantes de cadastro
+│   │   │   │   └── ClienteTipo.java    # Enum PF/PJ
+│   │   │   └── pedido/
+│   │   │       ├── Pedido.java         # Entidade com invariantes de janela/status
+│   │   │       ├── PedidoStatus.java   # Enum de status do pedido
+│   │   │       └── JanelaTipo.java     # Enum HARD/ASAP
 │   │   ├── repository/
 │   │   │   ├── ConnectionFactory.java  # Pool JDBC via HikariCP
-│   │   │   └── UserRepository.java     # CRUD de usuarios
+│   │   │   ├── UserRepository.java     # CRUD de usuarios
+│   │   │   ├── ClienteRepository.java  # CRUD de clientes
+│   │   │   └── PedidoRepository.java   # CRUD de pedidos
 │   │   └── solver/
 │   │       ├── SolverClient.java       # HTTP client pro solver Python
 │   │       ├── SolverRequest.java      # Request — deposito, pedidos, entregadores
@@ -406,12 +419,19 @@ agua-viva/
 │   │       ├── Parada.java             # Parada na rota (ordem, hora prevista)
 │   │       └── RotaSolver.java         # Rota com entregador e paradas
 │   └── test/java/com/aguaviva/
-│       ├── domain/user/
-│       │   ├── PasswordTest.java       # 18 testes unitarios
-│       │   └── UserTest.java           # 27 testes unitarios
+│       ├── domain/
+│       │   ├── user/
+│       │   │   ├── PasswordTest.java   # 18 testes unitarios
+│       │   │   └── UserTest.java       # 27 testes unitarios
+│       │   ├── cliente/
+│       │   │   └── ClienteTest.java    # 16 testes unitarios
+│       │   └── pedido/
+│       │       └── PedidoTest.java     # 16 testes unitarios
 │       ├── repository/
 │       │   ├── ConnectionFactoryTest.java
-│       │   └── UserRepositoryTest.java # 21 testes de integracao
+│       │   ├── UserRepositoryTest.java    # 21 testes de integracao
+│       │   ├── ClienteRepositoryTest.java # 13 testes de integracao
+│       │   └── PedidoRepositoryTest.java  # 12 testes de integracao
 │       └── solver/
 │           └── SolverClientTest.java   # 10 testes (serializacao/deserializacao)
 ├── solver/                             # Solver Python (segregado)
@@ -461,7 +481,7 @@ docker compose up -d postgres-oop-dev postgres-oop-test
 ### Compilar e testar (Java)
 
 ```bash
-mvn test           # 78 testes (unitarios + integracao)
+mvn test           # 135 testes (unitarios + integracao)
 mvn clean compile  # compilar sem testes
 ```
 
@@ -504,10 +524,10 @@ O banco de teste roda na porta **5435** com dados em memoria (tmpfs).
 
 - [x] **Fase 1** — Fundacao (pom.xml, Docker, migrations, ConnectionFactory, health check)
 - [x] **Fase 2** — Domain: User + UserPapel + Password (TDD, 45 testes)
-- [x] **Fase 3** — Repository: UserRepository (TDD, 23 testes de integracao)
+- [x] **Fase 3** — Repository: UserRepository (TDD, 21 testes de integracao)
 - [x] **Fase 4** — Solver Python: OR-Tools CVRPTW + OSRM + Nominatim (24 testes)
 - [x] **Fase 5** — Integracao Java-Solver: SolverClient + Gson (10 testes)
-- [ ] **Fase 6** — Repository: ClienteRepository + PedidoRepository
+- [x] **Fase 6** — Repository: ClienteRepository + PedidoRepository
 - [ ] **Fase 7** — Service: RotaService (orquestra solver + repositorios)
 - [ ] **Fase 8** — Maquina de estados do Pedido (transicoes de status)
 - [ ] **Fase 9** — Vales (debito atomico, saldo, movimentacoes)
