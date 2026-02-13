@@ -1,7 +1,7 @@
 # Roadmap — Agua Viva OOP
 
 Plano de desenvolvimento em 10 fases.
-Fases 1-6 concluidas, 7 em andamento, 8-10 pendentes.
+Fases 1-6 concluidas, 7 em andamento, 8 parcial, 9-10 pendentes.
 
 ---
 
@@ -11,7 +11,7 @@ Fases 1-6 concluidas, 7 em andamento, 8-10 pendentes.
 
 - [x] pom.xml com Java 21 + JUnit 5
 - [x] Docker Compose (PostgreSQL dev + test)
-- [x] 8 migrations SQL
+- [x] 9 migrations SQL
 - [x] ConnectionFactory (HikariCP)
 - [x] App.java (health check)
 - [x] apply-migrations.sh
@@ -32,20 +32,21 @@ Fases 1-6 concluidas, 7 em andamento, 8-10 pendentes.
 
 ### Fase 4 — Solver Python
 
-- [x] FastAPI (POST /solve, POST /map, GET /demo)
+- [x] FastAPI (POST /solve, POST /solve/async, POST /cancel/{job_id}, GET /result/{job_id}, POST /map, GET /demo)
 - [x] OR-Tools CVRPTW (capacidade + time windows + multiplas viagens)
 - [x] OSRM (distancias reais por vias)
 - [x] Nominatim (geocoding)
 - [x] Folium (visualizacao)
-- [x] 24 testes pytest
+- [x] 27 testes pytest
 
 ### Fase 5 — Integracao Java-Solver
 
 - [x] SolverClient (HTTP client)
 - [x] SolverRequest / SolverResponse (DTOs imutaveis)
+- [x] SolverAsyncAccepted / SolverJobResult (contrato assíncrono)
 - [x] Coordenada, PedidoSolver, Parada, RotaSolver
 - [x] Gson com snake_case
-- [x] 10 testes (serializacao/deserializacao)
+- [x] 12 testes (serializacao/deserializacao + metadados async)
 
 ### Fase 6 — Repository: Cliente + Pedido
 
@@ -77,7 +78,12 @@ Objetivo: orquestrar domain + repository + solver.
   5. Persiste rotas e entregas no banco
 - [x] Gerenciamento de transacoes JDBC
 - [x] Testes de integracao (`RotaServiceTest` com solver stub HTTP + banco real)
-- [ ] Cobrir cenarios de rollback/erro (falha ao persistir entrega, duplicidade de rota, indisponibilidade do solver)
+- [x] Cobrir cenarios de rollback/erro (falha ao persistir entrega e indisponibilidade do solver)
+- [x] Cobrir idempotencia/reprocessamento de roteirizacao (sem duplicar entrega/rota em retries)
+- [x] Incluir `plan_version`/`job_id` para evitar aplicacao de plano obsoleto e habilitar cancelamento cooperativo
+- [x] Reaproveitar slots de entregas canceladas/falhas antes de chamar solver (insercao local)
+- [ ] Endurecer concorrencia para multiplas instancias (colisoes simultaneas no mesmo entregador/dia)
+- [ ] Integrar com a maquina de estados de pedido da Fase 8 (evitar update direto de status fora do dominio)
 
 **Dependencias:** Fase 6 (repositorios de cliente/pedido).
 
@@ -85,7 +91,7 @@ Objetivo: orquestrar domain + repository + solver.
 
 ## Fases Pendentes
 
-### Fase 8 — Maquina de Estados do Pedido
+### Fase 8 — Maquina de Estados do Pedido (parcial)
 
 Objetivo: controlar transicoes de status do pedido.
 
@@ -94,10 +100,11 @@ PENDENTE → CONFIRMADO → EM_ROTA → ENTREGUE
                                  → CANCELADO
 ```
 
-- [ ] Transicoes validas encapsuladas no dominio
-- [ ] Validacao: transicao invalida lanca excecao
+- [x] Transicoes validas encapsuladas no dominio (`PedidoStateMachine`)
+- [x] Validacao: transicao invalida lanca excecao
 - [ ] Registro de timestamp em cada transicao
-- [ ] Testes unitarios para todas as transicoes
+- [x] Testes unitarios para transicoes e regra de cobranca (`PedidoStateMachineTest`)
+- [ ] Integracao obrigatoria no service/repository (parar update direto de status)
 
 **Regras:**
 - PENDENTE → CONFIRMADO: pedido aceito
@@ -142,10 +149,10 @@ Fase 3  ██████████ Repository User
 Fase 4  ██████████ Solver Python
 Fase 5  ██████████ Integracao Java-Solver
 Fase 6  ██████████ Repository Cliente + Pedido
-Fase 7  ██████░░░░ Service RotaService
-Fase 8  ░░░░░░░░░░ Maquina de Estados
+Fase 7  ████████░░ Service RotaService
+Fase 8  ████░░░░░░ Maquina de Estados
 Fase 9  ░░░░░░░░░░ Sistema de Vales
 Fase 10 ░░░░░░░░░░ Frontend Leaflet.js
 ```
 
-**Status:** 6/10 fases concluidas + Fase 7 em andamento — 161 testes mapeados (137 Java + 24 Python).
+**Status:** 6/10 fases concluidas + Fases 7 e 8 em andamento — 180 testes mapeados (153 Java + 27 Python).

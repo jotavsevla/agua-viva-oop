@@ -13,17 +13,19 @@ Metodologia TDD: teste escrito **antes** da implementacao.
 | UserTest              | Java      | Unitario   | 27     | Domain     |
 | ClienteTest           | Java      | Unitario   | 16     | Domain     |
 | PedidoTest            | Java      | Unitario   | 16     | Domain     |
-| SolverClientTest      | Java      | Unitario   | 10     | Solver     |
+| PedidoStateMachineTest| Java      | Unitario   | 8      | Domain     |
+| SolverClientTest      | Java      | Unitario   | 12     | Solver     |
 | ConnectionFactoryTest | Java      | Integracao | 2      | Repository |
 | UserRepositoryTest    | Java      | Integracao | 21     | Repository |
 | ClienteRepositoryTest | Java      | Integracao | 13     | Repository |
 | PedidoRepositoryTest  | Java      | Integracao | 12     | Repository |
-| RotaServiceTest       | Java      | Integracao | 2      | Service    |
+| RotaServiceTest       | Java      | Integracao | 8      | Service    |
 | test_vrp              | Python    | Unitario   | 14     | Solver     |
 | test_models           | Python    | Unitario   | 6      | Solver     |
 | test_matrix           | Python    | Unitario   | 5      | Solver     |
+| test_main_async       | Python    | Unitario   | 2      | Solver     |
 
-**Total: 161 testes** (137 Java + 24 Python)
+**Total: 180 testes** (153 Java + 27 Python)
 
 ---
 
@@ -74,7 +76,10 @@ Testam logica pura **sem dependencias externas** (sem banco, sem rede, sem Docke
 | ----------------- | ------------------------------------------------------------ |
 | `PasswordTest`    | Validacao de politica de senha, hashing BCrypt, matching, reconstrucao de hash, Value Object (equals/hashCode/toString) |
 | `UserTest`        | Invariantes do construtor, hierarquia de papeis (`podeGerenciar`), composicao com Password, identidade de entidade, normalizacao de email |
-| `SolverClientTest`| Serializacao Java→JSON (snake_case via Gson), deserializacao JSON→Java, roundtrip request/response, construcao do client |
+| `ClienteTest`     | Invariantes de cadastro, tipo de cliente, coordenadas e identidade da entidade |
+| `PedidoTest`      | Invariantes de quantidade/janela/status, regras de construcao e identidade da entidade |
+| `PedidoStateMachineTest` | Transicoes de status validas/invalidas e regra de cobranca por cancelamento em rota |
+| `SolverClientTest`| Serializacao Java→JSON (snake_case via Gson), deserializacao JSON→Java, roundtrip request/response e contratos async |
 
 **Caracteristicas:**
 - Executam em milissegundos
@@ -92,14 +97,14 @@ Testam a **interacao com o banco PostgreSQL real** (porta 5435, tmpfs).
 | `UserRepositoryTest`   | CRUD completo (save, findById, findByEmail, findAll, update, desativar), constraints de email unico, mapeamento de todos os enum `UserPapel`, campos opcionais (telefone), hash de senha persistido corretamente |
 | `ClienteRepositoryTest`| CRUD completo (save, findById, findByTelefone, findAll, update), constraint de telefone unico, mapeamento de enum `ClienteTipo` e coordenadas |
 | `PedidoRepositoryTest` | CRUD completo (save, findById, findByCliente, findPendentes, update), mapeamento de `JanelaTipo`/`PedidoStatus`, validacao de FKs (`cliente_id`, `criado_por`) |
-| `RotaServiceTest`      | Orquestracao fim-a-fim da roteirizacao (solver stub HTTP + PostgreSQL real), persistencia de `rotas`/`entregas` e atualizacao de status dos pedidos atendidos |
+| `RotaServiceTest`      | Orquestracao fim-a-fim da roteirizacao (solver stub HTTP + PostgreSQL real), persistencia de `rotas`/`entregas`, rollback transacional, idempotencia, reprocessamento sem conflito de `numero_no_dia` e short-circuit quando nao ha elegiveis |
 
 **Caracteristicas:**
 - Precisam de `postgres-oop-test` rodando (Docker)
 - Banco de teste usa **tmpfs** (dados em memoria, sem persistencia)
 - Limpeza automatica entre testes (delecao ou `TRUNCATE ... RESTART IDENTITY CASCADE`, dependendo da suite)
 - Lifecycle JUnit 5: `@BeforeAll` (cria pool), `@BeforeEach` (limpa dados), `@AfterEach` (quando necessario) e `@AfterAll` (fecha pool)
-- Tempo de execucao: ~20-25s (inclui startup do HikariCP)
+- Tempo de execucao: ~25-30s (inclui startup do HikariCP)
 
 ---
 
@@ -215,7 +220,7 @@ Campos opcionais
   deveSalvarUsuarioSemTelefone
 ```
 
-### SolverClientTest (10 testes)
+### SolverClientTest (12 testes)
 
 ```
 Serializacao Java → JSON
@@ -235,9 +240,13 @@ Construcao do client
   deveCriarClientComUrl
   deveRejeitarUrlNula
   deveRejeitarUrlVazia
+
+Metadados async
+  deveSerializarMetadadosDeJobAsyncNoRequest
+  deveDeserializarResultadoDeJobAsync
 ```
 
-### Testes Python (24 testes)
+### Testes Python (27 testes)
 
 ```
 test_vrp.py (14 testes)
@@ -253,6 +262,10 @@ test_matrix.py (5 testes)
   Haversine: mesmo ponto (0m), distancias conhecidas
   Simetria: distancia A→B = distancia B→A
   Fallback: OSRM indisponivel → Haversine
+
+test_main_async.py (2 testes)
+  Cancelamento previo descarta resultado de `/solve`
+  Job async retorna resultado consultavel em `/result/{job_id}`
 ```
 
 ---
@@ -331,6 +344,6 @@ void limparTabela() throws Exception {
 
 | Fase | Testes planejados                                         |
 | ---- | --------------------------------------------------------- |
-| 7    | Expandir RotaServiceTest (rollback, erro de solver, idempotencia) |
-| 8    | PedidoStateMachineTest (transicoes de status)              |
+| 7    | Expandir RotaServiceTest (concorrencia multi-instancia e conflitos simultaneos) |
+| 8    | Integracao da state machine no service/repository (evitar update direto de status) |
 | 9    | ValeServiceTest (debito atomico, saldo, movimentacoes)     |
