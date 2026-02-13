@@ -1,18 +1,33 @@
 import os
+import threading
+import uuid
+from datetime import datetime, timezone
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse
 
 from models import (
-    Coordenada, Parada, Pedido, Rota, SolverRequest, SolverResponse,
+    AsyncSolveAccepted,
+    AsyncSolveResult,
+    Coordenada,
+    Parada,
+    Pedido,
+    Rota,
+    SolverRequest,
+    SolverResponse,
 )
 from matrix import get_duration_matrix
 from visualize import build_map
-from vrp import solve, hhmm_to_seconds, seconds_to_hhmm, MAX_TRIPS_PER_DRIVER
+from vrp import MAX_TRIPS_PER_DRIVER, hhmm_to_seconds, seconds_to_hhmm, solve
 
-app = FastAPI(title="Agua Viva Route Solver", version="1.0.0")
+app = FastAPI(title="Agua Viva Route Solver", version="1.1.0")
 
 OSRM_URL = os.getenv("OSRM_URL", "http://osrm:5000")
+
+# job_id -> estado do job async
+JOBS: dict[str, dict] = {}
+JOBS_LOCK = threading.Lock()
+
 
 # --- Demo: pedidos ficticios espalhados por Montes Claros ---
 DEMO_REQUEST = SolverRequest(
@@ -46,15 +61,27 @@ DEMO_REQUEST = SolverRequest(
 )
 
 
-@app.get("/health")
-def health():
-    return {"status": "ok"}
+def _utc_now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-@app.post("/solve", response_model=SolverResponse)
-def solve_vrp(req: SolverRequest):
+def _is_cancel_requested(job_id: str | None) -> bool:
+    if not job_id:
+        return False
+
+    with JOBS_LOCK:
+        state = JOBS.get(job_id)
+        if not state:
+            return False
+        return bool(state.get("cancel_requested", False))
+
+
+def _solve_internal(req: SolverRequest, cancel_checker) -> SolverResponse:
     if not req.pedidos:
         return SolverResponse(rotas=[], nao_atendidos=[])
+
+    if cancel_checker():
+        return SolverResponse(rotas=[], nao_atendidos=[p.pedido_id for p in req.pedidos])
 
     base = req.horario_inicio
     work_day_s = hhmm_to_seconds(req.horario_fim, base)
@@ -78,6 +105,9 @@ def solve_vrp(req: SolverRequest):
         else:
             time_windows.append((0, work_day_s))
 
+    if cancel_checker():
+        return SolverResponse(rotas=[], nao_atendidos=[p.pedido_id for p in req.pedidos])
+
     # Matriz de duracao via OSRM (fallback Haversine)
     matrix = get_duration_matrix(points, OSRM_URL)
 
@@ -88,9 +118,13 @@ def solve_vrp(req: SolverRequest):
         time_windows=time_windows,
         num_drivers=len(req.entregadores),
         vehicle_capacity=req.capacidade_veiculo,
+        cancel_checker=cancel_checker,
     )
 
-    # Mapear veiculos virtuais → entregadores + numero da viagem
+    if cancel_checker():
+        return SolverResponse(rotas=[], nao_atendidos=[p.pedido_id for p in req.pedidos])
+
+    # Mapear veiculos virtuais -> entregadores + numero da viagem
     driver_trips: dict[int, list[list[Parada]]] = {}
 
     for vehicle_id, stops in raw_routes:
@@ -127,8 +161,126 @@ def solve_vrp(req: SolverRequest):
             )
 
     nao_atendidos = [pedido_map[node].pedido_id for node in dropped_nodes]
-
     return SolverResponse(rotas=rotas, nao_atendidos=nao_atendidos)
+
+
+def _run_async_job(job_id: str, req: SolverRequest) -> None:
+    with JOBS_LOCK:
+        state = JOBS.get(job_id)
+        if not state:
+            return
+        if state.get("cancel_requested"):
+            state["status"] = "CANCELADO"
+            state["finalizado_em"] = _utc_now_iso()
+            return
+
+        state["status"] = "EM_EXECUCAO"
+        state["iniciado_em"] = _utc_now_iso()
+
+    try:
+        resp = _solve_internal(req, lambda: _is_cancel_requested(job_id))
+
+        with JOBS_LOCK:
+            state = JOBS.get(job_id)
+            if not state:
+                return
+            if state.get("cancel_requested"):
+                state["status"] = "CANCELADO"
+                state["response"] = None
+            else:
+                state["status"] = "CONCLUIDO"
+                state["response"] = resp.model_dump()
+            state["finalizado_em"] = _utc_now_iso()
+
+    except Exception as ex:
+        with JOBS_LOCK:
+            state = JOBS.get(job_id)
+            if not state:
+                return
+            state["status"] = "FALHOU"
+            state["erro"] = str(ex)
+            state["finalizado_em"] = _utc_now_iso()
+
+
+@app.get("/health")
+def health():
+    return {"status": "ok"}
+
+
+@app.post("/solve", response_model=SolverResponse)
+def solve_vrp(req: SolverRequest):
+    return _solve_internal(req, lambda: _is_cancel_requested(req.job_id))
+
+
+@app.post("/solve/async", response_model=AsyncSolveAccepted, status_code=202)
+def solve_vrp_async(req: SolverRequest):
+    job_id = req.job_id or f"job-{uuid.uuid4().hex}"
+
+    with JOBS_LOCK:
+        state = JOBS.get(job_id)
+        if state and state.get("status") in {"PENDENTE", "EM_EXECUCAO"}:
+            return AsyncSolveAccepted(job_id=job_id, status=state["status"])
+
+        JOBS[job_id] = {
+            "status": "PENDENTE",
+            "cancel_requested": False,
+            "erro": None,
+            "response": None,
+            "solicitado_em": _utc_now_iso(),
+            "iniciado_em": None,
+            "finalizado_em": None,
+        }
+
+    async_req = req.model_copy(deep=True)
+    async_req.job_id = job_id
+
+    thread = threading.Thread(target=_run_async_job, args=(job_id, async_req), daemon=True)
+    thread.start()
+
+    return AsyncSolveAccepted(job_id=job_id, status="PENDENTE")
+
+
+@app.post("/cancel/{job_id}")
+def cancel_job(job_id: str):
+    with JOBS_LOCK:
+        state = JOBS.get(job_id)
+        if not state:
+            # Tombstone: permite cancelar antes da execucao e descartar chamadas atrasadas.
+            JOBS[job_id] = {
+                "status": "CANCELADO",
+                "cancel_requested": True,
+                "erro": None,
+                "response": None,
+                "solicitado_em": _utc_now_iso(),
+                "iniciado_em": None,
+                "finalizado_em": _utc_now_iso(),
+            }
+            return {"job_id": job_id, "status": "CANCELADO"}
+
+        state["cancel_requested"] = True
+        if state.get("status") in {"PENDENTE", "EM_EXECUCAO"}:
+            state["status"] = "CANCELADO"
+            state["finalizado_em"] = _utc_now_iso()
+
+    return {"job_id": job_id, "status": "CANCELADO"}
+
+
+@app.get("/result/{job_id}", response_model=AsyncSolveResult)
+def result_job(job_id: str):
+    with JOBS_LOCK:
+        state = JOBS.get(job_id)
+        if not state:
+            raise HTTPException(status_code=404, detail="job_id nao encontrado")
+
+        response_payload = state.get("response")
+        response = SolverResponse.model_validate(response_payload) if response_payload else None
+
+        return AsyncSolveResult(
+            job_id=job_id,
+            status=state.get("status", "DESCONHECIDO"),
+            response=response,
+            erro=state.get("erro"),
+        )
 
 
 @app.post("/map", response_class=HTMLResponse)

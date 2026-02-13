@@ -29,6 +29,8 @@ class SolverClientTest {
     @Test
     void deveSerializarRequestComPedidoAsap() {
         var req = new SolverRequest(
+                null,
+                null,
                 new Coordenada(-16.7344, -43.8772),
                 5, "08:00", "18:00",
                 List.of(1, 2),
@@ -175,6 +177,8 @@ class SolverClientTest {
     @Test
     void deveSerializarEDeserializarCorretamente() {
         var req = new SolverRequest(
+                null,
+                null,
                 new Coordenada(-16.7344, -43.8772),
                 5, "08:00", "18:00",
                 List.of(1),
@@ -192,6 +196,47 @@ class SolverClientTest {
         assertEquals(req.getEntregadores(), back.getEntregadores());
         assertEquals(1, back.getPedidos().size());
         assertEquals(1, back.getPedidos().get(0).getPedidoId());
+    }
+
+    @Test
+    void deveSerializarMetadadosDeJobAsyncNoRequest() {
+        var req = new SolverRequest(
+                "job-123",
+                7L,
+                new Coordenada(-16.7344, -43.8772),
+                5,
+                "08:00",
+                "18:00",
+                List.of(1),
+                List.of(new PedidoSolver(1, -16.71, -43.85, 1, "ASAP", null, null, 2))
+        );
+
+        String json = gson().toJson(req);
+
+        assertTrue(json.contains("\"job_id\":\"job-123\""));
+        assertTrue(json.contains("\"plan_version\":7"));
+    }
+
+    @Test
+    void deveDeserializarResultadoDeJobAsync() {
+        String json = """
+                {
+                  "job_id": "job-xyz",
+                  "status": "CONCLUIDO",
+                  "response": {
+                    "rotas": [],
+                    "nao_atendidos": [42]
+                  },
+                  "erro": null
+                }
+                """;
+
+        SolverJobResult result = gson().fromJson(json, SolverJobResult.class);
+
+        assertEquals("job-xyz", result.getJobId());
+        assertEquals("CONCLUIDO", result.getStatus());
+        assertNotNull(result.getResponse());
+        assertEquals(List.of(42), result.getResponse().getNaoAtendidos());
     }
 
     // ========================================================================

@@ -1,3 +1,5 @@
+from collections.abc import Callable
+
 from ortools.constraint_solver import routing_enums_pb2, pywrapcp
 
 SERVICE_TIME_S = 120  # 2 min por parada (estacionar, entregar, receber)
@@ -23,6 +25,7 @@ def solve(
     num_drivers: int,
     vehicle_capacity: int,
     max_seconds: int = 5,
+    cancel_checker: Callable[[], bool] | None = None,
 ) -> tuple[list[tuple[int, list[tuple[int, int]]]], list[int]]:
     """
     Resolve CVRPTW (Capacitated Vehicle Routing Problem with Time Windows).
@@ -43,6 +46,8 @@ def solve(
     n = len(duration_matrix)
     if n <= 1:
         return [], []
+    if cancel_checker and cancel_checker():
+        return [], list(range(1, n))
 
     num_vehicles = num_drivers * MAX_TRIPS_PER_DRIVER
     work_day_s = time_windows[0][1]  # fim do expediente em segundos
@@ -103,6 +108,9 @@ def solve(
     params.time_limit.FromSeconds(max_seconds)
 
     solution = routing.SolveWithParameters(params)
+
+    if cancel_checker and cancel_checker():
+        return [], list(range(1, n))
 
     if not solution:
         return [], list(range(1, n))
