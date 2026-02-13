@@ -1,5 +1,6 @@
 package com.aguaviva.service;
 
+import com.aguaviva.domain.pedido.PedidoStatus;
 import com.aguaviva.repository.ConnectionFactory;
 import com.aguaviva.solver.Coordenada;
 import com.aguaviva.solver.Parada;
@@ -37,10 +38,19 @@ public class RotaService {
 
     private final SolverClient solverClient;
     private final ConnectionFactory connectionFactory;
+    private final PedidoLifecycleService pedidoLifecycleService;
 
     public RotaService(SolverClient solverClient, ConnectionFactory connectionFactory) {
+        this(solverClient, connectionFactory, new PedidoLifecycleService());
+    }
+
+    RotaService(SolverClient solverClient, ConnectionFactory connectionFactory,
+                PedidoLifecycleService pedidoLifecycleService) {
         this.solverClient = Objects.requireNonNull(solverClient, "SolverClient nao pode ser nulo");
         this.connectionFactory = Objects.requireNonNull(connectionFactory, "ConnectionFactory nao pode ser nulo");
+        this.pedidoLifecycleService = Objects.requireNonNull(
+                pedidoLifecycleService, "PedidoLifecycleService nao pode ser nulo"
+        );
     }
 
     public PlanejamentoResultado planejarRotasPendentes() {
@@ -118,7 +128,7 @@ public class RotaService {
 
                     for (Parada parada : rota.getParadas()) {
                         inserirEntrega(conn, parada, rotaId, planVersion, planVersionEnabled);
-                        atualizarStatusPedido(conn, parada.getPedidoId(), "CONFIRMADO");
+                        pedidoLifecycleService.transicionar(conn, parada.getPedidoId(), PedidoStatus.CONFIRMADO);
                         entregasCriadas++;
                     }
                 }
@@ -181,8 +191,23 @@ public class RotaService {
     }
 
     private List<PedidoSolver> buscarPedidosParaSolver(Connection conn) throws SQLException {
-        String sql = "SELECT pedido_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, latitude, longitude, prioridade "
-                + "FROM vw_pedidos_para_solver ORDER BY prioridade, pedido_id";
+        // FIFO com elegibilidade: respeita ordem temporal de entrada sem ignorar capacidade/saldo minimo.
+        String sql = "SELECT "
+                + "p.id AS pedido_id, "
+                + "p.quantidade_galoes, "
+                + "p.janela_tipo::text AS janela_tipo, "
+                + "p.janela_inicio, "
+                + "p.janela_fim, "
+                + "c.latitude, "
+                + "c.longitude, "
+                + "CASE WHEN p.janela_tipo::text = 'HARD' THEN 1 ELSE 2 END AS prioridade "
+                + "FROM pedidos p "
+                + "JOIN clientes c ON c.id = p.cliente_id "
+                + "JOIN saldo_vales sv ON sv.cliente_id = c.id "
+                + "WHERE p.status::text = 'PENDENTE' "
+                + "AND sv.quantidade > 0 "
+                + "AND p.quantidade_galoes <= sv.quantidade "
+                + "ORDER BY p.criado_em, p.id";
 
         List<PedidoSolver> pedidos = new ArrayList<>();
 
@@ -322,7 +347,7 @@ public class RotaService {
                     planVersion,
                     planVersionEnabled
             );
-            atualizarStatusPedido(conn, pedido.getPedidoId(), "CONFIRMADO");
+            pedidoLifecycleService.transicionar(conn, pedido.getPedidoId(), PedidoStatus.CONFIRMADO);
             candidata.addCarga(pedido.getGaloes());
             inseridas++;
         }
@@ -394,16 +419,6 @@ public class RotaService {
         }
 
         return melhor;
-    }
-
-    private void atualizarStatusPedido(Connection conn, int pedidoId, String status) throws SQLException {
-        String sql = "UPDATE pedidos SET status = ?, atualizado_em = CURRENT_TIMESTAMP WHERE id = ?";
-
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setObject(1, status, Types.OTHER);
-            stmt.setInt(2, pedidoId);
-            stmt.executeUpdate();
-        }
     }
 
     private static Double toNullableDouble(ResultSet rs, String column) throws SQLException {
