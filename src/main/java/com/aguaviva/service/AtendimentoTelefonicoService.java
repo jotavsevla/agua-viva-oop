@@ -1,7 +1,6 @@
 package com.aguaviva.service;
 
 import com.aguaviva.repository.ConnectionFactory;
-
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -23,20 +22,13 @@ public class AtendimentoTelefonicoService {
     }
 
     AtendimentoTelefonicoService(ConnectionFactory connectionFactory, DispatchEventService dispatchEventService) {
-        this.connectionFactory = Objects.requireNonNull(
-                connectionFactory, "ConnectionFactory nao pode ser nulo"
-        );
-        this.dispatchEventService = Objects.requireNonNull(
-                dispatchEventService, "DispatchEventService nao pode ser nulo"
-        );
+        this.connectionFactory = Objects.requireNonNull(connectionFactory, "ConnectionFactory nao pode ser nulo");
+        this.dispatchEventService =
+                Objects.requireNonNull(dispatchEventService, "DispatchEventService nao pode ser nulo");
     }
 
     public AtendimentoTelefonicoResultado registrarPedido(
-            String externalCallId,
-            String telefoneInformado,
-            int quantidadeGaloes,
-            int atendenteId
-    ) {
+            String externalCallId, String telefoneInformado, int quantidadeGaloes, int atendenteId) {
         String externalCallIdNormalizado = normalizeExternalCallId(externalCallId);
         String telefoneNormalizado = normalizePhone(telefoneInformado);
         validateQuantidade(quantidadeGaloes);
@@ -52,12 +44,7 @@ public class AtendimentoTelefonicoService {
                     conn.commit();
                     PedidoExistente pedido = existente.get();
                     return new AtendimentoTelefonicoResultado(
-                            pedido.pedidoId(),
-                            pedido.clienteId(),
-                            telefoneNormalizado,
-                            false,
-                            true
-                    );
+                            pedido.pedidoId(), pedido.clienteId(), telefoneNormalizado, false, true);
                 }
 
                 lockPorTelefone(conn, telefoneNormalizado);
@@ -65,12 +52,7 @@ public class AtendimentoTelefonicoService {
                 ClienteResolveResult cliente = obterOuCriarClientePorTelefone(conn, telefoneNormalizado);
 
                 InsertPedidoResult insert = inserirPedidoPendenteIdempotente(
-                        conn,
-                        cliente.clienteId(),
-                        quantidadeGaloes,
-                        atendenteId,
-                        externalCallIdNormalizado
-                );
+                        conn, cliente.clienteId(), quantidadeGaloes, atendenteId, externalCallIdNormalizado);
 
                 if (!insert.idempotente()) {
                     dispatchEventService.publicar(
@@ -78,8 +60,7 @@ public class AtendimentoTelefonicoService {
                             DispatchEventTypes.PEDIDO_CRIADO,
                             "PEDIDO",
                             (long) insert.pedidoId(),
-                            new PedidoCriadoPayload(insert.pedidoId(), insert.clienteId(), externalCallIdNormalizado)
-                    );
+                            new PedidoCriadoPayload(insert.pedidoId(), insert.clienteId(), externalCallIdNormalizado));
                 }
 
                 conn.commit();
@@ -88,8 +69,7 @@ public class AtendimentoTelefonicoService {
                         insert.clienteId(),
                         telefoneNormalizado,
                         cliente.clienteCriado() && !insert.idempotente(),
-                        insert.idempotente()
-                );
+                        insert.idempotente());
             } catch (Exception e) {
                 conn.rollback();
                 throw e;
@@ -105,10 +85,7 @@ public class AtendimentoTelefonicoService {
     }
 
     public AtendimentoTelefonicoResultado registrarPedidoManual(
-            String telefoneInformado,
-            int quantidadeGaloes,
-            int atendenteId
-    ) {
+            String telefoneInformado, int quantidadeGaloes, int atendenteId) {
         String telefoneNormalizado = normalizePhone(telefoneInformado);
         validateQuantidade(quantidadeGaloes);
         validateAtendenteId(atendenteId);
@@ -125,37 +102,22 @@ public class AtendimentoTelefonicoService {
                     conn.commit();
                     PedidoExistente existente = pedidoAtivo.get();
                     return new AtendimentoTelefonicoResultado(
-                            existente.pedidoId(),
-                            existente.clienteId(),
-                            telefoneNormalizado,
-                            false,
-                            true
-                    );
+                            existente.pedidoId(), existente.clienteId(), telefoneNormalizado, false, true);
                 }
 
-                InsertPedidoResult insert = inserirPedidoPendente(
-                        conn,
-                        cliente.clienteId(),
-                        quantidadeGaloes,
-                        atendenteId
-                );
+                InsertPedidoResult insert =
+                        inserirPedidoPendente(conn, cliente.clienteId(), quantidadeGaloes, atendenteId);
 
                 dispatchEventService.publicar(
                         conn,
                         DispatchEventTypes.PEDIDO_CRIADO,
                         "PEDIDO",
                         (long) insert.pedidoId(),
-                        new PedidoCriadoPayload(insert.pedidoId(), insert.clienteId(), null)
-                );
+                        new PedidoCriadoPayload(insert.pedidoId(), insert.clienteId(), null));
 
                 conn.commit();
                 return new AtendimentoTelefonicoResultado(
-                        insert.pedidoId(),
-                        insert.clienteId(),
-                        telefoneNormalizado,
-                        cliente.clienteCriado(),
-                        false
-                );
+                        insert.pedidoId(), insert.clienteId(), telefoneNormalizado, cliente.clienteCriado(), false);
             } catch (Exception e) {
                 conn.rollback();
                 throw e;
@@ -175,7 +137,8 @@ public class AtendimentoTelefonicoService {
             throw new IllegalStateException("Schema desatualizado: coluna pedidos.external_call_id ausente");
         }
         if (!hasUniqueConstraint(conn, "uk_pedidos_external_call_id")) {
-            throw new IllegalStateException("Schema desatualizado: constraint unica uk_pedidos_external_call_id ausente");
+            throw new IllegalStateException(
+                    "Schema desatualizado: constraint unica uk_pedidos_external_call_id ausente");
         }
     }
 
@@ -200,16 +163,14 @@ public class AtendimentoTelefonicoService {
         }
     }
 
-    private Optional<PedidoExistente> buscarPedidoPorExternalCallId(Connection conn, String externalCallId) throws SQLException {
+    private Optional<PedidoExistente> buscarPedidoPorExternalCallId(Connection conn, String externalCallId)
+            throws SQLException {
         String sql = "SELECT id, cliente_id FROM pedidos WHERE external_call_id = ?";
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, externalCallId);
             try (ResultSet rs = stmt.executeQuery()) {
                 if (rs.next()) {
-                    return Optional.of(new PedidoExistente(
-                            rs.getInt("id"),
-                            rs.getInt("cliente_id")
-                    ));
+                    return Optional.of(new PedidoExistente(rs.getInt("id"), rs.getInt("cliente_id")));
                 }
                 return Optional.empty();
             }
@@ -259,7 +220,8 @@ public class AtendimentoTelefonicoService {
         throw new SQLException("Falha ao criar cliente minimo para atendimento telefonico");
     }
 
-    private ClienteResolveResult obterOuCriarClientePorTelefone(Connection conn, String telefoneNormalizado) throws SQLException {
+    private ClienteResolveResult obterOuCriarClientePorTelefone(Connection conn, String telefoneNormalizado)
+            throws SQLException {
         Optional<Integer> clienteExistente = buscarClienteIdPorTelefoneNormalizado(conn, telefoneNormalizado);
         if (clienteExistente.isPresent()) {
             return new ClienteResolveResult(clienteExistente.get(), false);
@@ -268,7 +230,8 @@ public class AtendimentoTelefonicoService {
         return new ClienteResolveResult(clienteId, true);
     }
 
-    private Optional<PedidoExistente> buscarPedidoAbertoPorClienteId(Connection conn, int clienteId) throws SQLException {
+    private Optional<PedidoExistente> buscarPedidoAbertoPorClienteId(Connection conn, int clienteId)
+            throws SQLException {
         String sql = "SELECT id, cliente_id FROM pedidos "
                 + "WHERE cliente_id = ? "
                 + "AND status::text IN ('PENDENTE', 'CONFIRMADO', 'EM_ROTA') "
@@ -277,10 +240,7 @@ public class AtendimentoTelefonicoService {
             stmt.setInt(1, clienteId);
             try (ResultSet rs = stmt.executeQuery()) {
                 if (rs.next()) {
-                    return Optional.of(new PedidoExistente(
-                            rs.getInt("id"),
-                            rs.getInt("cliente_id")
-                    ));
+                    return Optional.of(new PedidoExistente(rs.getInt("id"), rs.getInt("cliente_id")));
                 }
                 return Optional.empty();
             }
@@ -288,16 +248,13 @@ public class AtendimentoTelefonicoService {
     }
 
     private InsertPedidoResult inserirPedidoPendenteIdempotente(
-            Connection conn,
-            int clienteId,
-            int quantidadeGaloes,
-            int atendenteId,
-            String externalCallId
-    ) throws SQLException {
-        String sql = "INSERT INTO pedidos (cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por, external_call_id) "
-                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
-                + "ON CONFLICT (external_call_id) DO NOTHING "
-                + "RETURNING id, cliente_id";
+            Connection conn, int clienteId, int quantidadeGaloes, int atendenteId, String externalCallId)
+            throws SQLException {
+        String sql =
+                "INSERT INTO pedidos (cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por, external_call_id) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+                        + "ON CONFLICT (external_call_id) DO NOTHING "
+                        + "RETURNING id, cliente_id";
 
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, clienteId);
@@ -311,11 +268,7 @@ public class AtendimentoTelefonicoService {
 
             try (ResultSet rs = stmt.executeQuery()) {
                 if (rs.next()) {
-                    return new InsertPedidoResult(
-                            rs.getInt("id"),
-                            rs.getInt("cliente_id"),
-                            false
-                    );
+                    return new InsertPedidoResult(rs.getInt("id"), rs.getInt("cliente_id"), false);
                 }
             }
         }
@@ -326,14 +279,11 @@ public class AtendimentoTelefonicoService {
     }
 
     private InsertPedidoResult inserirPedidoPendente(
-            Connection conn,
-            int clienteId,
-            int quantidadeGaloes,
-            int atendenteId
-    ) throws SQLException {
-        String sql = "INSERT INTO pedidos (cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por) "
-                + "VALUES (?, ?, ?, ?, ?, ?, ?) "
-                + "RETURNING id, cliente_id";
+            Connection conn, int clienteId, int quantidadeGaloes, int atendenteId) throws SQLException {
+        String sql =
+                "INSERT INTO pedidos (cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                        + "RETURNING id, cliente_id";
 
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, clienteId);
@@ -346,11 +296,7 @@ public class AtendimentoTelefonicoService {
 
             try (ResultSet rs = stmt.executeQuery()) {
                 if (rs.next()) {
-                    return new InsertPedidoResult(
-                            rs.getInt("id"),
-                            rs.getInt("cliente_id"),
-                            false
-                    );
+                    return new InsertPedidoResult(rs.getInt("id"), rs.getInt("cliente_id"), false);
                 }
             }
         }
@@ -393,15 +339,11 @@ public class AtendimentoTelefonicoService {
         }
     }
 
-    private record PedidoExistente(int pedidoId, int clienteId) {
-    }
+    private record PedidoExistente(int pedidoId, int clienteId) {}
 
-    private record ClienteResolveResult(int clienteId, boolean clienteCriado) {
-    }
+    private record ClienteResolveResult(int clienteId, boolean clienteCriado) {}
 
-    private record InsertPedidoResult(int pedidoId, int clienteId, boolean idempotente) {
-    }
+    private record InsertPedidoResult(int pedidoId, int clienteId, boolean idempotente) {}
 
-    private record PedidoCriadoPayload(int pedidoId, int clienteId, String externalCallId) {
-    }
+    private record PedidoCriadoPayload(int pedidoId, int clienteId, String externalCallId) {}
 }

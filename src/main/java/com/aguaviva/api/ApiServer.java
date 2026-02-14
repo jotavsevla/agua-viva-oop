@@ -17,7 +17,6 @@ import com.google.gson.JsonParseException;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
-
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -39,8 +38,7 @@ public final class ApiServer {
             AtendimentoTelefonicoService atendimentoTelefonicoService,
             ExecucaoEntregaService execucaoEntregaService,
             ReplanejamentoWorkerService replanejamentoWorkerService,
-            PedidoTimelineService pedidoTimelineService
-    ) {
+            PedidoTimelineService pedidoTimelineService) {
         this.atendimentoTelefonicoService = Objects.requireNonNull(atendimentoTelefonicoService);
         this.execucaoEntregaService = Objects.requireNonNull(execucaoEntregaService);
         this.replanejamentoWorkerService = Objects.requireNonNull(replanejamentoWorkerService);
@@ -57,13 +55,12 @@ public final class ApiServer {
 
         AtendimentoTelefonicoService atendimentoTelefonicoService = new AtendimentoTelefonicoService(connectionFactory);
         ExecucaoEntregaService execucaoEntregaService = new ExecucaoEntregaService(connectionFactory);
-        ReplanejamentoWorkerService workerService = new ReplanejamentoWorkerService(
-                connectionFactory,
-                rotaService::planejarRotasPendentes
-        );
+        ReplanejamentoWorkerService workerService =
+                new ReplanejamentoWorkerService(connectionFactory, rotaService::planejarRotasPendentes);
         PedidoTimelineService pedidoTimelineService = new PedidoTimelineService(connectionFactory);
 
-        ApiServer app = new ApiServer(atendimentoTelefonicoService, execucaoEntregaService, workerService, pedidoTimelineService);
+        ApiServer app = new ApiServer(
+                atendimentoTelefonicoService, execucaoEntregaService, workerService, pedidoTimelineService);
         app.start(port);
     }
 
@@ -79,7 +76,8 @@ public final class ApiServer {
 
         int resolvedPort = server.getAddress().getPort();
         System.out.println("API online na porta " + resolvedPort);
-        System.out.println("Endpoints: /health, /api/atendimento/pedidos, /api/eventos, /api/replanejamento/run, /api/pedidos/{pedidoId}/timeline");
+        System.out.println(
+                "Endpoints: /health, /api/atendimento/pedidos, /api/eventos, /api/replanejamento/run, /api/pedidos/{pedidoId}/timeline");
         return new RunningServer(server, resolvedPort);
     }
 
@@ -110,18 +108,11 @@ public final class ApiServer {
 
                 AtendimentoTelefonicoResultado resultado;
                 if (req.externalCallId() == null || req.externalCallId().isBlank()) {
-                    resultado = atendimentoTelefonicoService.registrarPedidoManual(
-                            telefone,
-                            quantidadeGaloes,
-                            atendenteId
-                    );
+                    resultado =
+                            atendimentoTelefonicoService.registrarPedidoManual(telefone, quantidadeGaloes, atendenteId);
                 } else {
                     resultado = atendimentoTelefonicoService.registrarPedido(
-                            req.externalCallId(),
-                            telefone,
-                            quantidadeGaloes,
-                            atendenteId
-                    );
+                            req.externalCallId(), telefone, quantidadeGaloes, atendenteId);
                 }
                 writeJson(exchange, 200, resultado);
             } catch (IllegalArgumentException e) {
@@ -147,17 +138,18 @@ public final class ApiServer {
 
                 switch (eventType) {
                     case DispatchEventTypes.ROTA_INICIADA ->
-                            resultado = execucaoEntregaService.registrarRotaIniciada(requireInt(req.rotaId(), "rota_id"));
+                        resultado = execucaoEntregaService.registrarRotaIniciada(requireInt(req.rotaId(), "rota_id"));
                     case DispatchEventTypes.PEDIDO_ENTREGUE ->
-                            resultado = execucaoEntregaService.registrarPedidoEntregue(requireInt(req.entregaId(), "entrega_id"));
+                        resultado = execucaoEntregaService.registrarPedidoEntregue(
+                                requireInt(req.entregaId(), "entrega_id"));
                     case DispatchEventTypes.PEDIDO_FALHOU ->
-                            resultado = execucaoEntregaService.registrarPedidoFalhou(requireInt(req.entregaId(), "entrega_id"), req.motivo());
+                        resultado = execucaoEntregaService.registrarPedidoFalhou(
+                                requireInt(req.entregaId(), "entrega_id"), req.motivo());
                     case DispatchEventTypes.PEDIDO_CANCELADO ->
-                            resultado = execucaoEntregaService.registrarPedidoCancelado(
-                                    requireInt(req.entregaId(), "entrega_id"),
-                                    req.motivo(),
-                                    req.cobrancaCancelamentoCentavos()
-                            );
+                        resultado = execucaoEntregaService.registrarPedidoCancelado(
+                                requireInt(req.entregaId(), "entrega_id"),
+                                req.motivo(),
+                                req.cobrancaCancelamentoCentavos());
                     default -> throw new IllegalArgumentException("event_type invalido: " + eventType);
                 }
 
@@ -167,7 +159,10 @@ public final class ApiServer {
             } catch (IllegalStateException e) {
                 writeJson(exchange, 409, Map.of("erro", e.getMessage()));
             } catch (Exception e) {
-                writeJson(exchange, 500, Map.of("erro", "Falha ao processar evento operacional", "detalhe", e.getMessage()));
+                writeJson(
+                        exchange,
+                        500,
+                        Map.of("erro", "Falha ao processar evento operacional", "detalhe", e.getMessage()));
             }
         }
     }
@@ -185,12 +180,16 @@ public final class ApiServer {
                 int debounce = req.debounceSegundos() == null ? 20 : req.debounceSegundos();
                 int limite = req.limiteEventos() == null ? 100 : req.limiteEventos();
 
-                ReplanejamentoWorkerResultado resultado = replanejamentoWorkerService.processarPendentes(debounce, limite);
+                ReplanejamentoWorkerResultado resultado =
+                        replanejamentoWorkerService.processarPendentes(debounce, limite);
                 writeJson(exchange, 200, resultado);
             } catch (IllegalArgumentException e) {
                 writeJson(exchange, 400, Map.of("erro", e.getMessage()));
             } catch (Exception e) {
-                writeJson(exchange, 500, Map.of("erro", "Falha ao executar worker de replanejamento", "detalhe", e.getMessage()));
+                writeJson(
+                        exchange,
+                        500,
+                        Map.of("erro", "Falha ao executar worker de replanejamento", "detalhe", e.getMessage()));
             }
         }
     }
@@ -205,7 +204,8 @@ public final class ApiServer {
 
             try {
                 int pedidoId = parsePedidoIdTimeline(exchange.getRequestURI().getPath());
-                PedidoTimelineService.PedidoTimelineResultado resultado = pedidoTimelineService.consultarTimeline(pedidoId);
+                PedidoTimelineService.PedidoTimelineResultado resultado =
+                        pedidoTimelineService.consultarTimeline(pedidoId);
                 writeJson(exchange, 200, resultado);
             } catch (IllegalArgumentException e) {
                 if (isPedidoNotFound(e)) {
@@ -214,7 +214,10 @@ public final class ApiServer {
                     writeJson(exchange, 400, Map.of("erro", e.getMessage()));
                 }
             } catch (Exception e) {
-                writeJson(exchange, 500, Map.of("erro", "Falha ao consultar timeline do pedido", "detalhe", e.getMessage()));
+                writeJson(
+                        exchange,
+                        500,
+                        Map.of("erro", "Falha ao consultar timeline do pedido", "detalhe", e.getMessage()));
             }
         }
     }
@@ -290,14 +293,13 @@ public final class ApiServer {
             AtendimentoTelefonicoService atendimentoTelefonicoService,
             ExecucaoEntregaService execucaoEntregaService,
             ReplanejamentoWorkerService replanejamentoWorkerService,
-            PedidoTimelineService pedidoTimelineService
-    ) throws IOException {
+            PedidoTimelineService pedidoTimelineService)
+            throws IOException {
         ApiServer app = new ApiServer(
                 atendimentoTelefonicoService,
                 execucaoEntregaService,
                 replanejamentoWorkerService,
-                pedidoTimelineService
-        );
+                pedidoTimelineService);
         return app.start(port);
     }
 
@@ -321,22 +323,10 @@ public final class ApiServer {
     }
 
     private record AtendimentoRequest(
-            String externalCallId,
-            String telefone,
-            Integer quantidadeGaloes,
-            Integer atendenteId
-    ) {
-    }
+            String externalCallId, String telefone, Integer quantidadeGaloes, Integer atendenteId) {}
 
     private record EventoRequest(
-            String eventType,
-            Integer rotaId,
-            Integer entregaId,
-            String motivo,
-            Integer cobrancaCancelamentoCentavos
-    ) {
-    }
+            String eventType, Integer rotaId, Integer entregaId, String motivo, Integer cobrancaCancelamentoCentavos) {}
 
-    private record ReplanejamentoRequest(Integer debounceSegundos, Integer limiteEventos) {
-    }
+    private record ReplanejamentoRequest(Integer debounceSegundos, Integer limiteEventos) {}
 }

@@ -2,7 +2,6 @@ package com.aguaviva.service;
 
 import com.aguaviva.domain.pedido.PedidoStatus;
 import com.aguaviva.repository.ConnectionFactory;
-
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -22,14 +21,14 @@ public class ExecucaoEntregaService {
         this(connectionFactory, new PedidoLifecycleService(), new DispatchEventService());
     }
 
-    ExecucaoEntregaService(ConnectionFactory connectionFactory,
-                           PedidoLifecycleService lifecycleService,
-                           DispatchEventService dispatchEventService) {
+    ExecucaoEntregaService(
+            ConnectionFactory connectionFactory,
+            PedidoLifecycleService lifecycleService,
+            DispatchEventService dispatchEventService) {
         this.connectionFactory = Objects.requireNonNull(connectionFactory, "ConnectionFactory nao pode ser nulo");
         this.lifecycleService = Objects.requireNonNull(lifecycleService, "PedidoLifecycleService nao pode ser nulo");
-        this.dispatchEventService = Objects.requireNonNull(
-                dispatchEventService, "DispatchEventService nao pode ser nulo"
-        );
+        this.dispatchEventService =
+                Objects.requireNonNull(dispatchEventService, "DispatchEventService nao pode ser nulo");
     }
 
     public ExecucaoEntregaResultado registrarRotaIniciada(int rotaId) {
@@ -67,17 +66,11 @@ public class ExecucaoEntregaService {
                         DispatchEventTypes.ROTA_INICIADA,
                         "ROTA",
                         (long) rotaId,
-                        new RotaIniciadaPayload(rotaId, entregas.size())
-                );
+                        new RotaIniciadaPayload(rotaId, entregas.size()));
 
                 conn.commit();
                 return new ExecucaoEntregaResultado(
-                        DispatchEventTypes.ROTA_INICIADA,
-                        rotaId,
-                        entregaIdReferencia,
-                        pedidoIdReferencia,
-                        idempotente
-                );
+                        DispatchEventTypes.ROTA_INICIADA, rotaId, entregaIdReferencia, pedidoIdReferencia, idempotente);
             } catch (Exception e) {
                 conn.rollback();
                 throw e;
@@ -99,8 +92,7 @@ public class ExecucaoEntregaService {
                 "FALHOU",
                 DispatchEventTypes.PEDIDO_FALHOU,
                 new PedidoLifecycleService.TransitionContext(motivo, 0),
-                motivo
-        );
+                motivo);
     }
 
     public ExecucaoEntregaResultado registrarPedidoCancelado(int entregaId, String motivo, Integer cobrancaCentavos) {
@@ -109,8 +101,7 @@ public class ExecucaoEntregaService {
                 "CANCELADA",
                 DispatchEventTypes.PEDIDO_CANCELADO,
                 new PedidoLifecycleService.TransitionContext(motivo, cobrancaCentavos),
-                motivo
-        );
+                motivo);
     }
 
     private ExecucaoEntregaResultado finalizarEntrega(
@@ -118,8 +109,7 @@ public class ExecucaoEntregaService {
             String entregaStatusDestino,
             String eventType,
             PedidoLifecycleService.TransitionContext transitionContext,
-            String motivo
-    ) {
+            String motivo) {
         if (entregaId <= 0) {
             throw new IllegalArgumentException("EntregaId deve ser maior que zero");
         }
@@ -135,12 +125,7 @@ public class ExecucaoEntregaService {
                         || "CANCELADA".equals(entrega.statusEntrega())) {
                     conn.commit();
                     return new ExecucaoEntregaResultado(
-                            eventType,
-                            entrega.rotaId(),
-                            entrega.idEntrega(),
-                            entrega.pedidoId(),
-                            true
-                    );
+                            eventType, entrega.rotaId(), entrega.idEntrega(), entrega.pedidoId(), true);
                 }
 
                 atualizarStatusEntrega(conn, entregaId, entregaStatusDestino, true);
@@ -152,8 +137,9 @@ public class ExecucaoEntregaService {
                             conn,
                             entrega.pedidoId(),
                             PedidoStatus.CANCELADO,
-                            transitionContext == null ? PedidoLifecycleService.TransitionContext.vazio() : transitionContext
-                    );
+                            transitionContext == null
+                                    ? PedidoLifecycleService.TransitionContext.vazio()
+                                    : transitionContext);
                 }
 
                 atualizarRotaParaConcluidaSeCabivel(conn, entrega.rotaId());
@@ -168,18 +154,11 @@ public class ExecucaoEntregaService {
                                 entrega.idEntrega(),
                                 entrega.pedidoId(),
                                 entregaStatusDestino,
-                                motivo
-                        )
-                );
+                                motivo));
 
                 conn.commit();
                 return new ExecucaoEntregaResultado(
-                        eventType,
-                        entrega.rotaId(),
-                        entrega.idEntrega(),
-                        entrega.pedidoId(),
-                        false
-                );
+                        eventType, entrega.rotaId(), entrega.idEntrega(), entrega.pedidoId(), false);
             } catch (Exception e) {
                 conn.rollback();
                 throw e;
@@ -214,7 +193,8 @@ public class ExecucaoEntregaService {
     }
 
     private List<EntregaPedidoRef> buscarEntregasPendentesDaRota(Connection conn, int rotaId) throws SQLException {
-        String sql = "SELECT id, pedido_id FROM entregas WHERE rota_id = ? AND status::text = 'PENDENTE' ORDER BY ordem_na_rota";
+        String sql =
+                "SELECT id, pedido_id FROM entregas WHERE rota_id = ? AND status::text = 'PENDENTE' ORDER BY ordem_na_rota";
         List<EntregaPedidoRef> result = new ArrayList<>();
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, rotaId);
@@ -243,13 +223,13 @@ public class ExecucaoEntregaService {
                         rs.getInt("entrega_id"),
                         rs.getString("entrega_status"),
                         rs.getInt("rota_id"),
-                        rs.getInt("pedido_id")
-                );
+                        rs.getInt("pedido_id"));
             }
         }
     }
 
-    private void atualizarStatusEntrega(Connection conn, int entregaId, String status, boolean setHoraReal) throws SQLException {
+    private void atualizarStatusEntrega(Connection conn, int entregaId, String status, boolean setHoraReal)
+            throws SQLException {
         String sql = setHoraReal
                 ? "UPDATE entregas SET status = ?, hora_real = CURRENT_TIMESTAMP, atualizado_em = CURRENT_TIMESTAMP WHERE id = ?"
                 : "UPDATE entregas SET status = ?, atualizado_em = CURRENT_TIMESTAMP WHERE id = ?";
@@ -306,18 +286,14 @@ public class ExecucaoEntregaService {
         }
     }
 
-    private record RotaStatus(int id, String status) {
-    }
+    private record RotaStatus(int id, String status) {}
 
-    private record EntregaPedidoRef(int entregaId, int pedidoId) {
-    }
+    private record EntregaPedidoRef(int entregaId, int pedidoId) {}
 
-    private record EntregaComPedido(int idEntrega, String statusEntrega, int rotaId, int pedidoId) {
-    }
+    private record EntregaComPedido(int idEntrega, String statusEntrega, int rotaId, int pedidoId) {}
 
-    private record RotaIniciadaPayload(int rotaId, int entregasEmExecucao) {
-    }
+    private record RotaIniciadaPayload(int rotaId, int entregasEmExecucao) {}
 
-    private record EntregaAtualizadaPayload(int rotaId, int entregaId, int pedidoId, String statusEntrega, String motivo) {
-    }
+    private record EntregaAtualizadaPayload(
+            int rotaId, int entregaId, int pedidoId, String statusEntrega, String motivo) {}
 }

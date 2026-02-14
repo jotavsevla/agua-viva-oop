@@ -1,10 +1,9 @@
 package com.aguaviva.domain.pedido;
 
-import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.*;
 
 import java.time.LocalTime;
-
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.Test;
 
 class PedidoTest {
 
@@ -30,15 +29,7 @@ class PedidoTest {
     @Test
     void deveCriarPedidoHardValido() {
         Pedido pedido = new Pedido(
-                5,
-                1,
-                3,
-                JanelaTipo.HARD,
-                LocalTime.of(9, 0),
-                LocalTime.of(11, 0),
-                PedidoStatus.CONFIRMADO,
-                20
-        );
+                5, 1, 3, JanelaTipo.HARD, LocalTime.of(9, 0), LocalTime.of(11, 0), PedidoStatus.CONFIRMADO, 20);
 
         assertEquals(5, pedido.getId());
         assertEquals(1, pedido.getClienteId());
@@ -56,68 +47,65 @@ class PedidoTest {
 
     @Test
     void deveRejeitarIdNegativo() {
-        assertThrows(IllegalArgumentException.class, () ->
-                new Pedido(-1, 1, 1, JanelaTipo.ASAP, null, null, PedidoStatus.PENDENTE, 10));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new Pedido(-1, 1, 1, JanelaTipo.ASAP, null, null, PedidoStatus.PENDENTE, 10));
     }
 
     @Test
     void deveRejeitarClienteIdZero() {
-        assertThrows(IllegalArgumentException.class, () ->
-                new Pedido(0, 1, JanelaTipo.ASAP, null, null, 10));
+        assertThrows(IllegalArgumentException.class, () -> new Pedido(0, 1, JanelaTipo.ASAP, null, null, 10));
     }
 
     @Test
     void deveRejeitarQuantidadeZero() {
-        assertThrows(IllegalArgumentException.class, () ->
-                new Pedido(1, 0, JanelaTipo.ASAP, null, null, 10));
+        assertThrows(IllegalArgumentException.class, () -> new Pedido(1, 0, JanelaTipo.ASAP, null, null, 10));
     }
 
     @Test
     void deveRejeitarJanelaTipoNulo() {
-        assertThrows(NullPointerException.class, () ->
-                new Pedido(1, 1, null, null, null, 10));
+        assertThrows(NullPointerException.class, () -> new Pedido(1, 1, null, null, null, 10));
     }
 
     @Test
     void deveRejeitarStatusNulo() {
-        assertThrows(NullPointerException.class, () ->
-                new Pedido(1, 1, 1, JanelaTipo.ASAP, null, null, null, 10));
+        assertThrows(NullPointerException.class, () -> new Pedido(1, 1, 1, JanelaTipo.ASAP, null, null, null, 10));
     }
 
     @Test
     void deveRejeitarCriadoPorUserIdZero() {
-        assertThrows(IllegalArgumentException.class, () ->
-                new Pedido(1, 1, JanelaTipo.ASAP, null, null, 0));
+        assertThrows(IllegalArgumentException.class, () -> new Pedido(1, 1, JanelaTipo.ASAP, null, null, 0));
     }
 
     @Test
     void deveRejeitarPedidoHardSemJanelaInicio() {
-        assertThrows(IllegalArgumentException.class, () ->
-                new Pedido(1, 2, JanelaTipo.HARD, null, LocalTime.of(10, 0), 10));
+        assertThrows(
+                IllegalArgumentException.class, () -> new Pedido(1, 2, JanelaTipo.HARD, null, LocalTime.of(10, 0), 10));
     }
 
     @Test
     void deveRejeitarPedidoHardSemJanelaFim() {
-        assertThrows(IllegalArgumentException.class, () ->
-                new Pedido(1, 2, JanelaTipo.HARD, LocalTime.of(9, 0), null, 10));
+        assertThrows(
+                IllegalArgumentException.class, () -> new Pedido(1, 2, JanelaTipo.HARD, LocalTime.of(9, 0), null, 10));
     }
 
     @Test
     void deveRejeitarPedidoHardComJanelaInvalida() {
-        assertThrows(IllegalArgumentException.class, () ->
-                new Pedido(1, 2, JanelaTipo.HARD, LocalTime.of(10, 0), LocalTime.of(9, 59), 10));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new Pedido(1, 2, JanelaTipo.HARD, LocalTime.of(10, 0), LocalTime.of(9, 59), 10));
     }
 
     @Test
     void deveRejeitarPedidoAsapComJanelaInicio() {
-        assertThrows(IllegalArgumentException.class, () ->
-                new Pedido(1, 2, JanelaTipo.ASAP, LocalTime.of(10, 0), null, 10));
+        assertThrows(
+                IllegalArgumentException.class, () -> new Pedido(1, 2, JanelaTipo.ASAP, LocalTime.of(10, 0), null, 10));
     }
 
     @Test
     void deveRejeitarPedidoAsapComJanelaFim() {
-        assertThrows(IllegalArgumentException.class, () ->
-                new Pedido(1, 2, JanelaTipo.ASAP, null, LocalTime.of(11, 0), 10));
+        assertThrows(
+                IllegalArgumentException.class, () -> new Pedido(1, 2, JanelaTipo.ASAP, null, LocalTime.of(11, 0), 10));
     }
 
     // ========================================================================
@@ -127,8 +115,8 @@ class PedidoTest {
     @Test
     void pedidosComMesmoIdDevemSerIguais() {
         Pedido p1 = new Pedido(1, 1, 2, JanelaTipo.ASAP, null, null, PedidoStatus.PENDENTE, 10);
-        Pedido p2 = new Pedido(1, 99, 5, JanelaTipo.HARD, LocalTime.of(8, 0), LocalTime.of(9, 0),
-                PedidoStatus.CONFIRMADO, 20);
+        Pedido p2 = new Pedido(
+                1, 99, 5, JanelaTipo.HARD, LocalTime.of(8, 0), LocalTime.of(9, 0), PedidoStatus.CONFIRMADO, 20);
 
         assertEquals(p1, p2);
         assertEquals(p1.hashCode(), p2.hashCode());

@@ -12,8 +12,7 @@ public final class User {
     private final String telefone;
     private final boolean ativo;
 
-    public User(int id, String nome, String email, Password password,
-                UserPapel papel, String telefone, boolean ativo) {
+    public User(int id, String nome, String email, Password password, UserPapel papel, String telefone, boolean ativo) {
         validarNome(nome);
         validarEmail(email);
         Objects.requireNonNull(password, "Password nao pode ser nulo");

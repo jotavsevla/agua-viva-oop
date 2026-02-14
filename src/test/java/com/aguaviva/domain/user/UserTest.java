@@ -37,8 +37,8 @@ class UserTest {
 
     @Test
     void deveCriarUsuarioValidoComTodosOsCampos() {
-        User user = new User(1, "Maria", "maria@email.com", senhaValida(),
-                UserPapel.ATENDENTE, "(11) 99999-0000", true);
+        User user =
+                new User(1, "Maria", "maria@email.com", senhaValida(), UserPapel.ATENDENTE, "(11) 99999-0000", true);
 
         assertEquals(1, user.getId());
         assertEquals("Maria", user.getNome());
@@ -54,50 +54,44 @@ class UserTest {
 
     @Test
     void deveRejeitarNomeNulo() {
-        assertThrows(IllegalArgumentException.class,
-                () -> new User(null, "a@b.com", senhaValida(), UserPapel.ADMIN));
+        assertThrows(IllegalArgumentException.class, () -> new User(null, "a@b.com", senhaValida(), UserPapel.ADMIN));
     }
 
     @Test
     void deveRejeitarNomeVazio() {
-        assertThrows(IllegalArgumentException.class,
-                () -> new User("", "a@b.com", senhaValida(), UserPapel.ADMIN));
+        assertThrows(IllegalArgumentException.class, () -> new User("", "a@b.com", senhaValida(), UserPapel.ADMIN));
     }
 
     @Test
     void deveRejeitarNomeComEspacosEmBranco() {
-        assertThrows(IllegalArgumentException.class,
-                () -> new User("   ", "a@b.com", senhaValida(), UserPapel.ADMIN));
+        assertThrows(IllegalArgumentException.class, () -> new User("   ", "a@b.com", senhaValida(), UserPapel.ADMIN));
     }
 
     @Test
     void deveRejeitarEmailNulo() {
-        assertThrows(IllegalArgumentException.class,
-                () -> new User("Joao", null, senhaValida(), UserPapel.ADMIN));
+        assertThrows(IllegalArgumentException.class, () -> new User("Joao", null, senhaValida(), UserPapel.ADMIN));
     }
 
     @Test
     void deveRejeitarEmailVazio() {
-        assertThrows(IllegalArgumentException.class,
-                () -> new User("Joao", "", senhaValida(), UserPapel.ADMIN));
+        assertThrows(IllegalArgumentException.class, () -> new User("Joao", "", senhaValida(), UserPapel.ADMIN));
     }
 
     @Test
     void deveRejeitarEmailSemArroba() {
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(
+                IllegalArgumentException.class,
                 () -> new User("Joao", "joaoemail.com", senhaValida(), UserPapel.ADMIN));
     }
 
     @Test
     void deveRejeitarPasswordNulo() {
-        assertThrows(NullPointerException.class,
-                () -> new User("Joao", "joao@email.com", null, UserPapel.ADMIN));
+        assertThrows(NullPointerException.class, () -> new User("Joao", "joao@email.com", null, UserPapel.ADMIN));
     }
 
     @Test
     void deveRejeitarPapelNulo() {
-        assertThrows(NullPointerException.class,
-                () -> new User("Joao", "joao@email.com", senhaValida(), null));
+        assertThrows(NullPointerException.class, () -> new User("Joao", "joao@email.com", senhaValida(), null));
     }
 
     // ========================================================================
@@ -180,15 +174,13 @@ class UserTest {
 
     @Test
     void deveVerificarSenhaCorreta() {
-        User user = new User("Joao", "joao@email.com",
-                Password.fromPlainText("senha123"), UserPapel.ADMIN);
+        User user = new User("Joao", "joao@email.com", Password.fromPlainText("senha123"), UserPapel.ADMIN);
         assertTrue(user.verificarSenha("senha123"));
     }
 
     @Test
     void deveRejeitarSenhaIncorreta() {
-        User user = new User("Joao", "joao@email.com",
-                Password.fromPlainText("senha123"), UserPapel.ADMIN);
+        User user = new User("Joao", "joao@email.com", Password.fromPlainText("senha123"), UserPapel.ADMIN);
         assertFalse(user.verificarSenha("senhaErrada"));
     }
 
@@ -198,10 +190,8 @@ class UserTest {
 
     @Test
     void usuariosComMesmoIdDevemSerIguais() {
-        User u1 = new User(1, "Joao", "joao@email.com", senhaValida(),
-                UserPapel.ADMIN, null, true);
-        User u2 = new User(1, "Maria", "maria@email.com", senhaValida(),
-                UserPapel.ATENDENTE, null, false);
+        User u1 = new User(1, "Joao", "joao@email.com", senhaValida(), UserPapel.ADMIN, null, true);
+        User u2 = new User(1, "Maria", "maria@email.com", senhaValida(), UserPapel.ATENDENTE, null, false);
 
         assertEquals(u1, u2);
         assertEquals(u1.hashCode(), u2.hashCode());
@@ -209,10 +199,8 @@ class UserTest {
 
     @Test
     void usuariosComIdsDiferentesNaoDevemSerIguais() {
-        User u1 = new User(1, "Joao", "joao@email.com", senhaValida(),
-                UserPapel.ADMIN, null, true);
-        User u2 = new User(2, "Joao", "joao@email.com", senhaValida(),
-                UserPapel.ADMIN, null, true);
+        User u1 = new User(1, "Joao", "joao@email.com", senhaValida(), UserPapel.ADMIN, null, true);
+        User u2 = new User(2, "Joao", "joao@email.com", senhaValida(), UserPapel.ADMIN, null, true);
 
         assertNotEquals(u1, u2);
     }
@@ -227,8 +215,7 @@ class UserTest {
 
     @Test
     void toStringNaoDeveExporSenha() {
-        User user = new User("Joao", "joao@email.com",
-                Password.fromPlainText("senha123"), UserPapel.ADMIN);
+        User user = new User("Joao", "joao@email.com", Password.fromPlainText("senha123"), UserPapel.ADMIN);
         String str = user.toString();
 
         assertFalse(str.contains("senha"));

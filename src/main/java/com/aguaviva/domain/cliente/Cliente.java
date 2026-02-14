@@ -19,8 +19,15 @@ public final class Cliente {
     private final BigDecimal longitude;
     private final String notas;
 
-    public Cliente(int id, String nome, String telefone, ClienteTipo tipo, String endereco,
-                   BigDecimal latitude, BigDecimal longitude, String notas) {
+    public Cliente(
+            int id,
+            String nome,
+            String telefone,
+            ClienteTipo tipo,
+            String endereco,
+            BigDecimal latitude,
+            BigDecimal longitude,
+            String notas) {
         validarId(id);
         validarNome(nome);
         validarTelefone(telefone);
@@ -38,8 +45,14 @@ public final class Cliente {
         this.notas = normalizarNotas(notas);
     }
 
-    public Cliente(String nome, String telefone, ClienteTipo tipo, String endereco,
-                   BigDecimal latitude, BigDecimal longitude, String notas) {
+    public Cliente(
+            String nome,
+            String telefone,
+            ClienteTipo tipo,
+            String endereco,
+            BigDecimal latitude,
+            BigDecimal longitude,
+            String notas) {
         this(0, nome, telefone, tipo, endereco, latitude, longitude, notas);
     }
 
@@ -95,10 +108,7 @@ public final class Cliente {
 
     @Override
     public String toString() {
-        return "Cliente{id=" + id
-                + ", nome='" + nome + "'"
-                + ", telefone='" + telefone + "'"
-                + ", tipo=" + tipo + "}";
+        return "Cliente{id=" + id + ", nome='" + nome + "'" + ", telefone='" + telefone + "'" + ", tipo=" + tipo + "}";
     }
 
     private static void validarId(int id) {

@@ -1,5 +1,7 @@
 package com.aguaviva.repository;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import com.aguaviva.domain.cliente.Cliente;
 import com.aguaviva.domain.cliente.ClienteTipo;
 import com.aguaviva.domain.pedido.JanelaTipo;
@@ -8,20 +10,17 @@ import com.aguaviva.domain.pedido.PedidoStatus;
 import com.aguaviva.domain.user.Password;
 import com.aguaviva.domain.user.User;
 import com.aguaviva.domain.user.UserPapel;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.time.LocalTime;
 import java.util.List;
 import java.util.Optional;
-
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 class PedidoRepositoryTest {
 
@@ -32,11 +31,7 @@ class PedidoRepositoryTest {
 
     @BeforeAll
     static void setUp() {
-        factory = new ConnectionFactory(
-                "localhost", "5435",
-                "agua_viva_oop_test",
-                "postgres", "postgres"
-        );
+        factory = new ConnectionFactory("localhost", "5435", "agua_viva_oop_test", "postgres", "postgres");
         pedidoRepository = new PedidoRepository(factory);
         clienteRepository = new ClienteRepository(factory);
         userRepository = new UserRepository(factory);
@@ -61,8 +56,9 @@ class PedidoRepositoryTest {
 
     private void limparBanco() throws Exception {
         try (Connection conn = factory.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("TRUNCATE TABLE sessions, entregas, rotas, movimentacao_vales, saldo_vales, pedidos, clientes, users RESTART IDENTITY CASCADE");
+                Statement stmt = conn.createStatement()) {
+            stmt.execute(
+                    "TRUNCATE TABLE sessions, entregas, rotas, movimentacao_vales, saldo_vales, pedidos, clientes, users RESTART IDENTITY CASCADE");
         }
     }
 
@@ -86,15 +82,7 @@ class PedidoRepositoryTest {
 
     private Pedido criarPedidoHard(int clienteId, int criadoPorUserId, PedidoStatus status) {
         return new Pedido(
-                0,
-                clienteId,
-                3,
-                JanelaTipo.HARD,
-                LocalTime.of(9, 0),
-                LocalTime.of(11, 0),
-                status,
-                criadoPorUserId
-        );
+                0, clienteId, 3, JanelaTipo.HARD, LocalTime.of(9, 0), LocalTime.of(11, 0), status, criadoPorUserId);
     }
 
     // ========================================================================
@@ -243,8 +231,7 @@ class PedidoRepositoryTest {
                 LocalTime.of(14, 0),
                 LocalTime.of(16, 0),
                 PedidoStatus.CONFIRMADO,
-                userId
-        );
+                userId);
 
         pedidoRepository.update(atualizado);
 
@@ -263,16 +250,7 @@ class PedidoRepositoryTest {
         int userId = criarUsuarioId("atendente9@teste.com");
         int clienteId = criarClienteId("(38) 99999-4002");
 
-        Pedido fantasma = new Pedido(
-                999,
-                clienteId,
-                2,
-                JanelaTipo.ASAP,
-                null,
-                null,
-                PedidoStatus.PENDENTE,
-                userId
-        );
+        Pedido fantasma = new Pedido(999, clienteId, 2, JanelaTipo.ASAP, null, null, PedidoStatus.PENDENTE, userId);
 
         assertThrows(SQLException.class, () -> pedidoRepository.update(fantasma));
     }
@@ -283,16 +261,8 @@ class PedidoRepositoryTest {
         int clienteId = criarClienteId("(38) 99999-4003");
         Pedido salvo = pedidoRepository.save(criarPedidoAsap(clienteId, userId));
 
-        Pedido invalido = new Pedido(
-                salvo.getId(),
-                clienteId,
-                2,
-                JanelaTipo.ASAP,
-                null,
-                null,
-                PedidoStatus.PENDENTE,
-                999
-        );
+        Pedido invalido =
+                new Pedido(salvo.getId(), clienteId, 2, JanelaTipo.ASAP, null, null, PedidoStatus.PENDENTE, 999);
 
         assertThrows(IllegalArgumentException.class, () -> pedidoRepository.update(invalido));
     }

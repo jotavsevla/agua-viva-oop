@@ -1,19 +1,18 @@
 package com.aguaviva.contracts;
 
+import static org.junit.jupiter.api.Assertions.assertAll;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import com.aguaviva.service.DispatchEventTypes;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import org.junit.jupiter.api.Test;
-
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Set;
 import java.util.stream.Collectors;
-
-import static org.junit.jupiter.api.Assertions.assertAll;
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import org.junit.jupiter.api.Test;
 
 class ContractsV1Test {
 
@@ -29,14 +28,14 @@ class ContractsV1Test {
                 () -> assertTrue(openApi.contains("openapi: 3.0.3"), "OpenAPI version deve ser 3.0.3"),
                 () -> assertTrue(openApi.contains("version: 1.0.0"), "Versao do contrato deve ser 1.0.0"),
                 () -> assertTrue(openApi.contains("/health:"), "Contrato deve expor /health"),
-                () -> assertTrue(openApi.contains("/api/atendimento/pedidos:"), "Contrato deve expor endpoint de atendimento"),
+                () -> assertTrue(
+                        openApi.contains("/api/atendimento/pedidos:"), "Contrato deve expor endpoint de atendimento"),
                 () -> assertTrue(openApi.contains("/api/eventos:"), "Contrato deve expor endpoint de eventos"),
-                () -> assertTrue(openApi.contains("/api/replanejamento/run:"), "Contrato deve expor endpoint de replanejamento"),
+                () -> assertTrue(
+                        openApi.contains("/api/replanejamento/run:"), "Contrato deve expor endpoint de replanejamento"),
                 () -> assertTrue(
                         openApi.contains("enum: [ROTA_INICIADA, PEDIDO_ENTREGUE, PEDIDO_FALHOU, PEDIDO_CANCELADO]"),
-                        "Contrato deve listar eventos operacionais aceitos pela API"
-                )
-        );
+                        "Contrato deve listar eventos operacionais aceitos pela API"));
     }
 
     @Test
@@ -44,7 +43,8 @@ class ContractsV1Test {
         Path catalogoPath = CONTRACTS_V1_DIR.resolve(Path.of("events", "catalogo-eventos.json"));
         assertTrue(Files.exists(catalogoPath), "Arquivo contracts/v1/events/catalogo-eventos.json deve existir");
 
-        JsonObject catalogo = JsonParser.parseString(Files.readString(catalogoPath)).getAsJsonObject();
+        JsonObject catalogo =
+                JsonParser.parseString(Files.readString(catalogoPath)).getAsJsonObject();
         assertEquals("1.0.0", catalogo.get("version").getAsString(), "Catalogo deve usar versao 1.0.0");
 
         JsonArray eventos = catalogo.getAsJsonArray("eventos");
@@ -57,8 +57,7 @@ class ContractsV1Test {
                 DispatchEventTypes.ROTA_INICIADA,
                 DispatchEventTypes.PEDIDO_ENTREGUE,
                 DispatchEventTypes.PEDIDO_FALHOU,
-                DispatchEventTypes.PEDIDO_CANCELADO
-        );
+                DispatchEventTypes.PEDIDO_CANCELADO);
         assertEquals(esperados, declarados, "Catalogo deve cobrir eventos do backend");
 
         Set<String> triggersReplanejamento = eventos.asList().stream()
@@ -70,11 +69,9 @@ class ContractsV1Test {
                 Set.of(
                         DispatchEventTypes.PEDIDO_CRIADO,
                         DispatchEventTypes.PEDIDO_FALHOU,
-                        DispatchEventTypes.PEDIDO_CANCELADO
-                ),
+                        DispatchEventTypes.PEDIDO_CANCELADO),
                 triggersReplanejamento,
-                "Catalogo deve refletir eventos que disparam replanejamento"
-        );
+                "Catalogo deve refletir eventos que disparam replanejamento");
     }
 
     @Test
@@ -82,20 +79,21 @@ class ContractsV1Test {
         Path examplesDir = CONTRACTS_V1_DIR.resolve("examples");
         assertTrue(Files.exists(examplesDir), "Diretorio contracts/v1/examples deve existir");
 
-        String[] exemplosObrigatorios = new String[]{
-                "atendimento-pedido.request.json",
-                "atendimento-pedido.response.json",
-                "evento-operacional.request.json",
-                "evento-operacional.response.json",
-                "replanejamento-run.request.json",
-                "replanejamento-run.response.json",
-                "pedido-timeline.response.json"
+        String[] exemplosObrigatorios = new String[] {
+            "atendimento-pedido.request.json",
+            "atendimento-pedido.response.json",
+            "evento-operacional.request.json",
+            "evento-operacional.response.json",
+            "replanejamento-run.request.json",
+            "replanejamento-run.response.json",
+            "pedido-timeline.response.json"
         };
 
         for (String nomeArquivo : exemplosObrigatorios) {
             Path arquivo = examplesDir.resolve(nomeArquivo);
             assertTrue(Files.exists(arquivo), "Exemplo obrigatorio ausente: " + nomeArquivo);
-            JsonObject conteudo = JsonParser.parseString(Files.readString(arquivo)).getAsJsonObject();
+            JsonObject conteudo =
+                    JsonParser.parseString(Files.readString(arquivo)).getAsJsonObject();
             assertTrue(!conteudo.isEmpty(), "Exemplo nao pode ser JSON vazio: " + nomeArquivo);
         }
     }

@@ -8,7 +8,7 @@ CREATE TABLE saldo_vales (
     cliente_id INTEGER PRIMARY KEY REFERENCES clientes(id) ON DELETE CASCADE,
     quantidade INTEGER NOT NULL DEFAULT 0,
     atualizado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    
+
     CONSTRAINT chk_saldo_nao_negativo CHECK (quantidade >= 0)
 );
 
@@ -27,7 +27,7 @@ CREATE TABLE movimentacao_vales (
     registrado_por INTEGER NOT NULL REFERENCES users(id),
     observacao VARCHAR(255),  -- Ex: "Pagamento de 10 vales em dinheiro"
     criado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    
+
     CONSTRAINT chk_quantidade_positiva CHECK (quantidade > 0)
 );
 

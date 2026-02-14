@@ -9,7 +9,6 @@ import com.aguaviva.solver.RotaSolver;
 import com.aguaviva.solver.SolverClient;
 import com.aguaviva.solver.SolverRequest;
 import com.aguaviva.solver.SolverResponse;
-
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -45,13 +44,14 @@ public class RotaService {
         this(solverClient, connectionFactory, new PedidoLifecycleService());
     }
 
-    RotaService(SolverClient solverClient, ConnectionFactory connectionFactory,
-                PedidoLifecycleService pedidoLifecycleService) {
+    RotaService(
+            SolverClient solverClient,
+            ConnectionFactory connectionFactory,
+            PedidoLifecycleService pedidoLifecycleService) {
         this.solverClient = Objects.requireNonNull(solverClient, "SolverClient nao pode ser nulo");
         this.connectionFactory = Objects.requireNonNull(connectionFactory, "ConnectionFactory nao pode ser nulo");
-        this.pedidoLifecycleService = Objects.requireNonNull(
-                pedidoLifecycleService, "PedidoLifecycleService nao pode ser nulo"
-        );
+        this.pedidoLifecycleService =
+                Objects.requireNonNull(pedidoLifecycleService, "PedidoLifecycleService nao pode ser nulo");
     }
 
     public PlanejamentoResultado planejarRotasPendentes() {
@@ -86,13 +86,8 @@ public class RotaService {
                     return new PlanejamentoResultado(0, 0, 0);
                 }
 
-                InsercaoLocalResult insercaoLocal = tentarInsercaoLocal(
-                        conn,
-                        pedidos,
-                        cfg.capacidadeVeiculo(),
-                        planVersion,
-                        planVersionEnabled
-                );
+                InsercaoLocalResult insercaoLocal =
+                        tentarInsercaoLocal(conn, pedidos, cfg.capacidadeVeiculo(), planVersion, planVersionEnabled);
 
                 int rotasCriadas = 0;
                 int entregasCriadas = insercaoLocal.entregasCriadas();
@@ -111,19 +106,13 @@ public class RotaService {
                         cfg.horarioInicio(),
                         cfg.horarioFim(),
                         entregadoresAtivos,
-                        pendentesParaSolver
-                );
+                        pendentesParaSolver);
 
                 SolverResponse solverResponse = solverClient.solve(request);
 
                 for (RotaSolver rota : solverResponse.getRotas()) {
                     int rotaId = inserirRota(
-                            conn,
-                            rota.getEntregadorId(),
-                            rota.getNumeroNoDia(),
-                            planVersion,
-                            planVersionEnabled
-                    );
+                            conn, rota.getEntregadorId(), rota.getNumeroNoDia(), planVersion, planVersionEnabled);
                     rotasCriadas++;
 
                     for (Parada parada : rota.getParadas()) {
@@ -134,7 +123,10 @@ public class RotaService {
                 }
 
                 conn.commit();
-                return new PlanejamentoResultado(rotasCriadas, entregasCriadas, solverResponse.getNaoAtendidos().size());
+                return new PlanejamentoResultado(
+                        rotasCriadas,
+                        entregasCriadas,
+                        solverResponse.getNaoAtendidos().size());
             } catch (InterruptedException e) {
                 conn.rollback();
                 Thread.currentThread().interrupt();
@@ -161,7 +153,7 @@ public class RotaService {
         Map<String, String> configs = new HashMap<>();
 
         try (Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery(sql)) {
+                ResultSet rs = stmt.executeQuery(sql)) {
 
             while (rs.next()) {
                 configs.put(rs.getString("chave"), rs.getString("valor"));
@@ -173,8 +165,7 @@ public class RotaService {
                 getObrigatorio(configs, "horario_inicio_expediente"),
                 getObrigatorio(configs, "horario_fim_expediente"),
                 Double.parseDouble(getObrigatorio(configs, "deposito_latitude")),
-                Double.parseDouble(getObrigatorio(configs, "deposito_longitude"))
-        );
+                Double.parseDouble(getObrigatorio(configs, "deposito_longitude")));
     }
 
     private List<Integer> buscarEntregadoresAtivos(Connection conn) throws SQLException {
@@ -182,7 +173,7 @@ public class RotaService {
         List<Integer> ids = new ArrayList<>();
 
         try (PreparedStatement stmt = conn.prepareStatement(sql);
-             ResultSet rs = stmt.executeQuery()) {
+                ResultSet rs = stmt.executeQuery()) {
 
             while (rs.next()) {
                 ids.add(rs.getInt("id"));
@@ -214,7 +205,7 @@ public class RotaService {
         List<PedidoSolver> pedidos = new ArrayList<>();
 
         try (PreparedStatement stmt = conn.prepareStatement(sql);
-             ResultSet rs = stmt.executeQuery()) {
+                ResultSet rs = stmt.executeQuery()) {
 
             while (rs.next()) {
                 Double lat = toNullableDouble(rs, "latitude");
@@ -235,16 +226,16 @@ public class RotaService {
                         rs.getString("janela_tipo"),
                         formatTime(janelaInicio),
                         formatTime(janelaFim),
-                        rs.getInt("prioridade")
-                ));
+                        rs.getInt("prioridade")));
             }
         }
 
         return pedidos;
     }
 
-    private int inserirRota(Connection conn, int entregadorId, int numeroNoDiaSugerido,
-                            long planVersion, boolean planVersionEnabled) throws SQLException {
+    private int inserirRota(
+            Connection conn, int entregadorId, int numeroNoDiaSugerido, long planVersion, boolean planVersionEnabled)
+            throws SQLException {
         String sql = planVersionEnabled
                 ? "INSERT INTO rotas (entregador_id, data, numero_no_dia, status, plan_version) VALUES (?, CURRENT_DATE, ?, ?, ?)"
                 : "INSERT INTO rotas (entregador_id, data, numero_no_dia, status) VALUES (?, CURRENT_DATE, ?, ?)";
@@ -304,8 +295,9 @@ public class RotaService {
         return candidato;
     }
 
-    private void inserirEntrega(Connection conn, Parada parada, int rotaId,
-                               long planVersion, boolean planVersionEnabled) throws SQLException {
+    private void inserirEntrega(
+            Connection conn, Parada parada, int rotaId, long planVersion, boolean planVersionEnabled)
+            throws SQLException {
         String sql = planVersionEnabled
                 ? "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, hora_prevista, status, plan_version) VALUES (?, ?, ?, ?, ?, ?)"
                 : "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, hora_prevista, status) VALUES (?, ?, ?, ?, ?)";
@@ -323,9 +315,13 @@ public class RotaService {
         }
     }
 
-    private InsercaoLocalResult tentarInsercaoLocal(Connection conn, List<PedidoSolver> pendentes,
-                                                    int capacidadeVeiculo, long planVersion,
-                                                    boolean planVersionEnabled) throws SQLException {
+    private InsercaoLocalResult tentarInsercaoLocal(
+            Connection conn,
+            List<PedidoSolver> pendentes,
+            int capacidadeVeiculo,
+            long planVersion,
+            boolean planVersionEnabled)
+            throws SQLException {
         List<RotaCandidate> rotas = buscarRotasComSlotCanceladoOuFalho(conn);
         if (rotas.isEmpty()) {
             return new InsercaoLocalResult(0, pendentes);
@@ -347,8 +343,7 @@ public class RotaService {
                     candidata.rotaId(),
                     candidata.nextOrder(),
                     planVersion,
-                    planVersionEnabled
-            );
+                    planVersionEnabled);
             pedidoLifecycleService.transicionar(conn, pedido.getPedidoId(), PedidoStatus.CONFIRMADO);
             candidata.addCarga(pedido.getGaloes());
             inseridas++;
@@ -357,8 +352,9 @@ public class RotaService {
         return new InsercaoLocalResult(inseridas, restantes);
     }
 
-    private void inserirEntregaLocal(Connection conn, int pedidoId, int rotaId, int ordemNaRota,
-                                     long planVersion, boolean planVersionEnabled) throws SQLException {
+    private void inserirEntregaLocal(
+            Connection conn, int pedidoId, int rotaId, int ordemNaRota, long planVersion, boolean planVersionEnabled)
+            throws SQLException {
         String sql = planVersionEnabled
                 ? "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, hora_prevista, status, plan_version) VALUES (?, ?, ?, ?, ?, ?)"
                 : "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, hora_prevista, status) VALUES (?, ?, ?, ?, ?)";
@@ -392,14 +388,10 @@ public class RotaService {
 
         List<RotaCandidate> result = new ArrayList<>();
         try (PreparedStatement stmt = conn.prepareStatement(sql);
-             ResultSet rs = stmt.executeQuery()) {
+                ResultSet rs = stmt.executeQuery()) {
             while (rs.next()) {
                 result.add(new RotaCandidate(
-                        rs.getInt("id"),
-                        rs.getInt("entregador_id"),
-                        rs.getInt("carga_ativa"),
-                        rs.getInt("max_ordem")
-                ));
+                        rs.getInt("id"), rs.getInt("entregador_id"), rs.getInt("carga_ativa"), rs.getInt("max_ordem")));
             }
         }
         return result;
@@ -490,16 +482,9 @@ public class RotaService {
     }
 
     private record ConfiguracaoRoteirizacao(
-            int capacidadeVeiculo,
-            String horarioInicio,
-            String horarioFim,
-            double depositoLat,
-            double depositoLon
-    ) {
-    }
+            int capacidadeVeiculo, String horarioInicio, String horarioFim, double depositoLat, double depositoLon) {}
 
-    private record InsercaoLocalResult(int entregasCriadas, List<PedidoSolver> pedidosRestantes) {
-    }
+    private record InsercaoLocalResult(int entregasCriadas, List<PedidoSolver> pedidosRestantes) {}
 
     private static final class RotaCandidate {
         private final int rotaId;

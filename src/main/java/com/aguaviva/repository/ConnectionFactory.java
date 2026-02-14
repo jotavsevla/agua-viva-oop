@@ -3,7 +3,6 @@ package com.aguaviva.repository;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import io.github.cdimascio.dotenv.Dotenv;
-
 import java.sql.Connection;
 import java.sql.SQLException;
 
@@ -12,9 +11,7 @@ public class ConnectionFactory {
     private final HikariDataSource dataSource;
 
     public ConnectionFactory() {
-        Dotenv dotenv = Dotenv.configure()
-                .ignoreIfMissing()
-                .load();
+        Dotenv dotenv = Dotenv.configure().ignoreIfMissing().load();
 
         String host = dotenv.get("POSTGRES_HOST", "localhost");
         String port = dotenv.get("POSTGRES_PORT", "5434");

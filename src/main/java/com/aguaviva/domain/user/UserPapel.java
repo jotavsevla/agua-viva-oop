@@ -1,7 +1,6 @@
 package com.aguaviva.domain.user;
 
 public enum UserPapel {
-
     ENTREGADOR(1),
     ATENDENTE(2),
     ADMIN(3),

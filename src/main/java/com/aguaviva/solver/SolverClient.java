@@ -1,5 +1,8 @@
 package com.aguaviva.solver;
 
+import com.google.gson.FieldNamingPolicy;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
@@ -8,10 +11,6 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
-
-import com.google.gson.FieldNamingPolicy;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 
 public final class SolverClient {
 
@@ -49,9 +48,7 @@ public final class SolverClient {
         HttpResponse<String> httpResp = httpClient.send(httpReq, HttpResponse.BodyHandlers.ofString());
 
         if (httpResp.statusCode() != 200) {
-            throw new IOException(
-                    "Solver retornou status " + httpResp.statusCode() + ": " + httpResp.body()
-            );
+            throw new IOException("Solver retornou status " + httpResp.statusCode() + ": " + httpResp.body());
         }
 
         return gson.fromJson(httpResp.body(), SolverResponse.class);
@@ -68,9 +65,7 @@ public final class SolverClient {
 
         HttpResponse<String> httpResp = httpClient.send(httpReq, HttpResponse.BodyHandlers.ofString());
         if (httpResp.statusCode() != 200 && httpResp.statusCode() != 202) {
-            throw new IOException(
-                    "Solver async retornou status " + httpResp.statusCode() + ": " + httpResp.body()
-            );
+            throw new IOException("Solver async retornou status " + httpResp.statusCode() + ": " + httpResp.body());
         }
 
         return gson.fromJson(httpResp.body(), SolverAsyncAccepted.class);
@@ -93,9 +88,7 @@ public final class SolverClient {
             return false;
         }
         if (httpResp.statusCode() != 200) {
-            throw new IOException(
-                    "Cancelamento retornou status " + httpResp.statusCode() + ": " + httpResp.body()
-            );
+            throw new IOException("Cancelamento retornou status " + httpResp.statusCode() + ": " + httpResp.body());
         }
         return true;
     }
@@ -118,8 +111,7 @@ public final class SolverClient {
         }
         if (httpResp.statusCode() != 200) {
             throw new IOException(
-                    "Consulta de resultado retornou status " + httpResp.statusCode() + ": " + httpResp.body()
-            );
+                    "Consulta de resultado retornou status " + httpResp.statusCode() + ": " + httpResp.body());
         }
 
         return gson.fromJson(httpResp.body(), SolverJobResult.class);

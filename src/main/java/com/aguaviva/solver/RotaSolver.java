@@ -14,9 +14,17 @@ public final class RotaSolver {
         this.paradas = paradas;
     }
 
-    public int getEntregadorId() { return entregadorId; }
-    public int getNumeroNoDia() { return numeroNoDia; }
-    public List<Parada> getParadas() { return paradas; }
+    public int getEntregadorId() {
+        return entregadorId;
+    }
+
+    public int getNumeroNoDia() {
+        return numeroNoDia;
+    }
+
+    public List<Parada> getParadas() {
+        return paradas;
+    }
 
     @Override
     public String toString() {

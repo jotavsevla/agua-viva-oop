@@ -14,8 +14,15 @@ public final class Pedido {
     private final PedidoStatus status;
     private final int criadoPorUserId;
 
-    public Pedido(int id, int clienteId, int quantidadeGaloes, JanelaTipo janelaTipo,
-                  LocalTime janelaInicio, LocalTime janelaFim, PedidoStatus status, int criadoPorUserId) {
+    public Pedido(
+            int id,
+            int clienteId,
+            int quantidadeGaloes,
+            JanelaTipo janelaTipo,
+            LocalTime janelaInicio,
+            LocalTime janelaFim,
+            PedidoStatus status,
+            int criadoPorUserId) {
         validarId(id);
         validarClienteId(clienteId);
         validarQuantidadeGaloes(quantidadeGaloes);
@@ -34,10 +41,22 @@ public final class Pedido {
         this.criadoPorUserId = criadoPorUserId;
     }
 
-    public Pedido(int clienteId, int quantidadeGaloes, JanelaTipo janelaTipo,
-                  LocalTime janelaInicio, LocalTime janelaFim, int criadoPorUserId) {
-        this(0, clienteId, quantidadeGaloes, janelaTipo, janelaInicio, janelaFim,
-                PedidoStatus.PENDENTE, criadoPorUserId);
+    public Pedido(
+            int clienteId,
+            int quantidadeGaloes,
+            JanelaTipo janelaTipo,
+            LocalTime janelaInicio,
+            LocalTime janelaFim,
+            int criadoPorUserId) {
+        this(
+                0,
+                clienteId,
+                quantidadeGaloes,
+                janelaTipo,
+                janelaInicio,
+                janelaFim,
+                PedidoStatus.PENDENTE,
+                criadoPorUserId);
     }
 
     public int getId() {

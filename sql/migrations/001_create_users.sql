@@ -20,7 +20,7 @@ CREATE TABLE users (
 CREATE INDEX idx_users_email ON users(email);
 
 -- Índice para listar entregadores ativos
-CREATE INDEX idx_users_entregadores_ativos ON users(papel, ativo) 
+CREATE INDEX idx_users_entregadores_ativos ON users(papel, ativo)
     WHERE papel = 'entregador' AND ativo = true;
 
 COMMENT ON TABLE users IS 'Usuários do sistema com diferentes níveis de acesso';

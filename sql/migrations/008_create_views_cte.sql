@@ -20,15 +20,15 @@ WITH rota_ativa AS (
     FROM rotas
     WHERE data = CURRENT_DATE
       AND status IN ('EM_ANDAMENTO', 'PLANEJADA')
-    ORDER BY 
-        CASE status 
-            WHEN 'EM_ANDAMENTO' THEN 1 
-            WHEN 'PLANEJADA' THEN 2 
+    ORDER BY
+        CASE status
+            WHEN 'EM_ANDAMENTO' THEN 1
+            WHEN 'PLANEJADA' THEN 2
         END,
         numero_no_dia
     LIMIT 1
 )
-SELECT 
+SELECT
     r.entregador_id,
     r.numero_no_dia,
     r.status AS rota_status,
@@ -53,7 +53,7 @@ JOIN clientes c ON c.id = p.cliente_id
 WHERE e.status = 'PENDENTE'
 ORDER BY e.ordem_na_rota;
 
-COMMENT ON VIEW vw_rota_atual_entregador IS 
+COMMENT ON VIEW vw_rota_atual_entregador IS
 'Lista entregas pendentes da rota atual - usado na tela mobile do entregador';
 
 
@@ -72,7 +72,7 @@ Esta query demonstra:
 CREATE OR REPLACE VIEW vw_pedidos_para_solver AS
 WITH clientes_com_saldo AS (
     -- Apenas clientes com saldo suficiente
-    SELECT 
+    SELECT
         c.id,
         c.latitude,
         c.longitude,
@@ -81,7 +81,7 @@ WITH clientes_com_saldo AS (
     JOIN saldo_vales sv ON sv.cliente_id = c.id
     WHERE sv.quantidade > 0
 )
-SELECT 
+SELECT
     p.id AS pedido_id,
     p.quantidade_galoes,
     p.janela_tipo,
@@ -90,9 +90,9 @@ SELECT
     cs.latitude,
     cs.longitude,
     -- Prioridade numérica para o solver
-    CASE p.janela_tipo 
-        WHEN 'HARD' THEN 1 
-        WHEN 'ASAP' THEN 2 
+    CASE p.janela_tipo
+        WHEN 'HARD' THEN 1
+        WHEN 'ASAP' THEN 2
     END AS prioridade
 FROM pedidos p
 JOIN clientes_com_saldo cs ON cs.id = p.cliente_id
@@ -100,7 +100,7 @@ WHERE p.status = 'PENDENTE'
   AND p.quantidade_galoes <= cs.saldo  -- Cliente tem saldo suficiente
 ORDER BY prioridade, p.criado_em;
 
-COMMENT ON VIEW vw_pedidos_para_solver IS 
+COMMENT ON VIEW vw_pedidos_para_solver IS
 'Pedidos prontos para entrar no cálculo de rotas - enviados ao microserviço Python';
 
 
@@ -119,7 +119,7 @@ Esta query demonstra:
 CREATE OR REPLACE VIEW vw_relatorio_entregador AS
 WITH entregas_periodo AS (
     -- Base: entregas finalizadas nos últimos 30 dias
-    SELECT 
+    SELECT
         r.entregador_id,
         e.id AS entrega_id,
         e.status,
@@ -135,23 +135,23 @@ WITH entregas_periodo AS (
 ),
 metricas_brutas AS (
     -- Cálculos intermediários
-    SELECT 
+    SELECT
         entregador_id,
         COUNT(*) AS total_entregas,
         COUNT(*) FILTER (WHERE status = 'ENTREGUE') AS entregas_sucesso,
         COUNT(*) FILTER (WHERE status = 'FALHOU') AS entregas_falha,
         COUNT(*) FILTER (
-            WHERE status = 'ENTREGUE' 
+            WHERE status = 'ENTREGUE'
             AND janela_tipo = 'HARD'
             AND hora_real::time <= janela_fim
         ) AS hard_no_prazo,
         COUNT(*) FILTER (WHERE janela_tipo = 'HARD') AS total_hard,
-        AVG(EXTRACT(EPOCH FROM (hora_real - hora_prevista)) / 60) 
+        AVG(EXTRACT(EPOCH FROM (hora_real - hora_prevista)) / 60)
             FILTER (WHERE hora_real IS NOT NULL) AS desvio_medio_min
     FROM entregas_periodo
     GROUP BY entregador_id
 )
-SELECT 
+SELECT
     u.id AS entregador_id,
     u.nome AS entregador_nome,
     mb.total_entregas,
@@ -166,7 +166,7 @@ FROM metricas_brutas mb
 JOIN users u ON u.id = mb.entregador_id
 ORDER BY taxa_sucesso_pct DESC;
 
-COMMENT ON VIEW vw_relatorio_entregador IS 
+COMMENT ON VIEW vw_relatorio_entregador IS
 'Métricas de performance dos últimos 30 dias - usado pelo supervisor';
 
 
@@ -196,13 +196,13 @@ RETURNS TABLE (
     observacao VARCHAR
 ) AS $$
 WITH movimentacoes AS (
-    SELECT 
+    SELECT
         mv.criado_em,
         mv.tipo::VARCHAR,
         mv.quantidade,
-        CASE mv.tipo 
-            WHEN 'CREDITO' THEN mv.quantidade 
-            WHEN 'DEBITO' THEN -mv.quantidade 
+        CASE mv.tipo
+            WHEN 'CREDITO' THEN mv.quantidade
+            WHEN 'DEBITO' THEN -mv.quantidade
         END AS valor_com_sinal,
         u.nome AS registrado_por,
         mv.pedido_id,
@@ -211,7 +211,7 @@ WITH movimentacoes AS (
     JOIN users u ON u.id = mv.registrado_por
     WHERE mv.cliente_id = p_cliente_id
 )
-SELECT 
+SELECT
     criado_em AS data,
     tipo,
     quantidade,

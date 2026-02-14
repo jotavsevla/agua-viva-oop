@@ -1,12 +1,17 @@
 package com.aguaviva.api;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import com.aguaviva.domain.user.Password;
 import com.aguaviva.domain.user.User;
 import com.aguaviva.domain.user.UserPapel;
 import com.aguaviva.repository.ConnectionFactory;
 import com.aguaviva.repository.UserRepository;
-import com.aguaviva.service.AtendimentoTelefonicoService;
 import com.aguaviva.service.AtendimentoTelefonicoResultado;
+import com.aguaviva.service.AtendimentoTelefonicoService;
 import com.aguaviva.service.ExecucaoEntregaService;
 import com.aguaviva.service.PedidoTimelineService;
 import com.aguaviva.service.PlanejamentoResultado;
@@ -14,12 +19,6 @@ import com.aguaviva.service.ReplanejamentoWorkerService;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -29,11 +28,11 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.Map;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 class ApiServerTest {
 
@@ -48,18 +47,11 @@ class ApiServerTest {
 
     @BeforeAll
     static void setUp() throws Exception {
-        factory = new ConnectionFactory(
-                "localhost", "5435",
-                "agua_viva_oop_test",
-                "postgres", "postgres"
-        );
+        factory = new ConnectionFactory("localhost", "5435", "agua_viva_oop_test", "postgres", "postgres");
         userRepository = new UserRepository(factory);
         atendimentoService = new AtendimentoTelefonicoService(factory);
         execucaoService = new ExecucaoEntregaService(factory);
-        replanejamentoService = new ReplanejamentoWorkerService(
-                factory,
-                () -> new PlanejamentoResultado(0, 0, 0)
-        );
+        replanejamentoService = new ReplanejamentoWorkerService(factory, () -> new PlanejamentoResultado(0, 0, 0));
         pedidoTimelineService = new PedidoTimelineService(factory);
         garantirSchema();
     }
@@ -83,7 +75,7 @@ class ApiServerTest {
 
     private static void garantirSchema() throws Exception {
         try (Connection conn = factory.getConnection();
-             Statement stmt = conn.createStatement()) {
+                Statement stmt = conn.createStatement()) {
             stmt.execute("ALTER TYPE entrega_status ADD VALUE IF NOT EXISTS 'EM_EXECUCAO'");
             stmt.execute("ALTER TYPE entrega_status ADD VALUE IF NOT EXISTS 'CANCELADA'");
             stmt.execute("ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS external_call_id VARCHAR(64)");
@@ -110,8 +102,9 @@ class ApiServerTest {
 
     private void limparBanco() throws Exception {
         try (Connection conn = factory.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("TRUNCATE TABLE dispatch_events, sessions, entregas, rotas, movimentacao_vales, saldo_vales, pedidos, clientes, users RESTART IDENTITY CASCADE");
+                Statement stmt = conn.createStatement()) {
+            stmt.execute(
+                    "TRUNCATE TABLE dispatch_events, sessions, entregas, rotas, movimentacao_vales, saldo_vales, pedidos, clientes, users RESTART IDENTITY CASCADE");
         }
     }
 
@@ -131,17 +124,9 @@ class ApiServerTest {
         HttpClient client = HttpClient.newHttpClient();
 
         try (ApiServer.RunningServer running = ApiServer.startForTests(
-                0,
-                atendimentoService,
-                execucaoService,
-                replanejamentoService,
-                pedidoTimelineService
-        )) {
-            String payload = GSON.toJson(Map.of(
-                    "telefone", "(38) 99876-9001",
-                    "quantidadeGaloes", 2,
-                    "atendenteId", atendenteId
-            ));
+                0, atendimentoService, execucaoService, replanejamentoService, pedidoTimelineService)) {
+            String payload = GSON.toJson(
+                    Map.of("telefone", "(38) 99876-9001", "quantidadeGaloes", 2, "atendenteId", atendenteId));
 
             HttpResponse<String> primeira = client.send(
                     HttpRequest.newBuilder()
@@ -149,8 +134,7 @@ class ApiServerTest {
                             .header("Content-Type", "application/json")
                             .POST(HttpRequest.BodyPublishers.ofString(payload))
                             .build(),
-                    HttpResponse.BodyHandlers.ofString()
-            );
+                    HttpResponse.BodyHandlers.ofString());
 
             JsonObject primeiraResposta = GSON.fromJson(primeira.body(), JsonObject.class);
             int pedidoIdPrimeiro = primeiraResposta.get("pedidoId").getAsInt();
@@ -165,8 +149,7 @@ class ApiServerTest {
                             .header("Content-Type", "application/json")
                             .POST(HttpRequest.BodyPublishers.ofString(payload))
                             .build(),
-                    HttpResponse.BodyHandlers.ofString()
-            );
+                    HttpResponse.BodyHandlers.ofString());
 
             JsonObject segundaResposta = GSON.fromJson(segunda.body(), JsonObject.class);
             int pedidoIdSegundo = segundaResposta.get("pedidoId").getAsInt();
@@ -185,18 +168,16 @@ class ApiServerTest {
         HttpClient client = HttpClient.newHttpClient();
 
         try (ApiServer.RunningServer running = ApiServer.startForTests(
-                0,
-                atendimentoService,
-                execucaoService,
-                replanejamentoService,
-                pedidoTimelineService
-        )) {
+                0, atendimentoService, execucaoService, replanejamentoService, pedidoTimelineService)) {
             String payload = GSON.toJson(Map.of(
-                    "externalCallId", "call-api-001",
-                    "telefone", "(38) 99876-9002",
-                    "quantidadeGaloes", 2,
-                    "atendenteId", atendenteId
-            ));
+                    "externalCallId",
+                    "call-api-001",
+                    "telefone",
+                    "(38) 99876-9002",
+                    "quantidadeGaloes",
+                    2,
+                    "atendenteId",
+                    atendenteId));
 
             HttpResponse<String> primeira = client.send(
                     HttpRequest.newBuilder()
@@ -204,8 +185,7 @@ class ApiServerTest {
                             .header("Content-Type", "application/json")
                             .POST(HttpRequest.BodyPublishers.ofString(payload))
                             .build(),
-                    HttpResponse.BodyHandlers.ofString()
-            );
+                    HttpResponse.BodyHandlers.ofString());
             JsonObject primeiraResposta = GSON.fromJson(primeira.body(), JsonObject.class);
             int pedidoIdPrimeiro = primeiraResposta.get("pedidoId").getAsInt();
 
@@ -215,8 +195,7 @@ class ApiServerTest {
                             .header("Content-Type", "application/json")
                             .POST(HttpRequest.BodyPublishers.ofString(payload))
                             .build(),
-                    HttpResponse.BodyHandlers.ofString()
-            );
+                    HttpResponse.BodyHandlers.ofString());
             JsonObject segundaResposta = GSON.fromJson(segunda.body(), JsonObject.class);
             int pedidoIdSegundo = segundaResposta.get("pedidoId").getAsInt();
 
@@ -236,11 +215,8 @@ class ApiServerTest {
         int atendenteId = criarAtendenteId("api-timeline-atendente@teste.com");
         int entregadorId = criarEntregadorId("api-timeline-entregador@teste.com");
 
-        AtendimentoTelefonicoResultado atendimento = atendimentoService.registrarPedidoManual(
-                "(38) 99876-9003",
-                2,
-                atendenteId
-        );
+        AtendimentoTelefonicoResultado atendimento =
+                atendimentoService.registrarPedidoManual("(38) 99876-9003", 2, atendenteId);
         int pedidoId = atendimento.pedidoId();
 
         atualizarStatusPedido(pedidoId, "CONFIRMADO");
@@ -252,19 +228,14 @@ class ApiServerTest {
 
         HttpClient client = HttpClient.newHttpClient();
         try (ApiServer.RunningServer running = ApiServer.startForTests(
-                0,
-                atendimentoService,
-                execucaoService,
-                replanejamentoService,
-                pedidoTimelineService
-        )) {
+                0, atendimentoService, execucaoService, replanejamentoService, pedidoTimelineService)) {
             HttpResponse<String> resposta = client.send(
                     HttpRequest.newBuilder()
-                            .uri(URI.create("http://localhost:" + running.port() + "/api/pedidos/" + pedidoId + "/timeline"))
+                            .uri(URI.create(
+                                    "http://localhost:" + running.port() + "/api/pedidos/" + pedidoId + "/timeline"))
                             .GET()
                             .build(),
-                    HttpResponse.BodyHandlers.ofString()
-            );
+                    HttpResponse.BodyHandlers.ofString());
 
             assertEquals(200, resposta.statusCode());
             JsonObject payload = GSON.fromJson(resposta.body(), JsonObject.class);
@@ -284,19 +255,13 @@ class ApiServerTest {
     void deveRetornar404QuandoPedidoNaoExisteNaTimelineViaHttp() throws Exception {
         HttpClient client = HttpClient.newHttpClient();
         try (ApiServer.RunningServer running = ApiServer.startForTests(
-                0,
-                atendimentoService,
-                execucaoService,
-                replanejamentoService,
-                pedidoTimelineService
-        )) {
+                0, atendimentoService, execucaoService, replanejamentoService, pedidoTimelineService)) {
             HttpResponse<String> resposta = client.send(
                     HttpRequest.newBuilder()
                             .uri(URI.create("http://localhost:" + running.port() + "/api/pedidos/999999/timeline"))
                             .GET()
                             .build(),
-                    HttpResponse.BodyHandlers.ofString()
-            );
+                    HttpResponse.BodyHandlers.ofString());
 
             assertEquals(404, resposta.statusCode());
             JsonObject payload = GSON.fromJson(resposta.body(), JsonObject.class);
@@ -309,11 +274,8 @@ class ApiServerTest {
         int atendenteId = criarAtendenteId("api-timeline-falha-atendente@teste.com");
         int entregadorId = criarEntregadorId("api-timeline-falha-entregador@teste.com");
 
-        AtendimentoTelefonicoResultado atendimento = atendimentoService.registrarPedidoManual(
-                "(38) 99876-9004",
-                1,
-                atendenteId
-        );
+        AtendimentoTelefonicoResultado atendimento =
+                atendimentoService.registrarPedidoManual("(38) 99876-9004", 1, atendenteId);
         int pedidoId = atendimento.pedidoId();
 
         atualizarStatusPedido(pedidoId, "CONFIRMADO");
@@ -325,19 +287,14 @@ class ApiServerTest {
 
         HttpClient client = HttpClient.newHttpClient();
         try (ApiServer.RunningServer running = ApiServer.startForTests(
-                0,
-                atendimentoService,
-                execucaoService,
-                replanejamentoService,
-                pedidoTimelineService
-        )) {
+                0, atendimentoService, execucaoService, replanejamentoService, pedidoTimelineService)) {
             HttpResponse<String> resposta = client.send(
                     HttpRequest.newBuilder()
-                            .uri(URI.create("http://localhost:" + running.port() + "/api/pedidos/" + pedidoId + "/timeline"))
+                            .uri(URI.create(
+                                    "http://localhost:" + running.port() + "/api/pedidos/" + pedidoId + "/timeline"))
                             .GET()
                             .build(),
-                    HttpResponse.BodyHandlers.ofString()
-            );
+                    HttpResponse.BodyHandlers.ofString());
 
             assertEquals(200, resposta.statusCode());
             JsonObject payload = GSON.fromJson(resposta.body(), JsonObject.class);
@@ -357,11 +314,8 @@ class ApiServerTest {
         int atendenteId = criarAtendenteId("api-timeline-cancel-atendente@teste.com");
         int entregadorId = criarEntregadorId("api-timeline-cancel-entregador@teste.com");
 
-        AtendimentoTelefonicoResultado atendimento = atendimentoService.registrarPedidoManual(
-                "(38) 99876-9005",
-                1,
-                atendenteId
-        );
+        AtendimentoTelefonicoResultado atendimento =
+                atendimentoService.registrarPedidoManual("(38) 99876-9005", 1, atendenteId);
         int pedidoId = atendimento.pedidoId();
 
         atualizarStatusPedido(pedidoId, "CONFIRMADO");
@@ -373,19 +327,14 @@ class ApiServerTest {
 
         HttpClient client = HttpClient.newHttpClient();
         try (ApiServer.RunningServer running = ApiServer.startForTests(
-                0,
-                atendimentoService,
-                execucaoService,
-                replanejamentoService,
-                pedidoTimelineService
-        )) {
+                0, atendimentoService, execucaoService, replanejamentoService, pedidoTimelineService)) {
             HttpResponse<String> resposta = client.send(
                     HttpRequest.newBuilder()
-                            .uri(URI.create("http://localhost:" + running.port() + "/api/pedidos/" + pedidoId + "/timeline"))
+                            .uri(URI.create(
+                                    "http://localhost:" + running.port() + "/api/pedidos/" + pedidoId + "/timeline"))
                             .GET()
                             .build(),
-                    HttpResponse.BodyHandlers.ofString()
-            );
+                    HttpResponse.BodyHandlers.ofString());
 
             assertEquals(200, resposta.statusCode());
             JsonObject payload = GSON.fromJson(resposta.body(), JsonObject.class);
@@ -396,7 +345,8 @@ class ApiServerTest {
             assertTrue(eventos.size() >= 3);
             JsonObject eventoCancelamento = buscarEvento(eventos, "EM_ROTA", "CANCELADO", "Evento operacional");
             assertNotNull(eventoCancelamento);
-            assertEquals("cliente cancelou", eventoCancelamento.get("observacao").getAsString());
+            assertEquals(
+                    "cliente cancelou", eventoCancelamento.get("observacao").getAsString());
         }
     }
 
@@ -407,25 +357,16 @@ class ApiServerTest {
         HttpClient client = HttpClient.newHttpClient();
 
         try (ApiServer.RunningServer running = ApiServer.startForTests(
-                0,
-                atendimentoService,
-                execucaoService,
-                replanejamentoService,
-                pedidoTimelineService
-        )) {
-            String atendimentoPayload = GSON.toJson(Map.of(
-                    "telefone", "(38) 99876-9006",
-                    "quantidadeGaloes", 1,
-                    "atendenteId", atendenteId
-            ));
+                0, atendimentoService, execucaoService, replanejamentoService, pedidoTimelineService)) {
+            String atendimentoPayload = GSON.toJson(
+                    Map.of("telefone", "(38) 99876-9006", "quantidadeGaloes", 1, "atendenteId", atendenteId));
             HttpResponse<String> atendimentoResp = client.send(
                     HttpRequest.newBuilder()
                             .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
                             .header("Content-Type", "application/json")
                             .POST(HttpRequest.BodyPublishers.ofString(atendimentoPayload))
                             .build(),
-                    HttpResponse.BodyHandlers.ofString()
-            );
+                    HttpResponse.BodyHandlers.ofString());
             assertEquals(200, atendimentoResp.statusCode());
             JsonObject atendimentoBody = GSON.fromJson(atendimentoResp.body(), JsonObject.class);
             int pedidoId = atendimentoBody.get("pedidoId").getAsInt();
@@ -434,41 +375,33 @@ class ApiServerTest {
             int rotaId = criarRota(entregadorId, "PLANEJADA");
             int entregaId = criarEntrega(pedidoId, rotaId, "PENDENTE");
 
-            String rotaIniciadaPayload = GSON.toJson(Map.of(
-                    "eventType", "ROTA_INICIADA",
-                    "rotaId", rotaId
-            ));
+            String rotaIniciadaPayload = GSON.toJson(Map.of("eventType", "ROTA_INICIADA", "rotaId", rotaId));
             HttpResponse<String> rotaIniciadaResp = client.send(
                     HttpRequest.newBuilder()
                             .uri(URI.create("http://localhost:" + running.port() + "/api/eventos"))
                             .header("Content-Type", "application/json")
                             .POST(HttpRequest.BodyPublishers.ofString(rotaIniciadaPayload))
                             .build(),
-                    HttpResponse.BodyHandlers.ofString()
-            );
+                    HttpResponse.BodyHandlers.ofString());
             assertEquals(200, rotaIniciadaResp.statusCode());
 
-            String entreguePayload = GSON.toJson(Map.of(
-                    "eventType", "PEDIDO_ENTREGUE",
-                    "entregaId", entregaId
-            ));
+            String entreguePayload = GSON.toJson(Map.of("eventType", "PEDIDO_ENTREGUE", "entregaId", entregaId));
             HttpResponse<String> entregueResp = client.send(
                     HttpRequest.newBuilder()
                             .uri(URI.create("http://localhost:" + running.port() + "/api/eventos"))
                             .header("Content-Type", "application/json")
                             .POST(HttpRequest.BodyPublishers.ofString(entreguePayload))
                             .build(),
-                    HttpResponse.BodyHandlers.ofString()
-            );
+                    HttpResponse.BodyHandlers.ofString());
             assertEquals(200, entregueResp.statusCode());
 
             HttpResponse<String> timelineResp = client.send(
                     HttpRequest.newBuilder()
-                            .uri(URI.create("http://localhost:" + running.port() + "/api/pedidos/" + pedidoId + "/timeline"))
+                            .uri(URI.create(
+                                    "http://localhost:" + running.port() + "/api/pedidos/" + pedidoId + "/timeline"))
                             .GET()
                             .build(),
-                    HttpResponse.BodyHandlers.ofString()
-            );
+                    HttpResponse.BodyHandlers.ofString());
             assertEquals(200, timelineResp.statusCode());
             JsonObject timeline = GSON.fromJson(timelineResp.body(), JsonObject.class);
             assertEquals(pedidoId, timeline.get("pedidoId").getAsInt());
@@ -484,8 +417,8 @@ class ApiServerTest {
 
     private int contarLinhas(String tabela) throws Exception {
         try (Connection conn = factory.getConnection();
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM " + tabela)) {
+                Statement stmt = conn.createStatement();
+                ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM " + tabela)) {
             rs.next();
             return rs.getInt(1);
         }
@@ -493,8 +426,7 @@ class ApiServerTest {
 
     private String externalCallIdPedido(int pedidoId) throws Exception {
         try (Connection conn = factory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(
-                     "SELECT external_call_id FROM pedidos WHERE id = ?")) {
+                PreparedStatement stmt = conn.prepareStatement("SELECT external_call_id FROM pedidos WHERE id = ?")) {
             stmt.setInt(1, pedidoId);
             try (ResultSet rs = stmt.executeQuery()) {
                 rs.next();
@@ -505,8 +437,8 @@ class ApiServerTest {
 
     private int criarRota(int entregadorId, String status) throws Exception {
         try (Connection conn = factory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(
-                     "INSERT INTO rotas (entregador_id, data, numero_no_dia, status) VALUES (?, CURRENT_DATE, 1, ?) RETURNING id")) {
+                PreparedStatement stmt = conn.prepareStatement(
+                        "INSERT INTO rotas (entregador_id, data, numero_no_dia, status) VALUES (?, CURRENT_DATE, 1, ?) RETURNING id")) {
             stmt.setInt(1, entregadorId);
             stmt.setObject(2, status, java.sql.Types.OTHER);
             try (ResultSet rs = stmt.executeQuery()) {
@@ -518,8 +450,8 @@ class ApiServerTest {
 
     private int criarEntrega(int pedidoId, int rotaId, String status) throws Exception {
         try (Connection conn = factory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(
-                     "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, status) VALUES (?, ?, 1, ?) RETURNING id")) {
+                PreparedStatement stmt = conn.prepareStatement(
+                        "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, status) VALUES (?, ?, 1, ?) RETURNING id")) {
             stmt.setInt(1, pedidoId);
             stmt.setInt(2, rotaId);
             stmt.setObject(3, status, java.sql.Types.OTHER);
@@ -532,7 +464,7 @@ class ApiServerTest {
 
     private void atualizarStatusPedido(int pedidoId, String status) throws Exception {
         try (Connection conn = factory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement("UPDATE pedidos SET status = ? WHERE id = ?")) {
+                PreparedStatement stmt = conn.prepareStatement("UPDATE pedidos SET status = ? WHERE id = ?")) {
             stmt.setObject(1, status, java.sql.Types.OTHER);
             stmt.setInt(2, pedidoId);
             stmt.executeUpdate();
