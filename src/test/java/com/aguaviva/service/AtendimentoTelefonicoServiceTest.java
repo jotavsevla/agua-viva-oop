@@ -1,5 +1,11 @@
 package com.aguaviva.service;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import com.aguaviva.domain.cliente.Cliente;
 import com.aguaviva.domain.cliente.ClienteTipo;
 import com.aguaviva.domain.user.Password;
@@ -8,22 +14,15 @@ import com.aguaviva.domain.user.UserPapel;
 import com.aguaviva.repository.ClienteRepository;
 import com.aguaviva.repository.ConnectionFactory;
 import com.aguaviva.repository.UserRepository;
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.Statement;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
-
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.Statement;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class AtendimentoTelefonicoServiceTest {
 
@@ -34,11 +33,7 @@ class AtendimentoTelefonicoServiceTest {
 
     @BeforeAll
     static void setUp() throws Exception {
-        factory = new ConnectionFactory(
-                "localhost", "5435",
-                "agua_viva_oop_test",
-                "postgres", "postgres"
-        );
+        factory = new ConnectionFactory("localhost", "5435", "agua_viva_oop_test", "postgres", "postgres");
         userRepository = new UserRepository(factory);
         clienteRepository = new ClienteRepository(factory);
         service = new AtendimentoTelefonicoService(factory);
@@ -64,7 +59,7 @@ class AtendimentoTelefonicoServiceTest {
 
     private static void garantirSchemaIdempotenciaTelefonica() throws Exception {
         try (Connection conn = factory.getConnection();
-             Statement stmt = conn.createStatement()) {
+                Statement stmt = conn.createStatement()) {
             stmt.execute("ALTER TABLE pedidos ADD COLUMN IF NOT EXISTS external_call_id VARCHAR(64)");
             stmt.execute("ALTER TABLE pedidos DROP CONSTRAINT IF EXISTS uk_pedidos_external_call_id");
             stmt.execute("DROP INDEX IF EXISTS uk_pedidos_external_call_id");
@@ -89,8 +84,9 @@ class AtendimentoTelefonicoServiceTest {
 
     private void limparBanco() throws Exception {
         try (Connection conn = factory.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("TRUNCATE TABLE sessions, entregas, rotas, movimentacao_vales, saldo_vales, pedidos, clientes, users RESTART IDENTITY CASCADE");
+                Statement stmt = conn.createStatement()) {
+            stmt.execute(
+                    "TRUNCATE TABLE sessions, entregas, rotas, movimentacao_vales, saldo_vales, pedidos, clientes, users RESTART IDENTITY CASCADE");
         }
     }
 
@@ -103,12 +99,8 @@ class AtendimentoTelefonicoServiceTest {
     void deveCriarClienteMinimoEPedidoPendenteQuandoTelefoneNaoExiste() throws Exception {
         int atendenteId = criarAtendenteId("telefone1@teste.com");
 
-        AtendimentoTelefonicoResultado resultado = service.registrarPedido(
-                "call-001",
-                "+55 (38) 9 9876-1234",
-                2,
-                atendenteId
-        );
+        AtendimentoTelefonicoResultado resultado =
+                service.registrarPedido("call-001", "+55 (38) 9 9876-1234", 2, atendenteId);
 
         assertTrue(resultado.clienteCriado());
         assertFalse(resultado.idempotente());
@@ -122,19 +114,10 @@ class AtendimentoTelefonicoServiceTest {
     @Test
     void deveReaproveitarClienteExistentePorTelefoneNormalizado() throws Exception {
         int atendenteId = criarAtendenteId("telefone2@teste.com");
-        Cliente cliente = clienteRepository.save(new Cliente(
-                "Cliente ja cadastrado",
-                "(38) 99876-1234",
-                ClienteTipo.PF,
-                "Rua A, 100"
-        ));
+        Cliente cliente = clienteRepository.save(
+                new Cliente("Cliente ja cadastrado", "(38) 99876-1234", ClienteTipo.PF, "Rua A, 100"));
 
-        AtendimentoTelefonicoResultado resultado = service.registrarPedido(
-                "call-002",
-                "38 99876 1234",
-                1,
-                atendenteId
-        );
+        AtendimentoTelefonicoResultado resultado = service.registrarPedido("call-002", "38 99876 1234", 1, atendenteId);
 
         assertFalse(resultado.clienteCriado());
         assertFalse(resultado.idempotente());
@@ -147,18 +130,9 @@ class AtendimentoTelefonicoServiceTest {
     void deveSerIdempotenteQuandoExternalCallIdForRepetido() throws Exception {
         int atendenteId = criarAtendenteId("telefone3@teste.com");
 
-        AtendimentoTelefonicoResultado primeira = service.registrarPedido(
-                "call-003",
-                "(38) 99999-5001",
-                1,
-                atendenteId
-        );
-        AtendimentoTelefonicoResultado segunda = service.registrarPedido(
-                "call-003",
-                "(38) 99999-5001",
-                3,
-                atendenteId
-        );
+        AtendimentoTelefonicoResultado primeira =
+                service.registrarPedido("call-003", "(38) 99999-5001", 1, atendenteId);
+        AtendimentoTelefonicoResultado segunda = service.registrarPedido("call-003", "(38) 99999-5001", 3, atendenteId);
 
         assertFalse(primeira.idempotente());
         assertTrue(segunda.idempotente());
@@ -170,8 +144,8 @@ class AtendimentoTelefonicoServiceTest {
 
     @Test
     void deveFazerRollbackQuandoAtendenteNaoExiste() throws Exception {
-        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> service.registrarPedido("call-004", "(38) 99999-6001", 1, 999));
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class, () -> service.registrarPedido("call-004", "(38) 99999-6001", 1, 999));
 
         assertEquals("Atendente informado nao existe", ex.getMessage());
         assertEquals(0, contarLinhas("pedidos"));
@@ -181,26 +155,19 @@ class AtendimentoTelefonicoServiceTest {
     @Test
     void deveRejeitarExternalCallIdInvalido() throws Exception {
         int atendenteId = criarAtendenteId("telefone4@teste.com");
-        assertThrows(IllegalArgumentException.class,
+        assertThrows(
+                IllegalArgumentException.class,
                 () -> service.registrarPedido("   ", "(38) 99999-7001", 1, atendenteId));
     }
 
     @Test
     void deveRetornarPedidoAtivoQuandoAtendimentoManualEncontrarPedidoAberto() throws Exception {
         int atendenteId = criarAtendenteId("telefone5@teste.com");
-        Cliente cliente = clienteRepository.save(new Cliente(
-                "Cliente manual",
-                "(38) 99876-8001",
-                ClienteTipo.PF,
-                "Rua B, 12"
-        ));
+        Cliente cliente =
+                clienteRepository.save(new Cliente("Cliente manual", "(38) 99876-8001", ClienteTipo.PF, "Rua B, 12"));
         int pedidoExistenteId = inserirPedido(cliente.getId(), atendenteId, "PENDENTE", "call-manual-001");
 
-        AtendimentoTelefonicoResultado resultado = service.registrarPedidoManual(
-                "(38) 99876-8001",
-                2,
-                atendenteId
-        );
+        AtendimentoTelefonicoResultado resultado = service.registrarPedidoManual("(38) 99876-8001", 2, atendenteId);
 
         assertTrue(resultado.idempotente());
         assertFalse(resultado.clienteCriado());
@@ -212,19 +179,11 @@ class AtendimentoTelefonicoServiceTest {
     @Test
     void deveCriarPedidoQuandoAtendimentoManualNaoEncontrarPedidoAtivo() throws Exception {
         int atendenteId = criarAtendenteId("telefone6@teste.com");
-        Cliente cliente = clienteRepository.save(new Cliente(
-                "Cliente historico",
-                "(38) 99876-8002",
-                ClienteTipo.PF,
-                "Rua C, 30"
-        ));
+        Cliente cliente = clienteRepository.save(
+                new Cliente("Cliente historico", "(38) 99876-8002", ClienteTipo.PF, "Rua C, 30"));
         inserirPedido(cliente.getId(), atendenteId, "ENTREGUE", "call-manual-002");
 
-        AtendimentoTelefonicoResultado resultado = service.registrarPedidoManual(
-                "(38) 99876-8002",
-                1,
-                atendenteId
-        );
+        AtendimentoTelefonicoResultado resultado = service.registrarPedidoManual("(38) 99876-8002", 1, atendenteId);
 
         assertFalse(resultado.idempotente());
         assertFalse(resultado.clienteCriado());
@@ -236,8 +195,8 @@ class AtendimentoTelefonicoServiceTest {
 
     private int contarLinhas(String tabela) throws Exception {
         try (Connection conn = factory.getConnection();
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM " + tabela)) {
+                Statement stmt = conn.createStatement();
+                ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM " + tabela)) {
             rs.next();
             return rs.getInt(1);
         }
@@ -245,7 +204,7 @@ class AtendimentoTelefonicoServiceTest {
 
     private String statusPedido(int pedidoId) throws Exception {
         try (Connection conn = factory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement("SELECT status::text FROM pedidos WHERE id = ?")) {
+                PreparedStatement stmt = conn.prepareStatement("SELECT status::text FROM pedidos WHERE id = ?")) {
             stmt.setInt(1, pedidoId);
             try (ResultSet rs = stmt.executeQuery()) {
                 rs.next();
@@ -256,7 +215,7 @@ class AtendimentoTelefonicoServiceTest {
 
     private String externalCallIdPedido(int pedidoId) throws Exception {
         try (Connection conn = factory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement("SELECT external_call_id FROM pedidos WHERE id = ?")) {
+                PreparedStatement stmt = conn.prepareStatement("SELECT external_call_id FROM pedidos WHERE id = ?")) {
             stmt.setInt(1, pedidoId);
             try (ResultSet rs = stmt.executeQuery()) {
                 rs.next();
@@ -267,9 +226,9 @@ class AtendimentoTelefonicoServiceTest {
 
     private int inserirPedido(int clienteId, int atendenteId, String status, String externalCallId) throws Exception {
         try (Connection conn = factory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(
-                     "INSERT INTO pedidos (cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por, external_call_id) "
-                             + "VALUES (?, 1, 'ASAP', NULL, NULL, ?, ?, ?) RETURNING id")) {
+                PreparedStatement stmt = conn.prepareStatement(
+                        "INSERT INTO pedidos (cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por, external_call_id) "
+                                + "VALUES (?, 1, 'ASAP', NULL, NULL, ?, ?, ?) RETURNING id")) {
             stmt.setInt(1, clienteId);
             stmt.setObject(2, status, java.sql.Types.OTHER);
             stmt.setInt(3, atendenteId);

@@ -1,20 +1,19 @@
 package com.aguaviva.repository;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import com.aguaviva.domain.user.Password;
 import com.aguaviva.domain.user.User;
 import com.aguaviva.domain.user.UserPapel;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
 import java.util.Optional;
-
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 class UserRepositoryTest {
 
@@ -23,11 +22,7 @@ class UserRepositoryTest {
 
     @BeforeAll
     static void setUp() {
-        factory = new ConnectionFactory(
-                "localhost", "5435",
-                "agua_viva_oop_test",
-                "postgres", "postgres"
-        );
+        factory = new ConnectionFactory("localhost", "5435", "agua_viva_oop_test", "postgres", "postgres");
         repository = new UserRepository(factory);
     }
 
@@ -41,7 +36,7 @@ class UserRepositoryTest {
     @BeforeEach
     void limparTabela() throws Exception {
         try (Connection conn = factory.getConnection();
-             Statement stmt = conn.createStatement()) {
+                Statement stmt = conn.createStatement()) {
             stmt.execute("DELETE FROM users");
             stmt.execute("ALTER SEQUENCE users_id_seq RESTART WITH 1");
         }
@@ -121,8 +116,7 @@ class UserRepositoryTest {
 
             Optional<User> encontrado = repository.findById(salvo.getId());
             assertTrue(encontrado.isPresent());
-            assertEquals(papel, encontrado.get().getPapel(),
-                    "Falha no mapeamento do papel: " + papel);
+            assertEquals(papel, encontrado.get().getPapel(), "Falha no mapeamento do papel: " + papel);
         }
     }
 
@@ -175,8 +169,7 @@ class UserRepositoryTest {
 
         User duplicado = criarUsuario("Outro", "admin@teste.com", UserPapel.ADMIN);
 
-        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class,
-                () -> repository.save(duplicado));
+        IllegalArgumentException ex = assertThrows(IllegalArgumentException.class, () -> repository.save(duplicado));
         assertTrue(ex.getMessage().contains("admin@teste.com"));
     }
 
@@ -219,10 +212,13 @@ class UserRepositoryTest {
         User salvo = repository.save(criarAdmin());
 
         User atualizado = new User(
-                salvo.getId(), "Novo Nome", "novo@email.com",
+                salvo.getId(),
+                "Novo Nome",
+                "novo@email.com",
                 Password.fromPlainText("novaSenha123"),
-                UserPapel.SUPERVISOR, "(11) 99999-1234", true
-        );
+                UserPapel.SUPERVISOR,
+                "(11) 99999-1234",
+                true);
 
         repository.update(atualizado);
 
@@ -238,8 +234,8 @@ class UserRepositoryTest {
 
     @Test
     void deveLancarExcecaoAoAtualizarUsuarioInexistente() throws Exception {
-        User fantasma = new User(999, "Fantasma", "fantasma@teste.com",
-                Password.fromPlainText("senha123"), UserPapel.ADMIN, null, true);
+        User fantasma = new User(
+                999, "Fantasma", "fantasma@teste.com", Password.fromPlainText("senha123"), UserPapel.ADMIN, null, true);
 
         assertThrows(SQLException.class, () -> repository.update(fantasma));
     }
@@ -250,12 +246,15 @@ class UserRepositoryTest {
         User entregador = repository.save(criarEntregador());
 
         User comEmailDuplicado = new User(
-                entregador.getId(), "Entregador", "admin@teste.com",
-                Password.fromPlainText("senha123"), UserPapel.ENTREGADOR, null, true
-        );
+                entregador.getId(),
+                "Entregador",
+                "admin@teste.com",
+                Password.fromPlainText("senha123"),
+                UserPapel.ENTREGADOR,
+                null,
+                true);
 
-        assertThrows(IllegalArgumentException.class,
-                () -> repository.update(comEmailDuplicado));
+        assertThrows(IllegalArgumentException.class, () -> repository.update(comEmailDuplicado));
     }
 
     // ========================================================================
@@ -297,9 +296,14 @@ class UserRepositoryTest {
 
     @Test
     void deveSalvarUsuarioComTelefone() throws Exception {
-        User comTelefone = new User(0, "Maria", "maria@teste.com",
-                Password.fromPlainText("senha123"), UserPapel.ATENDENTE,
-                "(11) 99999-0000", true);
+        User comTelefone = new User(
+                0,
+                "Maria",
+                "maria@teste.com",
+                Password.fromPlainText("senha123"),
+                UserPapel.ATENDENTE,
+                "(11) 99999-0000",
+                true);
 
         User salvo = repository.save(comTelefone);
         Optional<User> encontrado = repository.findById(salvo.getId());

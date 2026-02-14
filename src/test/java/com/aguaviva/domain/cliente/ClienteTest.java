@@ -1,10 +1,9 @@
 package com.aguaviva.domain.cliente;
 
-import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.*;
 
 import java.math.BigDecimal;
-
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.Test;
 
 class ClienteTest {
 
@@ -49,8 +48,7 @@ class ClienteTest {
                 "Av. Central, 200",
                 latValida(),
                 lonValida(),
-                "Portao lateral"
-        );
+                "Portao lateral");
 
         assertEquals(10, cliente.getId());
         assertEquals("Empresa XYZ", cliente.getNome());
@@ -68,69 +66,63 @@ class ClienteTest {
 
     @Test
     void deveRejeitarIdNegativo() {
-        assertThrows(IllegalArgumentException.class, () ->
-                new Cliente(-1, "Joao", "123", ClienteTipo.PF, "Rua A", null, null, null));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new Cliente(-1, "Joao", "123", ClienteTipo.PF, "Rua A", null, null, null));
     }
 
     @Test
     void deveRejeitarNomeNulo() {
-        assertThrows(IllegalArgumentException.class, () ->
-                new Cliente(null, "123", ClienteTipo.PF, "Rua A"));
+        assertThrows(IllegalArgumentException.class, () -> new Cliente(null, "123", ClienteTipo.PF, "Rua A"));
     }
 
     @Test
     void deveRejeitarTelefoneVazio() {
-        assertThrows(IllegalArgumentException.class, () ->
-                new Cliente("Joao", "", ClienteTipo.PF, "Rua A"));
+        assertThrows(IllegalArgumentException.class, () -> new Cliente("Joao", "", ClienteTipo.PF, "Rua A"));
     }
 
     @Test
     void deveRejeitarTipoNulo() {
-        assertThrows(NullPointerException.class, () ->
-                new Cliente("Joao", "123", null, "Rua A"));
+        assertThrows(NullPointerException.class, () -> new Cliente("Joao", "123", null, "Rua A"));
     }
 
     @Test
     void deveRejeitarEnderecoComEspacosEmBranco() {
-        assertThrows(IllegalArgumentException.class, () ->
-                new Cliente("Joao", "123", ClienteTipo.PF, "   "));
+        assertThrows(IllegalArgumentException.class, () -> new Cliente("Joao", "123", ClienteTipo.PF, "   "));
     }
 
     @Test
     void deveRejeitarLatitudeSemLongitude() {
-        assertThrows(IllegalArgumentException.class, () ->
-                new Cliente("Joao", "123", ClienteTipo.PF, "Rua A", latValida(), null, null));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new Cliente("Joao", "123", ClienteTipo.PF, "Rua A", latValida(), null, null));
     }
 
     @Test
     void deveRejeitarLongitudeSemLatitude() {
-        assertThrows(IllegalArgumentException.class, () ->
-                new Cliente("Joao", "123", ClienteTipo.PF, "Rua A", null, lonValida(), null));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new Cliente("Joao", "123", ClienteTipo.PF, "Rua A", null, lonValida(), null));
     }
 
     @Test
     void deveRejeitarLatitudeForaDoIntervalo() {
-        assertThrows(IllegalArgumentException.class, () ->
-                new Cliente("Joao", "123", ClienteTipo.PF, "Rua A", new BigDecimal("90.1"), lonValida(), null));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new Cliente("Joao", "123", ClienteTipo.PF, "Rua A", new BigDecimal("90.1"), lonValida(), null));
     }
 
     @Test
     void deveRejeitarLongitudeForaDoIntervalo() {
-        assertThrows(IllegalArgumentException.class, () ->
-                new Cliente("Joao", "123", ClienteTipo.PF, "Rua A", latValida(), new BigDecimal("180.1"), null));
+        assertThrows(
+                IllegalArgumentException.class,
+                () -> new Cliente("Joao", "123", ClienteTipo.PF, "Rua A", latValida(), new BigDecimal("180.1"), null));
     }
 
     @Test
     void deveNormalizarCamposTextuais() {
         Cliente cliente = new Cliente(
-                "  Joao  ",
-                "  12345  ",
-                ClienteTipo.PF,
-                "  Rua A, 100  ",
-                latValida(),
-                lonValida(),
-                "  Portao azul  "
-        );
+                "  Joao  ", "  12345  ", ClienteTipo.PF, "  Rua A, 100  ", latValida(), lonValida(), "  Portao azul  ");
 
         assertEquals("Joao", cliente.getNome());
         assertEquals("12345", cliente.getTelefone());

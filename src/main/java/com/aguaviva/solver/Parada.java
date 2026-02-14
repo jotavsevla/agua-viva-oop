@@ -6,7 +6,7 @@ public final class Parada {
     private final int pedidoId;
     private final double lat;
     private final double lon;
-    private final String horaPrevista;  // "HH:MM"
+    private final String horaPrevista; // "HH:MM"
 
     public Parada(int ordem, int pedidoId, double lat, double lon, String horaPrevista) {
         this.ordem = ordem;
@@ -16,16 +16,28 @@ public final class Parada {
         this.horaPrevista = horaPrevista;
     }
 
-    public int getOrdem() { return ordem; }
-    public int getPedidoId() { return pedidoId; }
-    public double getLat() { return lat; }
-    public double getLon() { return lon; }
-    public String getHoraPrevista() { return horaPrevista; }
+    public int getOrdem() {
+        return ordem;
+    }
+
+    public int getPedidoId() {
+        return pedidoId;
+    }
+
+    public double getLat() {
+        return lat;
+    }
+
+    public double getLon() {
+        return lon;
+    }
+
+    public String getHoraPrevista() {
+        return horaPrevista;
+    }
 
     @Override
     public String toString() {
-        return "Parada{ordem=" + ordem
-                + ", pedidoId=" + pedidoId
-                + ", horaPrevista='" + horaPrevista + "'}";
+        return "Parada{ordem=" + ordem + ", pedidoId=" + pedidoId + ", horaPrevista='" + horaPrevista + "'}";
     }
 }

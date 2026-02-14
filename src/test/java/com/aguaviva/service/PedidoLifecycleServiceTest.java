@@ -1,5 +1,11 @@
 package com.aguaviva.service;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import com.aguaviva.domain.cliente.Cliente;
 import com.aguaviva.domain.cliente.ClienteTipo;
 import com.aguaviva.domain.pedido.JanelaTipo;
@@ -13,23 +19,16 @@ import com.aguaviva.repository.ClienteRepository;
 import com.aguaviva.repository.ConnectionFactory;
 import com.aguaviva.repository.PedidoRepository;
 import com.aguaviva.repository.UserRepository;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.time.LocalTime;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 class PedidoLifecycleServiceTest {
 
@@ -41,11 +40,7 @@ class PedidoLifecycleServiceTest {
 
     @BeforeAll
     static void setUp() {
-        factory = new ConnectionFactory(
-                "localhost", "5435",
-                "agua_viva_oop_test",
-                "postgres", "postgres"
-        );
+        factory = new ConnectionFactory("localhost", "5435", "agua_viva_oop_test", "postgres", "postgres");
         userRepository = new UserRepository(factory);
         clienteRepository = new ClienteRepository(factory);
         pedidoRepository = new PedidoRepository(factory);
@@ -71,8 +66,9 @@ class PedidoLifecycleServiceTest {
 
     private void limparBanco() throws Exception {
         try (Connection conn = factory.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("TRUNCATE TABLE sessions, entregas, rotas, movimentacao_vales, saldo_vales, pedidos, clientes, users RESTART IDENTITY CASCADE");
+                Statement stmt = conn.createStatement()) {
+            stmt.execute(
+                    "TRUNCATE TABLE sessions, entregas, rotas, movimentacao_vales, saldo_vales, pedidos, clientes, users RESTART IDENTITY CASCADE");
         }
     }
 
@@ -108,13 +104,13 @@ class PedidoLifecycleServiceTest {
     void deveRejeitarTransicaoInvalida() throws Exception {
         int userId = criarAtendenteId("lifecycle2@teste.com");
         int clienteId = criarClienteId("(38) 99999-8102");
-        Pedido pedido = pedidoRepository.save(new Pedido(
-                0, clienteId, 2, JanelaTipo.ASAP, null, null, PedidoStatus.ENTREGUE, userId
-        ));
+        Pedido pedido = pedidoRepository.save(
+                new Pedido(0, clienteId, 2, JanelaTipo.ASAP, null, null, PedidoStatus.ENTREGUE, userId));
 
         try (Connection conn = factory.getConnection()) {
             conn.setAutoCommit(false);
-            assertThrows(IllegalStateException.class,
+            assertThrows(
+                    IllegalStateException.class,
                     () -> lifecycleService.transicionar(conn, pedido.getId(), PedidoStatus.CONFIRMADO));
             conn.rollback();
         }
@@ -127,10 +123,14 @@ class PedidoLifecycleServiceTest {
         int userId = criarAtendenteId("lifecycle3@teste.com");
         int clienteId = criarClienteId("(38) 99999-8103");
         Pedido pedido = pedidoRepository.save(new Pedido(
-                0, clienteId, 3, JanelaTipo.HARD,
-                LocalTime.of(9, 0), LocalTime.of(11, 0),
-                PedidoStatus.EM_ROTA, userId
-        ));
+                0,
+                clienteId,
+                3,
+                JanelaTipo.HARD,
+                LocalTime.of(9, 0),
+                LocalTime.of(11, 0),
+                PedidoStatus.EM_ROTA,
+                userId));
 
         PedidoTransitionResult resultado;
         try (Connection conn = factory.getConnection()) {
@@ -139,8 +139,7 @@ class PedidoLifecycleServiceTest {
                     conn,
                     pedido.getId(),
                     PedidoStatus.CANCELADO,
-                    new PedidoLifecycleService.TransitionContext("cliente cancelou em rota", 3500)
-            );
+                    new PedidoLifecycleService.TransitionContext("cliente cancelou em rota", 3500));
             conn.commit();
         }
 
@@ -158,7 +157,7 @@ class PedidoLifecycleServiceTest {
     private boolean hasColumn(String tabela, String coluna) throws Exception {
         String sql = "SELECT 1 FROM information_schema.columns WHERE table_name = ? AND column_name = ?";
         try (Connection conn = factory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+                PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, tabela);
             stmt.setString(2, coluna);
             try (ResultSet rs = stmt.executeQuery()) {
@@ -169,7 +168,7 @@ class PedidoLifecycleServiceTest {
 
     private String statusDoPedido(int pedidoId) throws Exception {
         try (Connection conn = factory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement("SELECT status::text FROM pedidos WHERE id = ?")) {
+                PreparedStatement stmt = conn.prepareStatement("SELECT status::text FROM pedidos WHERE id = ?")) {
             stmt.setInt(1, pedidoId);
             try (ResultSet rs = stmt.executeQuery()) {
                 rs.next();
@@ -180,9 +179,8 @@ class PedidoLifecycleServiceTest {
 
     private String canceladoEmDoPedido(int pedidoId) throws Exception {
         try (Connection conn = factory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(
-                     "SELECT TO_CHAR(cancelado_em, 'YYYY-MM-DD HH24:MI:SS') FROM pedidos WHERE id = ?")
-        ) {
+                PreparedStatement stmt = conn.prepareStatement(
+                        "SELECT TO_CHAR(cancelado_em, 'YYYY-MM-DD HH24:MI:SS') FROM pedidos WHERE id = ?")) {
             stmt.setInt(1, pedidoId);
             try (ResultSet rs = stmt.executeQuery()) {
                 rs.next();
@@ -193,7 +191,8 @@ class PedidoLifecycleServiceTest {
 
     private String motivoCancelamentoDoPedido(int pedidoId) throws Exception {
         try (Connection conn = factory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement("SELECT motivo_cancelamento FROM pedidos WHERE id = ?")) {
+                PreparedStatement stmt =
+                        conn.prepareStatement("SELECT motivo_cancelamento FROM pedidos WHERE id = ?")) {
             stmt.setInt(1, pedidoId);
             try (ResultSet rs = stmt.executeQuery()) {
                 rs.next();
@@ -204,9 +203,8 @@ class PedidoLifecycleServiceTest {
 
     private int cobrancaCancelamentoDoPedido(int pedidoId) throws Exception {
         try (Connection conn = factory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(
-                     "SELECT cobranca_cancelamento_centavos FROM pedidos WHERE id = ?")
-        ) {
+                PreparedStatement stmt =
+                        conn.prepareStatement("SELECT cobranca_cancelamento_centavos FROM pedidos WHERE id = ?")) {
             stmt.setInt(1, pedidoId);
             try (ResultSet rs = stmt.executeQuery()) {
                 rs.next();
@@ -217,7 +215,8 @@ class PedidoLifecycleServiceTest {
 
     private String cobrancaStatusDoPedido(int pedidoId) throws Exception {
         try (Connection conn = factory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement("SELECT cobranca_status::text FROM pedidos WHERE id = ?")) {
+                PreparedStatement stmt =
+                        conn.prepareStatement("SELECT cobranca_status::text FROM pedidos WHERE id = ?")) {
             stmt.setInt(1, pedidoId);
             try (ResultSet rs = stmt.executeQuery()) {
                 rs.next();

@@ -3,7 +3,6 @@ package com.aguaviva.repository;
 import com.aguaviva.domain.pedido.JanelaTipo;
 import com.aguaviva.domain.pedido.Pedido;
 import com.aguaviva.domain.pedido.PedidoStatus;
-
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -28,11 +27,12 @@ public class PedidoRepository {
     // ========================================================================
 
     public Pedido save(Pedido pedido) throws SQLException {
-        String sql = "INSERT INTO pedidos (cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por) "
-                + "VALUES (?, ?, ?, ?, ?, ?, ?)";
+        String sql =
+                "INSERT INTO pedidos (cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?)";
 
         try (Connection conn = connectionFactory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+                PreparedStatement stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
 
             stmt.setInt(1, pedido.getClienteId());
             stmt.setInt(2, pedido.getQuantidadeGaloes());
@@ -55,8 +55,7 @@ public class PedidoRepository {
                             pedido.getJanelaInicio(),
                             pedido.getJanelaFim(),
                             pedido.getStatus(),
-                            pedido.getCriadoPorUserId()
-                    );
+                            pedido.getCriadoPorUserId());
                 }
             }
             throw new SQLException("Falha ao salvar pedido, nenhum ID gerado.");
@@ -75,7 +74,7 @@ public class PedidoRepository {
                 + "WHERE id = ?";
 
         try (Connection conn = connectionFactory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+                PreparedStatement stmt = conn.prepareStatement(sql)) {
 
             stmt.setInt(1, pedido.getClienteId());
             stmt.setInt(2, pedido.getQuantidadeGaloes());
@@ -103,11 +102,12 @@ public class PedidoRepository {
     // ========================================================================
 
     public Optional<Pedido> findById(int id) throws SQLException {
-        String sql = "SELECT id, cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por "
-                + "FROM pedidos WHERE id = ?";
+        String sql =
+                "SELECT id, cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por "
+                        + "FROM pedidos WHERE id = ?";
 
         try (Connection conn = connectionFactory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+                PreparedStatement stmt = conn.prepareStatement(sql)) {
 
             stmt.setInt(1, id);
 
@@ -121,12 +121,13 @@ public class PedidoRepository {
     }
 
     public List<Pedido> findByCliente(int clienteId) throws SQLException {
-        String sql = "SELECT id, cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por "
-                + "FROM pedidos WHERE cliente_id = ? ORDER BY criado_em DESC, id DESC";
+        String sql =
+                "SELECT id, cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por "
+                        + "FROM pedidos WHERE cliente_id = ? ORDER BY criado_em DESC, id DESC";
         List<Pedido> pedidos = new ArrayList<>();
 
         try (Connection conn = connectionFactory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+                PreparedStatement stmt = conn.prepareStatement(sql)) {
 
             stmt.setInt(1, clienteId);
 
@@ -140,13 +141,14 @@ public class PedidoRepository {
     }
 
     public List<Pedido> findPendentes() throws SQLException {
-        String sql = "SELECT id, cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por "
-                + "FROM pedidos WHERE status = 'PENDENTE' ORDER BY criado_em, id";
+        String sql =
+                "SELECT id, cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por "
+                        + "FROM pedidos WHERE status = 'PENDENTE' ORDER BY criado_em, id";
         List<Pedido> pedidos = new ArrayList<>();
 
         try (Connection conn = connectionFactory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql);
-             ResultSet rs = stmt.executeQuery()) {
+                PreparedStatement stmt = conn.prepareStatement(sql);
+                ResultSet rs = stmt.executeQuery()) {
 
             while (rs.next()) {
                 pedidos.add(toPedido(rs));
@@ -168,8 +170,7 @@ public class PedidoRepository {
                 rs.getObject("janela_inicio", LocalTime.class),
                 rs.getObject("janela_fim", LocalTime.class),
                 toPedidoStatus(rs.getString("status")),
-                rs.getInt("criado_por")
-        );
+                rs.getInt("criado_por"));
     }
 
     private void setJanelaTipoParameter(PreparedStatement stmt, int index, JanelaTipo janelaTipo) throws SQLException {

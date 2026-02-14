@@ -1,21 +1,20 @@
 package com.aguaviva.service;
 
-import com.aguaviva.repository.ConnectionFactory;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.aguaviva.repository.ConnectionFactory;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.concurrent.atomic.AtomicInteger;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 class ReplanejamentoWorkerServiceTest {
 
@@ -25,20 +24,13 @@ class ReplanejamentoWorkerServiceTest {
 
     @BeforeAll
     static void setUp() throws Exception {
-        factory = new ConnectionFactory(
-                "localhost", "5435",
-                "agua_viva_oop_test",
-                "postgres", "postgres"
-        );
+        factory = new ConnectionFactory("localhost", "5435", "agua_viva_oop_test", "postgres", "postgres");
         garantirSchemaDispatch();
         replanejamentoCalls = new AtomicInteger(0);
-        workerService = new ReplanejamentoWorkerService(
-                factory,
-                () -> {
-                    replanejamentoCalls.incrementAndGet();
-                    return new PlanejamentoResultado(2, 3, 1);
-                }
-        );
+        workerService = new ReplanejamentoWorkerService(factory, () -> {
+            replanejamentoCalls.incrementAndGet();
+            return new PlanejamentoResultado(2, 3, 1);
+        });
     }
 
     @AfterAll
@@ -61,7 +53,7 @@ class ReplanejamentoWorkerServiceTest {
 
     private static void garantirSchemaDispatch() throws Exception {
         try (Connection conn = factory.getConnection();
-             Statement stmt = conn.createStatement()) {
+                Statement stmt = conn.createStatement()) {
             stmt.execute("DO $$ BEGIN "
                     + "IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'dispatch_event_status') "
                     + "THEN CREATE TYPE dispatch_event_status AS ENUM ('PENDENTE', 'PROCESSADO'); "
@@ -82,7 +74,7 @@ class ReplanejamentoWorkerServiceTest {
 
     private void limparEventos() throws Exception {
         try (Connection conn = factory.getConnection();
-             Statement stmt = conn.createStatement()) {
+                Statement stmt = conn.createStatement()) {
             stmt.execute("TRUNCATE TABLE dispatch_events RESTART IDENTITY");
         }
     }
@@ -133,7 +125,7 @@ class ReplanejamentoWorkerServiceTest {
         String sql = "INSERT INTO dispatch_events (event_type, aggregate_type, aggregate_id, payload, available_em) "
                 + "VALUES (?, 'PEDIDO', 1, '{}'::jsonb, CURRENT_TIMESTAMP - (? * INTERVAL '1 second'))";
         try (Connection conn = factory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+                PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, eventType);
             stmt.setInt(2, secondsAgo);
             stmt.executeUpdate();
@@ -142,9 +134,9 @@ class ReplanejamentoWorkerServiceTest {
 
     private int contarProcessados() throws Exception {
         try (Connection conn = factory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(
-                     "SELECT COUNT(*) FROM dispatch_events WHERE status::text = 'PROCESSADO'");
-             ResultSet rs = stmt.executeQuery()) {
+                PreparedStatement stmt = conn.prepareStatement(
+                        "SELECT COUNT(*) FROM dispatch_events WHERE status::text = 'PROCESSADO'");
+                ResultSet rs = stmt.executeQuery()) {
             rs.next();
             return rs.getInt(1);
         }
@@ -152,9 +144,9 @@ class ReplanejamentoWorkerServiceTest {
 
     private int contarPendentes() throws Exception {
         try (Connection conn = factory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(
-                     "SELECT COUNT(*) FROM dispatch_events WHERE status::text = 'PENDENTE'");
-             ResultSet rs = stmt.executeQuery()) {
+                PreparedStatement stmt =
+                        conn.prepareStatement("SELECT COUNT(*) FROM dispatch_events WHERE status::text = 'PENDENTE'");
+                ResultSet rs = stmt.executeQuery()) {
             rs.next();
             return rs.getInt(1);
         }

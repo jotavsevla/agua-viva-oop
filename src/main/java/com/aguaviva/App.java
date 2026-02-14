@@ -2,7 +2,6 @@ package com.aguaviva;
 
 import com.aguaviva.api.ApiServer;
 import com.aguaviva.repository.ConnectionFactory;
-
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
@@ -27,8 +26,8 @@ public class App {
         ConnectionFactory factory = new ConnectionFactory();
 
         try (Connection conn = factory.getConnection();
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery("SELECT version()")) {
+                Statement stmt = conn.createStatement();
+                ResultSet rs = stmt.executeQuery("SELECT version()")) {
 
             if (rs.next()) {
                 System.out.println("Conectado com sucesso!");

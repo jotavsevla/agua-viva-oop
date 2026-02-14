@@ -1,8 +1,7 @@
 package com.aguaviva.domain.user;
 
-import org.mindrot.jbcrypt.BCrypt;
-
 import java.util.Objects;
+import org.mindrot.jbcrypt.BCrypt;
 
 public final class Password {
 
@@ -40,9 +39,7 @@ public final class Password {
             throw new IllegalArgumentException("Senha nao pode ser nula ou vazia");
         }
         if (plainText.length() < MINIMUM_LENGTH) {
-            throw new IllegalArgumentException(
-                    "Senha deve ter no minimo " + MINIMUM_LENGTH + " caracteres"
-            );
+            throw new IllegalArgumentException("Senha deve ter no minimo " + MINIMUM_LENGTH + " caracteres");
         }
     }
 

@@ -3,7 +3,6 @@ package com.aguaviva.service;
 import com.aguaviva.domain.pedido.PedidoStateMachine;
 import com.aguaviva.domain.pedido.PedidoStatus;
 import com.aguaviva.domain.pedido.PedidoTransitionResult;
-
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -17,12 +16,13 @@ import java.util.Objects;
  */
 public class PedidoLifecycleService {
 
-    public PedidoTransitionResult transicionar(Connection conn, int pedidoId, PedidoStatus statusDestino) throws SQLException {
+    public PedidoTransitionResult transicionar(Connection conn, int pedidoId, PedidoStatus statusDestino)
+            throws SQLException {
         return transicionar(conn, pedidoId, statusDestino, TransitionContext.vazio());
     }
 
-    public PedidoTransitionResult transicionar(Connection conn, int pedidoId, PedidoStatus statusDestino,
-                                               TransitionContext context) throws SQLException {
+    public PedidoTransitionResult transicionar(
+            Connection conn, int pedidoId, PedidoStatus statusDestino, TransitionContext context) throws SQLException {
         Objects.requireNonNull(conn, "Connection nao pode ser nula");
         Objects.requireNonNull(statusDestino, "Status destino nao pode ser nulo");
 
@@ -69,8 +69,13 @@ public class PedidoLifecycleService {
         }
     }
 
-    private void persistirCancelamento(Connection conn, int pedidoId, PedidoStatus statusDestino,
-                                       PedidoTransitionResult transition, TransitionContext context) throws SQLException {
+    private void persistirCancelamento(
+            Connection conn,
+            int pedidoId,
+            PedidoStatus statusDestino,
+            PedidoTransitionResult transition,
+            TransitionContext context)
+            throws SQLException {
         CobrancaCancelamento cobranca = CobrancaCancelamento.from(transition, context);
 
         String sql = "UPDATE pedidos SET "

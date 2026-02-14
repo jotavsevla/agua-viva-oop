@@ -12,12 +12,16 @@ public final class SolverResponse {
         this.naoAtendidos = naoAtendidos != null ? naoAtendidos : List.of();
     }
 
-    public List<RotaSolver> getRotas() { return rotas; }
-    public List<Integer> getNaoAtendidos() { return naoAtendidos; }
+    public List<RotaSolver> getRotas() {
+        return rotas;
+    }
+
+    public List<Integer> getNaoAtendidos() {
+        return naoAtendidos;
+    }
 
     @Override
     public String toString() {
-        return "SolverResponse{rotas=" + rotas.size()
-                + ", naoAtendidos=" + naoAtendidos.size() + "}";
+        return "SolverResponse{rotas=" + rotas.size() + ", naoAtendidos=" + naoAtendidos.size() + "}";
     }
 }

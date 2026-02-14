@@ -2,12 +2,10 @@ package com.aguaviva.solver;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import java.util.List;
-
-import com.google.gson.Gson;
 import com.google.gson.FieldNamingPolicy;
+import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-
+import java.util.List;
 import org.junit.jupiter.api.Test;
 
 class SolverClientTest {
@@ -32,10 +30,11 @@ class SolverClientTest {
                 null,
                 null,
                 new Coordenada(-16.7344, -43.8772),
-                5, "08:00", "18:00",
+                5,
+                "08:00",
+                "18:00",
                 List.of(1, 2),
-                List.of(new PedidoSolver(42, -16.71, -43.85, 2, "ASAP", null, null, 2))
-        );
+                List.of(new PedidoSolver(42, -16.71, -43.85, 2, "ASAP", null, null, 2)));
 
         String json = gson().toJson(req);
 
@@ -50,8 +49,7 @@ class SolverClientTest {
 
     @Test
     void deveSerializarRequestComPedidoHard() {
-        var pedido = new PedidoSolver(10, -16.72, -43.86, 1,
-                "HARD", "09:00", "11:00", 1);
+        var pedido = new PedidoSolver(10, -16.72, -43.86, 1, "HARD", "09:00", "11:00", 1);
 
         String json = gson().toJson(pedido);
 
@@ -180,10 +178,11 @@ class SolverClientTest {
                 null,
                 null,
                 new Coordenada(-16.7344, -43.8772),
-                5, "08:00", "18:00",
+                5,
+                "08:00",
+                "18:00",
                 List.of(1),
-                List.of(new PedidoSolver(1, -16.71, -43.85, 3, "ASAP", null, null, 2))
-        );
+                List.of(new PedidoSolver(1, -16.71, -43.85, 3, "ASAP", null, null, 2)));
 
         // Serializa
         String json = gson().toJson(req);
@@ -208,8 +207,7 @@ class SolverClientTest {
                 "08:00",
                 "18:00",
                 List.of(1),
-                List.of(new PedidoSolver(1, -16.71, -43.85, 1, "ASAP", null, null, 2))
-        );
+                List.of(new PedidoSolver(1, -16.71, -43.85, 1, "ASAP", null, null, 2)));
 
         String json = gson().toJson(req);
 
@@ -251,13 +249,11 @@ class SolverClientTest {
 
     @Test
     void deveRejeitarUrlNula() {
-        assertThrows(NullPointerException.class,
-                () -> new SolverClient(null));
+        assertThrows(NullPointerException.class, () -> new SolverClient(null));
     }
 
     @Test
     void deveRejeitarUrlVazia() {
-        assertThrows(IllegalArgumentException.class,
-                () -> new SolverClient(""));
+        assertThrows(IllegalArgumentException.class, () -> new SolverClient(""));
     }
 }

@@ -1,21 +1,20 @@
 package com.aguaviva.repository;
 
+import static org.junit.jupiter.api.Assertions.*;
+
 import com.aguaviva.domain.cliente.Cliente;
 import com.aguaviva.domain.cliente.ClienteTipo;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-
 import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.util.List;
 import java.util.Optional;
-
-import static org.junit.jupiter.api.Assertions.*;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 class ClienteRepositoryTest {
 
@@ -24,11 +23,7 @@ class ClienteRepositoryTest {
 
     @BeforeAll
     static void setUp() {
-        factory = new ConnectionFactory(
-                "localhost", "5435",
-                "agua_viva_oop_test",
-                "postgres", "postgres"
-        );
+        factory = new ConnectionFactory("localhost", "5435", "agua_viva_oop_test", "postgres", "postgres");
         repository = new ClienteRepository(factory);
     }
 
@@ -51,8 +46,9 @@ class ClienteRepositoryTest {
 
     private void limparBanco() throws Exception {
         try (Connection conn = factory.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("TRUNCATE TABLE sessions, entregas, rotas, movimentacao_vales, saldo_vales, pedidos, clientes, users RESTART IDENTITY CASCADE");
+                Statement stmt = conn.createStatement()) {
+            stmt.execute(
+                    "TRUNCATE TABLE sessions, entregas, rotas, movimentacao_vales, saldo_vales, pedidos, clientes, users RESTART IDENTITY CASCADE");
         }
     }
 
@@ -68,8 +64,7 @@ class ClienteRepositoryTest {
                 "Rua Principal, 100",
                 new BigDecimal("-16.73444096"),
                 new BigDecimal("-43.87721119"),
-                "Portao azul"
-        );
+                "Portao azul");
     }
 
     // ========================================================================
@@ -196,8 +191,7 @@ class ClienteRepositoryTest {
                 "Av. Nova, 123",
                 new BigDecimal("-16.70000000"),
                 new BigDecimal("-43.80000000"),
-                "Ligar antes"
-        );
+                "Ligar antes");
 
         repository.update(atualizado);
 
@@ -224,8 +218,7 @@ class ClienteRepositoryTest {
                 fantasma.getEndereco(),
                 fantasma.getLatitude(),
                 fantasma.getLongitude(),
-                fantasma.getNotas()
-        );
+                fantasma.getNotas());
 
         assertThrows(SQLException.class, () -> repository.update(comIdInexistente));
     }
@@ -243,8 +236,7 @@ class ClienteRepositoryTest {
                 cliente2.getEndereco(),
                 cliente2.getLatitude(),
                 cliente2.getLongitude(),
-                cliente2.getNotas()
-        );
+                cliente2.getNotas());
 
         assertThrows(IllegalArgumentException.class, () -> repository.update(comTelefoneDuplicado));
     }

@@ -1,5 +1,9 @@
 package com.aguaviva.service;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+
 import com.aguaviva.domain.cliente.Cliente;
 import com.aguaviva.domain.cliente.ClienteTipo;
 import com.aguaviva.domain.pedido.JanelaTipo;
@@ -12,22 +16,16 @@ import com.aguaviva.repository.ClienteRepository;
 import com.aguaviva.repository.ConnectionFactory;
 import com.aguaviva.repository.PedidoRepository;
 import com.aguaviva.repository.UserRepository;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.time.LocalTime;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertTrue;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 class ExecucaoEntregaServiceTest {
 
@@ -39,11 +37,7 @@ class ExecucaoEntregaServiceTest {
 
     @BeforeAll
     static void setUp() throws Exception {
-        factory = new ConnectionFactory(
-                "localhost", "5435",
-                "agua_viva_oop_test",
-                "postgres", "postgres"
-        );
+        factory = new ConnectionFactory("localhost", "5435", "agua_viva_oop_test", "postgres", "postgres");
         userRepository = new UserRepository(factory);
         clienteRepository = new ClienteRepository(factory);
         pedidoRepository = new PedidoRepository(factory);
@@ -70,7 +64,7 @@ class ExecucaoEntregaServiceTest {
 
     private static void garantirSchemaDispatch() throws Exception {
         try (Connection conn = factory.getConnection();
-             Statement stmt = conn.createStatement()) {
+                Statement stmt = conn.createStatement()) {
             stmt.execute("ALTER TYPE entrega_status ADD VALUE IF NOT EXISTS 'EM_EXECUCAO'");
             stmt.execute("ALTER TYPE entrega_status ADD VALUE IF NOT EXISTS 'CANCELADA'");
             stmt.execute("DO $$ BEGIN "
@@ -93,8 +87,9 @@ class ExecucaoEntregaServiceTest {
 
     private void limparBanco() throws Exception {
         try (Connection conn = factory.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("TRUNCATE TABLE dispatch_events, sessions, entregas, rotas, movimentacao_vales, saldo_vales, pedidos, clientes, users RESTART IDENTITY CASCADE");
+                Statement stmt = conn.createStatement()) {
+            stmt.execute(
+                    "TRUNCATE TABLE dispatch_events, sessions, entregas, rotas, movimentacao_vales, saldo_vales, pedidos, clientes, users RESTART IDENTITY CASCADE");
         }
     }
 
@@ -115,22 +110,14 @@ class ExecucaoEntregaServiceTest {
 
     private int criarPedido(int clienteId, int atendenteId, PedidoStatus status) throws Exception {
         Pedido pedido = new Pedido(
-                0,
-                clienteId,
-                1,
-                JanelaTipo.HARD,
-                LocalTime.of(9, 0),
-                LocalTime.of(11, 0),
-                status,
-                atendenteId
-        );
+                0, clienteId, 1, JanelaTipo.HARD, LocalTime.of(9, 0), LocalTime.of(11, 0), status, atendenteId);
         return pedidoRepository.save(pedido).getId();
     }
 
     private int criarRota(int entregadorId, String status) throws Exception {
         try (Connection conn = factory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(
-                     "INSERT INTO rotas (entregador_id, data, numero_no_dia, status) VALUES (?, CURRENT_DATE, 1, ?) RETURNING id")) {
+                PreparedStatement stmt = conn.prepareStatement(
+                        "INSERT INTO rotas (entregador_id, data, numero_no_dia, status) VALUES (?, CURRENT_DATE, 1, ?) RETURNING id")) {
             stmt.setInt(1, entregadorId);
             stmt.setObject(2, status, java.sql.Types.OTHER);
             try (ResultSet rs = stmt.executeQuery()) {
@@ -142,8 +129,8 @@ class ExecucaoEntregaServiceTest {
 
     private int criarEntrega(int pedidoId, int rotaId, String status) throws Exception {
         try (Connection conn = factory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(
-                     "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, status) VALUES (?, ?, 1, ?) RETURNING id")) {
+                PreparedStatement stmt = conn.prepareStatement(
+                        "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, status) VALUES (?, ?, 1, ?) RETURNING id")) {
             stmt.setInt(1, pedidoId);
             stmt.setInt(2, rotaId);
             stmt.setObject(3, status, java.sql.Types.OTHER);
@@ -201,9 +188,8 @@ class ExecucaoEntregaServiceTest {
         int rotaId = criarRota(entregadorId, "EM_ANDAMENTO");
         int entregaId = criarEntrega(pedidoId, rotaId, "EM_EXECUCAO");
 
-        ExecucaoEntregaResultado resultado = execucaoService.registrarPedidoCancelado(
-                entregaId, "cliente cancelou", 4200
-        );
+        ExecucaoEntregaResultado resultado =
+                execucaoService.registrarPedidoCancelado(entregaId, "cliente cancelou", 4200);
 
         assertFalse(resultado.idempotente());
         assertEquals("CANCELADA", statusEntrega(entregaId));
@@ -238,8 +224,8 @@ class ExecucaoEntregaServiceTest {
 
     private boolean hasColumn(String tabela, String coluna) throws Exception {
         try (Connection conn = factory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(
-                     "SELECT 1 FROM information_schema.columns WHERE table_name = ? AND column_name = ?")) {
+                PreparedStatement stmt = conn.prepareStatement(
+                        "SELECT 1 FROM information_schema.columns WHERE table_name = ? AND column_name = ?")) {
             stmt.setString(1, tabela);
             stmt.setString(2, coluna);
             try (ResultSet rs = stmt.executeQuery()) {
@@ -250,7 +236,7 @@ class ExecucaoEntregaServiceTest {
 
     private String statusRota(int rotaId) throws Exception {
         try (Connection conn = factory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement("SELECT status::text FROM rotas WHERE id = ?")) {
+                PreparedStatement stmt = conn.prepareStatement("SELECT status::text FROM rotas WHERE id = ?")) {
             stmt.setInt(1, rotaId);
             try (ResultSet rs = stmt.executeQuery()) {
                 rs.next();
@@ -261,7 +247,7 @@ class ExecucaoEntregaServiceTest {
 
     private String statusEntrega(int entregaId) throws Exception {
         try (Connection conn = factory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement("SELECT status::text FROM entregas WHERE id = ?")) {
+                PreparedStatement stmt = conn.prepareStatement("SELECT status::text FROM entregas WHERE id = ?")) {
             stmt.setInt(1, entregaId);
             try (ResultSet rs = stmt.executeQuery()) {
                 rs.next();
@@ -272,8 +258,8 @@ class ExecucaoEntregaServiceTest {
 
     private String horaRealEntrega(int entregaId) throws Exception {
         try (Connection conn = factory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(
-                     "SELECT TO_CHAR(hora_real, 'YYYY-MM-DD HH24:MI:SS') FROM entregas WHERE id = ?")) {
+                PreparedStatement stmt = conn.prepareStatement(
+                        "SELECT TO_CHAR(hora_real, 'YYYY-MM-DD HH24:MI:SS') FROM entregas WHERE id = ?")) {
             stmt.setInt(1, entregaId);
             try (ResultSet rs = stmt.executeQuery()) {
                 rs.next();
@@ -284,7 +270,7 @@ class ExecucaoEntregaServiceTest {
 
     private String statusPedido(int pedidoId) throws Exception {
         try (Connection conn = factory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement("SELECT status::text FROM pedidos WHERE id = ?")) {
+                PreparedStatement stmt = conn.prepareStatement("SELECT status::text FROM pedidos WHERE id = ?")) {
             stmt.setInt(1, pedidoId);
             try (ResultSet rs = stmt.executeQuery()) {
                 rs.next();
@@ -295,8 +281,8 @@ class ExecucaoEntregaServiceTest {
 
     private int cobrancaCancelamentoPedido(int pedidoId) throws Exception {
         try (Connection conn = factory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(
-                     "SELECT cobranca_cancelamento_centavos FROM pedidos WHERE id = ?")) {
+                PreparedStatement stmt =
+                        conn.prepareStatement("SELECT cobranca_cancelamento_centavos FROM pedidos WHERE id = ?")) {
             stmt.setInt(1, pedidoId);
             try (ResultSet rs = stmt.executeQuery()) {
                 rs.next();
@@ -307,7 +293,8 @@ class ExecucaoEntregaServiceTest {
 
     private String cobrancaStatusPedido(int pedidoId) throws Exception {
         try (Connection conn = factory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement("SELECT cobranca_status::text FROM pedidos WHERE id = ?")) {
+                PreparedStatement stmt =
+                        conn.prepareStatement("SELECT cobranca_status::text FROM pedidos WHERE id = ?")) {
             stmt.setInt(1, pedidoId);
             try (ResultSet rs = stmt.executeQuery()) {
                 rs.next();
@@ -318,8 +305,8 @@ class ExecucaoEntregaServiceTest {
 
     private int contarEventos(String eventType) throws Exception {
         try (Connection conn = factory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(
-                     "SELECT COUNT(*) FROM dispatch_events WHERE event_type = ?")) {
+                PreparedStatement stmt =
+                        conn.prepareStatement("SELECT COUNT(*) FROM dispatch_events WHERE event_type = ?")) {
             stmt.setString(1, eventType);
             try (ResultSet rs = stmt.executeQuery()) {
                 rs.next();

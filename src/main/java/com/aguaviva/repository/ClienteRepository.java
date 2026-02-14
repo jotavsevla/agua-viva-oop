@@ -2,7 +2,6 @@ package com.aguaviva.repository;
 
 import com.aguaviva.domain.cliente.Cliente;
 import com.aguaviva.domain.cliente.ClienteTipo;
-
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -30,7 +29,7 @@ public class ClienteRepository {
                 + "VALUES (?, ?, ?, ?, ?, ?, ?)";
 
         try (Connection conn = connectionFactory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+                PreparedStatement stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
 
             stmt.setString(1, cliente.getNome());
             stmt.setString(2, cliente.getTelefone());
@@ -53,8 +52,7 @@ public class ClienteRepository {
                             cliente.getEndereco(),
                             cliente.getLatitude(),
                             cliente.getLongitude(),
-                            cliente.getNotas()
-                    );
+                            cliente.getNotas());
                 }
             }
             throw new SQLException("Falha ao salvar cliente, nenhum ID gerado.");
@@ -73,7 +71,7 @@ public class ClienteRepository {
                 + "WHERE id = ?";
 
         try (Connection conn = connectionFactory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+                PreparedStatement stmt = conn.prepareStatement(sql)) {
 
             stmt.setString(1, cliente.getNome());
             stmt.setString(2, cliente.getTelefone());
@@ -104,7 +102,7 @@ public class ClienteRepository {
         String sql = "SELECT id, nome, telefone, tipo, endereco, latitude, longitude, notas FROM clientes WHERE id = ?";
 
         try (Connection conn = connectionFactory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+                PreparedStatement stmt = conn.prepareStatement(sql)) {
 
             stmt.setInt(1, id);
 
@@ -122,7 +120,7 @@ public class ClienteRepository {
                 + "FROM clientes WHERE telefone = ?";
 
         try (Connection conn = connectionFactory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql)) {
+                PreparedStatement stmt = conn.prepareStatement(sql)) {
 
             stmt.setString(1, telefone.trim());
 
@@ -140,8 +138,8 @@ public class ClienteRepository {
         List<Cliente> clientes = new ArrayList<>();
 
         try (Connection conn = connectionFactory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(sql);
-             ResultSet rs = stmt.executeQuery()) {
+                PreparedStatement stmt = conn.prepareStatement(sql);
+                ResultSet rs = stmt.executeQuery()) {
 
             while (rs.next()) {
                 clientes.add(toCliente(rs));
@@ -163,8 +161,7 @@ public class ClienteRepository {
                 rs.getString("endereco"),
                 rs.getBigDecimal("latitude"),
                 rs.getBigDecimal("longitude"),
-                rs.getString("notas")
-        );
+                rs.getString("notas"));
     }
 
     private void setTipoParameter(PreparedStatement stmt, int index, ClienteTipo tipo) throws SQLException {

@@ -1,13 +1,11 @@
 package com.aguaviva.service;
 
 import com.aguaviva.repository.ConnectionFactory;
-
 import java.sql.Array;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Types;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -22,24 +20,19 @@ public class ReplanejamentoWorkerService {
     private final DispatchEventService dispatchEventService;
 
     public ReplanejamentoWorkerService(
-            ConnectionFactory connectionFactory,
-            Supplier<PlanejamentoResultado> replanejamentoExecutor
-    ) {
+            ConnectionFactory connectionFactory, Supplier<PlanejamentoResultado> replanejamentoExecutor) {
         this(connectionFactory, replanejamentoExecutor, new DispatchEventService());
     }
 
     ReplanejamentoWorkerService(
             ConnectionFactory connectionFactory,
             Supplier<PlanejamentoResultado> replanejamentoExecutor,
-            DispatchEventService dispatchEventService
-    ) {
+            DispatchEventService dispatchEventService) {
         this.connectionFactory = Objects.requireNonNull(connectionFactory, "ConnectionFactory nao pode ser nulo");
-        this.replanejamentoExecutor = Objects.requireNonNull(
-                replanejamentoExecutor, "ReplanejamentoExecutor nao pode ser nulo"
-        );
-        this.dispatchEventService = Objects.requireNonNull(
-                dispatchEventService, "DispatchEventService nao pode ser nulo"
-        );
+        this.replanejamentoExecutor =
+                Objects.requireNonNull(replanejamentoExecutor, "ReplanejamentoExecutor nao pode ser nulo");
+        this.dispatchEventService =
+                Objects.requireNonNull(dispatchEventService, "DispatchEventService nao pode ser nulo");
     }
 
     public ReplanejamentoWorkerResultado processarPendentes(int debounceSegundos, int limiteEventos) {
@@ -60,7 +53,8 @@ public class ReplanejamentoWorkerService {
                     return new ReplanejamentoWorkerResultado(0, false, 0, 0, 0);
                 }
 
-                List<DispatchEventRef> eventos = buscarEventosPendentesComDebounce(conn, debounceSegundos, limiteEventos);
+                List<DispatchEventRef> eventos =
+                        buscarEventosPendentesComDebounce(conn, debounceSegundos, limiteEventos);
                 if (eventos.isEmpty()) {
                     conn.commit();
                     return new ReplanejamentoWorkerResultado(0, false, 0, 0, 0);
@@ -83,8 +77,7 @@ public class ReplanejamentoWorkerService {
                         deveReplanejar,
                         planejamento.rotasCriadas(),
                         planejamento.entregasCriadas(),
-                        planejamento.pedidosNaoAtendidos()
-                );
+                        planejamento.pedidosNaoAtendidos());
             } catch (Exception e) {
                 conn.rollback();
                 throw e;
@@ -108,8 +101,7 @@ public class ReplanejamentoWorkerService {
     }
 
     private List<DispatchEventRef> buscarEventosPendentesComDebounce(
-            Connection conn, int debounceSegundos, int limiteEventos
-    ) throws SQLException {
+            Connection conn, int debounceSegundos, int limiteEventos) throws SQLException {
         String sql = "SELECT id, event_type "
                 + "FROM dispatch_events "
                 + "WHERE status = 'PENDENTE' "
@@ -124,10 +116,7 @@ public class ReplanejamentoWorkerService {
             stmt.setInt(2, limiteEventos);
             try (ResultSet rs = stmt.executeQuery()) {
                 while (rs.next()) {
-                    result.add(new DispatchEventRef(
-                            rs.getLong("id"),
-                            rs.getString("event_type")
-                    ));
+                    result.add(new DispatchEventRef(rs.getLong("id"), rs.getString("event_type")));
                 }
             }
         }
@@ -139,7 +128,8 @@ public class ReplanejamentoWorkerService {
             return;
         }
 
-        String sql = "UPDATE dispatch_events SET status = 'PROCESSADO', processed_em = CURRENT_TIMESTAMP WHERE id = ANY (?)";
+        String sql =
+                "UPDATE dispatch_events SET status = 'PROCESSADO', processed_em = CURRENT_TIMESTAMP WHERE id = ANY (?)";
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             Object[] ids = eventos.stream().map(DispatchEventRef::id).toArray();
             Array sqlArray = conn.createArrayOf("bigint", ids);
@@ -148,6 +138,5 @@ public class ReplanejamentoWorkerService {
         }
     }
 
-    private record DispatchEventRef(long id, String eventType) {
-    }
+    private record DispatchEventRef(long id, String eventType) {}
 }
