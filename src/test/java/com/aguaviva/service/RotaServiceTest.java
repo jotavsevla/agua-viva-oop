@@ -1,5 +1,11 @@
 package com.aguaviva.service;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
 import com.aguaviva.domain.cliente.Cliente;
 import com.aguaviva.domain.cliente.ClienteTipo;
 import com.aguaviva.domain.pedido.JanelaTipo;
@@ -17,12 +23,6 @@ import com.aguaviva.solver.SolverClient;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.AfterEach;
-import org.junit.jupiter.api.BeforeAll;
-import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Test;
-
 import java.io.IOException;
 import java.io.OutputStream;
 import java.math.BigDecimal;
@@ -34,17 +34,23 @@ import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.CyclicBarrier;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
-
-import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertThrows;
+import java.util.function.Function;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeAll;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 
 class RotaServiceTest {
 
@@ -56,11 +62,7 @@ class RotaServiceTest {
 
     @BeforeAll
     static void setUp() throws Exception {
-        factory = new ConnectionFactory(
-                "localhost", "5435",
-                "agua_viva_oop_test",
-                "postgres", "postgres"
-        );
+        factory = new ConnectionFactory("localhost", "5435", "agua_viva_oop_test", "postgres", "postgres");
         userRepository = new UserRepository(factory);
         clienteRepository = new ClienteRepository(factory);
         pedidoRepository = new PedidoRepository(factory);
@@ -94,8 +96,9 @@ class RotaServiceTest {
 
     private void limparBanco() throws Exception {
         try (Connection conn = factory.getConnection();
-             Statement stmt = conn.createStatement()) {
-            stmt.execute("TRUNCATE TABLE sessions, entregas, rotas, movimentacao_vales, saldo_vales, pedidos, clientes, users RESTART IDENTITY CASCADE");
+                Statement stmt = conn.createStatement()) {
+            stmt.execute(
+                    "TRUNCATE TABLE sessions, entregas, rotas, movimentacao_vales, saldo_vales, pedidos, clientes, users RESTART IDENTITY CASCADE");
         }
     }
 
@@ -105,7 +108,8 @@ class RotaServiceTest {
     }
 
     private int criarEntregadorId(String email, boolean ativo) throws Exception {
-        User entregador = new User(0, "Entregador", email, Password.fromPlainText("senha123"), UserPapel.ENTREGADOR, null, ativo);
+        User entregador =
+                new User(0, "Entregador", email, Password.fromPlainText("senha123"), UserPapel.ENTREGADOR, null, ativo);
         return userRepository.save(entregador).getId();
     }
 
@@ -117,14 +121,12 @@ class RotaServiceTest {
                 "Rua Teste",
                 BigDecimal.valueOf(-16.7210),
                 BigDecimal.valueOf(-43.8610),
-                null
-        );
+                null);
         int clienteId = clienteRepository.save(cliente).getId();
 
         try (Connection conn = factory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(
-                     "INSERT INTO saldo_vales (cliente_id, quantidade) VALUES (?, ?)")
-        ) {
+                PreparedStatement stmt =
+                        conn.prepareStatement("INSERT INTO saldo_vales (cliente_id, quantidade) VALUES (?, ?)")) {
             stmt.setInt(1, clienteId);
             stmt.setInt(2, saldo);
             stmt.executeUpdate();
@@ -135,20 +137,12 @@ class RotaServiceTest {
 
     private int criarClienteSemCoordenadaComSaldo(String telefone, int saldo) throws Exception {
         Cliente cliente = new Cliente(
-                "Cliente sem coord " + telefone,
-                telefone,
-                ClienteTipo.PF,
-                "Rua sem coordenada",
-                null,
-                null,
-                null
-        );
+                "Cliente sem coord " + telefone, telefone, ClienteTipo.PF, "Rua sem coordenada", null, null, null);
         int clienteId = clienteRepository.save(cliente).getId();
 
         try (Connection conn = factory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(
-                     "INSERT INTO saldo_vales (cliente_id, quantidade) VALUES (?, ?)")
-        ) {
+                PreparedStatement stmt =
+                        conn.prepareStatement("INSERT INTO saldo_vales (cliente_id, quantidade) VALUES (?, ?)")) {
             stmt.setInt(1, clienteId);
             stmt.setInt(2, saldo);
             stmt.executeUpdate();
@@ -158,18 +152,11 @@ class RotaServiceTest {
     }
 
     private RotaService criarService() {
-        return new RotaService(
-                new SolverClient(solverStub.baseUrl()),
-                factory
-        );
+        return new RotaService(new SolverClient(solverStub.baseUrl()), factory);
     }
 
     private RotaService criarService(PedidoLifecycleService lifecycleService) {
-        return new RotaService(
-                new SolverClient(solverStub.baseUrl()),
-                factory,
-                lifecycleService
-        );
+        return new RotaService(new SolverClient(solverStub.baseUrl()), factory, lifecycleService);
     }
 
     @Test
@@ -220,8 +207,10 @@ class RotaServiceTest {
         int cliente1 = criarClienteComSaldo("(38) 99999-7101", 10);
         int cliente2 = criarClienteComSaldo("(38) 99999-7102", 10);
 
-        Pedido pedidoAtendido = pedidoRepository.save(new Pedido(cliente1, 2, JanelaTipo.ASAP, null, null, atendenteId));
-        Pedido pedidoNaoAtendido = pedidoRepository.save(new Pedido(cliente2, 2, JanelaTipo.ASAP, null, null, atendenteId));
+        Pedido pedidoAtendido =
+                pedidoRepository.save(new Pedido(cliente1, 2, JanelaTipo.ASAP, null, null, atendenteId));
+        Pedido pedidoNaoAtendido =
+                pedidoRepository.save(new Pedido(cliente2, 2, JanelaTipo.ASAP, null, null, atendenteId));
 
         solverStub.setSolveResponse("""
                 {
@@ -272,8 +261,8 @@ class RotaServiceTest {
                 }
                 """.formatted(entregadorId, pedido.getId(), pedido.getId()));
 
-        IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> criarService().planejarRotasPendentes());
+        IllegalStateException ex =
+                assertThrows(IllegalStateException.class, () -> criarService().planejarRotasPendentes());
 
         assertEquals("Falha ao planejar rotas", ex.getMessage());
         assertInstanceOf(Exception.class, ex.getCause());
@@ -293,8 +282,8 @@ class RotaServiceTest {
         solverStub.setStatusCode(500);
         solverStub.setSolveResponse("{\"erro\":\"solver indisponivel\"}");
 
-        IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> criarService().planejarRotasPendentes());
+        IllegalStateException ex =
+                assertThrows(IllegalStateException.class, () -> criarService().planejarRotasPendentes());
 
         assertEquals("Falha ao planejar rotas", ex.getMessage());
         assertEquals(0, contarLinhas("rotas"));
@@ -331,8 +320,8 @@ class RotaServiceTest {
             }
         };
 
-        IllegalStateException ex = assertThrows(IllegalStateException.class,
-                () -> criarService(lifecycleComFalha).planejarRotasPendentes());
+        IllegalStateException ex = assertThrows(IllegalStateException.class, () -> criarService(lifecycleComFalha)
+                .planejarRotasPendentes());
 
         assertEquals("Falha ao planejar rotas", ex.getMessage());
         assertEquals("falha simulada no lifecycle", ex.getCause().getMessage());
@@ -387,14 +376,13 @@ class RotaServiceTest {
         int cliente1 = criarClienteComSaldo("(38) 99999-7501", 10);
         int cliente2 = criarClienteComSaldo("(38) 99999-7502", 10);
 
-        Pedido pedidoAtendidoPrimeiraExecucao = pedidoRepository.save(
-                new Pedido(cliente1, 1, JanelaTipo.ASAP, null, null, atendenteId)
-        );
-        Pedido pedidoFicaPendente = pedidoRepository.save(
-                new Pedido(cliente2, 1, JanelaTipo.ASAP, null, null, atendenteId)
-        );
+        Pedido pedidoAtendidoPrimeiraExecucao =
+                pedidoRepository.save(new Pedido(cliente1, 1, JanelaTipo.ASAP, null, null, atendenteId));
+        Pedido pedidoFicaPendente =
+                pedidoRepository.save(new Pedido(cliente2, 1, JanelaTipo.ASAP, null, null, atendenteId));
 
-        solverStub.setSolveResponse("""
+        solverStub.setSolveResponse(
+                """
                 {
                   "rotas": [
                     {
@@ -463,7 +451,8 @@ class RotaServiceTest {
         int atendenteId = criarAtendenteId("atendente8@teste.com");
         criarEntregadorId("entregador8@teste.com", true);
         int clienteSemCoordenada = criarClienteSemCoordenadaComSaldo("(38) 99999-7701", 10);
-        Pedido pedido = pedidoRepository.save(new Pedido(clienteSemCoordenada, 1, JanelaTipo.ASAP, null, null, atendenteId));
+        Pedido pedido =
+                pedidoRepository.save(new Pedido(clienteSemCoordenada, 1, JanelaTipo.ASAP, null, null, atendenteId));
 
         PlanejamentoResultado resultado = criarService().planejarRotasPendentes();
 
@@ -498,7 +487,7 @@ class RotaServiceTest {
                 """.formatted(pedido.getId()));
 
         try (Connection concorrente = factory.getConnection();
-             PreparedStatement stmt = concorrente.prepareStatement("SELECT pg_advisory_lock(?)")) {
+                PreparedStatement stmt = concorrente.prepareStatement("SELECT pg_advisory_lock(?)")) {
             stmt.setLong(1, RotaService.PLANEJAMENTO_LOCK_KEY);
             stmt.execute();
 
@@ -513,7 +502,7 @@ class RotaServiceTest {
             assertEquals("PENDENTE", statusDoPedido(pedido.getId()));
         } finally {
             try (Connection concorrente = factory.getConnection();
-                 PreparedStatement unlock = concorrente.prepareStatement("SELECT pg_advisory_unlock(?)")) {
+                    PreparedStatement unlock = concorrente.prepareStatement("SELECT pg_advisory_unlock(?)")) {
                 unlock.setLong(1, RotaService.PLANEJAMENTO_LOCK_KEY);
                 unlock.execute();
             }
@@ -546,7 +535,7 @@ class RotaServiceTest {
 
         // 1) Lock bloqueado — tentativa retorna vazio
         try (Connection concorrente = factory.getConnection();
-             PreparedStatement stmt = concorrente.prepareStatement("SELECT pg_advisory_lock(?)")) {
+                PreparedStatement stmt = concorrente.prepareStatement("SELECT pg_advisory_lock(?)")) {
             stmt.setLong(1, RotaService.PLANEJAMENTO_LOCK_KEY);
             stmt.execute();
 
@@ -558,7 +547,7 @@ class RotaServiceTest {
             assertEquals("PENDENTE", statusDoPedido(pedido.getId()));
         } finally {
             try (Connection concorrente = factory.getConnection();
-                 PreparedStatement unlock = concorrente.prepareStatement("SELECT pg_advisory_unlock(?)")) {
+                    PreparedStatement unlock = concorrente.prepareStatement("SELECT pg_advisory_unlock(?)")) {
                 unlock.setLong(1, RotaService.PLANEJAMENTO_LOCK_KEY);
                 unlock.execute();
             }
@@ -689,7 +678,256 @@ class RotaServiceTest {
         }
     }
 
-    private static void aguardarAte(BooleanSupplier condicao, long timeoutMillis, String erro) throws InterruptedException {
+    @Test
+    void deveProcessarTodosPedidosEmRodadasSucessivasComAltaDisputa() throws Exception {
+        int atendenteId = criarAtendenteId("atendente-disputa@teste.com");
+        int entregadorId = criarEntregadorId("entregador-disputa@teste.com", true);
+
+        int totalPedidos = 5;
+        List<Integer> pedidoIds = new ArrayList<>();
+        for (int i = 0; i < totalPedidos; i++) {
+            int clienteId = criarClienteComSaldo("(38) 99999-9" + String.format("%03d", i), 10);
+            Pedido pedido = pedidoRepository.save(new Pedido(clienteId, 1, JanelaTipo.ASAP, null, null, atendenteId));
+            pedidoIds.add(pedido.getId());
+        }
+
+        // Handler dinamico: le pedido_ids do request e monta resposta com 1 rota por pedido
+        Pattern pedidoIdPattern = Pattern.compile("\"pedido_id\"\\s*:\\s*(\\d+)");
+        solverStub.setDynamicSolveHandler(requestBody -> {
+            Matcher matcher = pedidoIdPattern.matcher(requestBody);
+            List<String> paradas = new ArrayList<>();
+            int ordem = 1;
+            while (matcher.find()) {
+                int pid = Integer.parseInt(matcher.group(1));
+                paradas.add("""
+                        {"ordem": %d, "pedido_id": %d, "lat": -16.72%02d, "lon": -43.86%02d, "hora_prevista": "%02d:30"}""".formatted(ordem, pid, ordem, ordem, 8 + ordem));
+                ordem++;
+            }
+            if (paradas.isEmpty()) {
+                return "{\"rotas\":[],\"nao_atendidos\":[]}";
+            }
+            return """
+                    {"rotas":[{"entregador_id": %d, "numero_no_dia": 1, "paradas": [%s]}], "nao_atendidos": []}""".formatted(entregadorId, String.join(",", paradas));
+        });
+        solverStub.setSolveDelayMillis(150);
+
+        RotaService instanciaA = criarService();
+        RotaService instanciaB = criarService();
+        int threads = 4;
+        ExecutorService executor = Executors.newFixedThreadPool(threads);
+
+        try {
+            // Multiplas rodadas: cada thread tenta planejar em loop
+            int maxRodadas = 10;
+            ConcurrentHashMap<Integer, PlanejamentoResultado> resultados = new ConcurrentHashMap<>();
+            CountDownLatch done = new CountDownLatch(threads);
+
+            for (int t = 0; t < threads; t++) {
+                RotaService alvo = (t % 2 == 0) ? instanciaA : instanciaB;
+                int threadId = t;
+                executor.submit(() -> {
+                    try {
+                        for (int rodada = 0; rodada < maxRodadas; rodada++) {
+                            PlanejamentoResultado r = alvo.planejarRotasPendentes();
+                            if (r.rotasCriadas() > 0 || r.entregasCriadas() > 0) {
+                                resultados.put(threadId * 100 + rodada, r);
+                            }
+                        }
+                    } catch (Exception e) {
+                        // Nao esperado — testes falharam se cair aqui
+                    } finally {
+                        done.countDown();
+                    }
+                });
+            }
+
+            done.await(30, TimeUnit.SECONDS);
+
+            // Validacao: todos os pedidos devem estar CONFIRMADO
+            for (int pedidoId : pedidoIds) {
+                assertEquals(
+                        "CONFIRMADO", statusDoPedido(pedidoId), "Pedido " + pedidoId + " deveria estar CONFIRMADO");
+            }
+
+            // Sem duplicidade: cada pedido tem exatamente 1 entrega
+            assertEquals(totalPedidos, contarLinhas("entregas"), "Deve haver exatamente " + totalPedidos + " entregas");
+        } finally {
+            solverStub.setSolveDelayMillis(0);
+            solverStub.clearDynamicSolveHandler();
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void deveEvitarDuplicidadeComRetriesSimultaneosAposLiberacaoDeLock() throws Exception {
+        int atendenteId = criarAtendenteId("atendente-retry-storm@teste.com");
+        int entregadorId = criarEntregadorId("entregador-retry-storm@teste.com", true);
+        int clienteId = criarClienteComSaldo("(38) 99999-9100", 10);
+        Pedido pedido = pedidoRepository.save(new Pedido(clienteId, 1, JanelaTipo.ASAP, null, null, atendenteId));
+
+        solverStub.setSolveResponse("""
+                {
+                  "rotas": [
+                    {
+                      "entregador_id": %d,
+                      "numero_no_dia": 1,
+                      "paradas": [
+                        {"ordem": 1, "pedido_id": %d, "lat": -16.7210, "lon": -43.8610, "hora_prevista": "08:30"}
+                      ]
+                    }
+                  ],
+                  "nao_atendidos": []
+                }
+                """.formatted(entregadorId, pedido.getId()));
+
+        int threads = 4;
+        ExecutorService executor = Executors.newFixedThreadPool(threads);
+        CyclicBarrier barrier = new CyclicBarrier(threads);
+
+        try {
+            // Fase 1: segurar lock externamente, todas threads falham
+            Connection lockConn = factory.getConnection();
+            try (PreparedStatement stmt = lockConn.prepareStatement("SELECT pg_advisory_lock(?)")) {
+                stmt.setLong(1, RotaService.PLANEJAMENTO_LOCK_KEY);
+                stmt.execute();
+            }
+
+            List<Future<PlanejamentoResultado>> bloqueados = new ArrayList<>();
+            for (int t = 0; t < threads; t++) {
+                RotaService service = criarService();
+                bloqueados.add(executor.submit(service::planejarRotasPendentes));
+            }
+
+            for (Future<PlanejamentoResultado> f : bloqueados) {
+                PlanejamentoResultado r = f.get(5, TimeUnit.SECONDS);
+                assertEquals(0, r.rotasCriadas(), "Deveria estar bloqueado");
+            }
+
+            // Fase 2: liberar lock e disparar retries simultaneos com barreira
+            try (PreparedStatement unlock = lockConn.prepareStatement("SELECT pg_advisory_unlock(?)")) {
+                unlock.setLong(1, RotaService.PLANEJAMENTO_LOCK_KEY);
+                unlock.execute();
+            }
+            lockConn.close();
+
+            List<Future<PlanejamentoResultado>> retries = new ArrayList<>();
+            for (int t = 0; t < threads; t++) {
+                RotaService service = criarService();
+                retries.add(executor.submit(() -> {
+                    try {
+                        barrier.await(5, TimeUnit.SECONDS);
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
+                    return service.planejarRotasPendentes();
+                }));
+            }
+
+            int vencedores = 0;
+            int perdedores = 0;
+            for (Future<PlanejamentoResultado> f : retries) {
+                PlanejamentoResultado r = f.get(10, TimeUnit.SECONDS);
+                if (r.rotasCriadas() == 1) {
+                    vencedores++;
+                } else if (r.rotasCriadas() == 0) {
+                    perdedores++;
+                }
+            }
+
+            assertEquals(1, vencedores, "Exatamente 1 thread deve vencer o retry");
+            assertEquals(threads - 1, perdedores, "Demais threads devem perder");
+            assertEquals(1, contarLinhas("rotas"), "Deve haver exatamente 1 rota");
+            assertEquals(1, contarLinhas("entregas"), "Deve haver exatamente 1 entrega");
+            assertEquals("CONFIRMADO", statusDoPedido(pedido.getId()));
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void deveDistribuirVitoriasEntreInstanciasEmMultiplasRodadas() throws Exception {
+        int atendenteId = criarAtendenteId("atendente-fairness@teste.com");
+        int entregadorId = criarEntregadorId("entregador-fairness@teste.com", true);
+
+        Pattern pedidoIdPattern = Pattern.compile("\"pedido_id\"\\s*:\\s*(\\d+)");
+        solverStub.setDynamicSolveHandler(requestBody -> {
+            Matcher matcher = pedidoIdPattern.matcher(requestBody);
+            List<String> paradas = new ArrayList<>();
+            int ordem = 1;
+            while (matcher.find()) {
+                int pid = Integer.parseInt(matcher.group(1));
+                paradas.add("""
+                        {"ordem": %d, "pedido_id": %d, "lat": -16.72%02d, "lon": -43.86%02d, "hora_prevista": "%02d:30"}""".formatted(ordem, pid, ordem, ordem, 8 + ordem));
+                ordem++;
+            }
+            if (paradas.isEmpty()) {
+                return "{\"rotas\":[],\"nao_atendidos\":[]}";
+            }
+            return """
+                    {"rotas":[{"entregador_id": %d, "numero_no_dia": 1, "paradas": [%s]}], "nao_atendidos": []}""".formatted(entregadorId, String.join(",", paradas));
+        });
+
+        int rodadas = 10;
+        int threadsPerInstance = 2;
+        int totalThreads = threadsPerInstance * 2;
+        ExecutorService executor = Executors.newFixedThreadPool(totalThreads);
+
+        AtomicInteger vitoriasA = new AtomicInteger(0);
+        AtomicInteger vitoriasB = new AtomicInteger(0);
+
+        try {
+            for (int rodada = 0; rodada < rodadas; rodada++) {
+                int clienteId = criarClienteComSaldo("(38) 99999-8" + String.format("%03d", rodada), 10);
+                pedidoRepository.save(new Pedido(clienteId, 1, JanelaTipo.ASAP, null, null, atendenteId));
+
+                RotaService instanciaA = criarService();
+                RotaService instanciaB = criarService();
+                CyclicBarrier barreira = new CyclicBarrier(totalThreads);
+
+                List<Future<String>> futures = new ArrayList<>();
+                for (int t = 0; t < threadsPerInstance; t++) {
+                    futures.add(executor.submit(() -> {
+                        barreira.await(5, TimeUnit.SECONDS);
+                        PlanejamentoResultado r = instanciaA.planejarRotasPendentes();
+                        return r.rotasCriadas() > 0 ? "A" : null;
+                    }));
+                    futures.add(executor.submit(() -> {
+                        barreira.await(5, TimeUnit.SECONDS);
+                        PlanejamentoResultado r = instanciaB.planejarRotasPendentes();
+                        return r.rotasCriadas() > 0 ? "B" : null;
+                    }));
+                }
+
+                for (Future<String> f : futures) {
+                    String vencedor = f.get(10, TimeUnit.SECONDS);
+                    if ("A".equals(vencedor)) {
+                        vitoriasA.incrementAndGet();
+                    } else if ("B".equals(vencedor)) {
+                        vitoriasB.incrementAndGet();
+                    }
+                }
+            }
+
+            // Fairness: ambas instancias devem vencer pelo menos 1 vez em 10 rodadas
+            // (probabilidade de uma nunca vencer em 10 rodadas com disputa justa e negligivel)
+            assertEquals(
+                    rodadas,
+                    vitoriasA.get() + vitoriasB.get(),
+                    "Total de vitorias deve ser igual ao numero de rodadas");
+            assertTrue(
+                    vitoriasA.get() >= 1,
+                    "Instancia A deveria vencer pelo menos 1 rodada, mas venceu " + vitoriasA.get());
+            assertTrue(
+                    vitoriasB.get() >= 1,
+                    "Instancia B deveria vencer pelo menos 1 rodada, mas venceu " + vitoriasB.get());
+        } finally {
+            solverStub.clearDynamicSolveHandler();
+            executor.shutdownNow();
+        }
+    }
+
+    private static void aguardarAte(BooleanSupplier condicao, long timeoutMillis, String erro)
+            throws InterruptedException {
         long deadline = System.currentTimeMillis() + timeoutMillis;
         while (System.currentTimeMillis() < deadline) {
             if (condicao.getAsBoolean()) {
@@ -702,8 +940,8 @@ class RotaServiceTest {
 
     private int contarLinhas(String tabela) throws Exception {
         try (Connection conn = factory.getConnection();
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM " + tabela)) {
+                Statement stmt = conn.createStatement();
+                ResultSet rs = stmt.executeQuery("SELECT COUNT(*) FROM " + tabela)) {
             rs.next();
             return rs.getInt(1);
         }
@@ -711,7 +949,7 @@ class RotaServiceTest {
 
     private String statusDoPedido(int pedidoId) throws Exception {
         try (Connection conn = factory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement("SELECT status::text FROM pedidos WHERE id = ?")) {
+                PreparedStatement stmt = conn.prepareStatement("SELECT status::text FROM pedidos WHERE id = ?")) {
             stmt.setInt(1, pedidoId);
             try (ResultSet rs = stmt.executeQuery()) {
                 rs.next();
@@ -722,9 +960,8 @@ class RotaServiceTest {
 
     private String horaPrevistaDaEntrega(int pedidoId) throws Exception {
         try (Connection conn = factory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(
-                     "SELECT TO_CHAR(hora_prevista, 'YYYY-MM-DD HH24:MI') FROM entregas WHERE pedido_id = ?")
-        ) {
+                PreparedStatement stmt = conn.prepareStatement(
+                        "SELECT TO_CHAR(hora_prevista, 'YYYY-MM-DD HH24:MI') FROM entregas WHERE pedido_id = ?")) {
             stmt.setInt(1, pedidoId);
             try (ResultSet rs = stmt.executeQuery()) {
                 rs.next();
@@ -735,9 +972,8 @@ class RotaServiceTest {
 
     private int maxNumeroNoDiaDoEntregador(int entregadorId) throws Exception {
         try (Connection conn = factory.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(
-                     "SELECT COALESCE(MAX(numero_no_dia), 0) FROM rotas WHERE entregador_id = ?")
-        ) {
+                PreparedStatement stmt = conn.prepareStatement(
+                        "SELECT COALESCE(MAX(numero_no_dia), 0) FROM rotas WHERE entregador_id = ?")) {
             stmt.setInt(1, entregadorId);
             try (ResultSet rs = stmt.executeQuery()) {
                 rs.next();
@@ -751,6 +987,7 @@ class RotaServiceTest {
         private volatile String solveResponse = "{\"rotas\":[],\"nao_atendidos\":[]}";
         private volatile int statusCode = 200;
         private volatile int solveDelayMillis = 0;
+        private volatile Function<String, String> dynamicHandler = null;
         private final AtomicInteger requestCount = new AtomicInteger(0);
         private final AtomicInteger cancelCount = new AtomicInteger(0);
 
@@ -793,6 +1030,14 @@ class RotaServiceTest {
             this.solveDelayMillis = Math.max(0, solveDelayMillis);
         }
 
+        void setDynamicSolveHandler(Function<String, String> handler) {
+            this.dynamicHandler = handler;
+        }
+
+        void clearDynamicSolveHandler() {
+            this.dynamicHandler = null;
+        }
+
         String baseUrl() {
             return "http://localhost:" + server.getAddress().getPort();
         }
@@ -808,7 +1053,15 @@ class RotaServiceTest {
                         Thread.currentThread().interrupt();
                     }
                 }
-                byte[] bytes = solveResponse.getBytes(StandardCharsets.UTF_8);
+                String response;
+                Function<String, String> handler = dynamicHandler;
+                if (handler != null) {
+                    String requestBody = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+                    response = handler.apply(requestBody);
+                } else {
+                    response = solveResponse;
+                }
+                byte[] bytes = response.getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().add("Content-Type", "application/json");
                 exchange.sendResponseHeaders(statusCode, bytes.length);
                 try (OutputStream os = exchange.getResponseBody()) {
