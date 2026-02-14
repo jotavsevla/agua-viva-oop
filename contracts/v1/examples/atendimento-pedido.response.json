@@ -1,0 +1,7 @@
+{
+  "pedidoId": 8421,
+  "clienteId": 903,
+  "telefoneNormalizado": "5538998761234",
+  "clienteCriado": true,
+  "idempotente": false
+}

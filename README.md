@@ -32,9 +32,9 @@ O ciclo e sempre o mesmo:
 2. **Green** — implementa o minimo para passar
 3. **Refactor** — limpa sem quebrar testes
 
-Isso vale para domain, repository e solver. Nenhuma classe existe sem teste.
+Isso vale para domain, repository, service e solver. Nenhuma classe existe sem teste.
 
-**159 testes** (135 Java + 24 Python), zero falhas. Os testes nao sao formais —
+**211 testes mapeados** (184 Java + 27 Python), zero falhas. Os testes nao sao formais —
 eles documentam o comportamento esperado do sistema.
 
 ### Objetos com comportamento, nao DTOs
@@ -204,7 +204,7 @@ FROM metricas_brutas mb JOIN users u ON u.id = mb.entregador_id;
    │  domain/     → Regras de negocio (OOP pura)            │
    │  repository/ → JDBC (leitura/gravacao)                 │
    │  solver/     → SolverClient (HTTP + JSON)              │
-   │  service/    → Orquestracao (a construir)              │
+   │  service/    → Orquestracao (RotaService inicial)      │
    └───────────────────────┬────────────────────────────────┘
                            │
                     ┌──────┴──────┐
@@ -228,8 +228,13 @@ Constraints do banco viram excecoes semanticas (`IllegalArgumentException`).
 Classes imutaveis que espelham o contrato JSON do solver.
 Gson com `LOWER_CASE_WITH_UNDERSCORES` converte `capacidadeVeiculo` → `capacidade_veiculo`.
 
-**Service** (`service/`) — A construir. Orquestra domain + repository + solver.
-Gerencia transacoes e coordena fluxos de negocio.
+**Service** (`service/`) — Em implementacao. Orquestra domain + repository + solver.
+Gerencia transacoes e coordena fluxos de negocio. Ja inclui:
+- `RotaService` com planejamento transacional, `plan_version`, cancelamento best-effort e reaproveitamento local
+- `PedidoLifecycleService` como porta unica de transicao de status (state machine + lock)
+- `AtendimentoTelefonicoService` com idempotencia por `external_call_id`
+- `ExecucaoEntregaService` para eventos operacionais (`ROTA_INICIADA`, `PEDIDO_ENTREGUE`, `PEDIDO_FALHOU`, `PEDIDO_CANCELADO`)
+- `ReplanejamentoWorkerService` com debounce e lock via `pg_try_advisory_xact_lock`
 
 Dependencias apontam sempre para o centro: `service → repository → domain ← solver`.
 
@@ -302,7 +307,7 @@ reconstroi quem e quem na resposta.
 
 ## Banco de Dados
 
-Schema com **8 migrations SQL** — PostgreSQL com enums nativos, indices parciais,
+Schema com **11 migrations SQL** — PostgreSQL com enums nativos, indices parciais,
 constraints de negocio, views com CTEs, window functions e funcoes SQL.
 
 | Migration | Tabela                | Descricao                                 |
@@ -315,6 +320,9 @@ constraints de negocio, views com CTEs, window functions e funcoes SQL.
 | 006       | rotas, entregas       | Rotas otimizadas e atribuicao de pedidos  |
 | 007       | configuracoes         | Parametros do sistema (capacidade, horarios) |
 | 008       | views, funcoes        | Dashboard entregador, pedidos pro solver, performance, extrato |
+| 009       | controles dinamicos   | `plan_version`, `solver_jobs`, cancelamento/cobranca em operacao dinamica |
+| 010       | idempotencia telefonica | `pedidos.external_call_id` (UNIQUE) para retries sem duplicacao |
+| 011       | outbox de despacho    | `dispatch_events` para coalescencia/debounce de replanejamento |
 
 ### Status do pedido
 
@@ -323,15 +331,16 @@ PENDENTE → CONFIRMADO → EM_ROTA → ENTREGUE
                                  → CANCELADO
 ```
 
-Validado por constraints no banco e (futuro) por maquina de estados no dominio.
+Validado por constraints no banco e por `PedidoStateMachine` no dominio;
+a integracao completa desse fluxo no service segue em andamento.
 
 ---
 
 ## Testes
 
-**159 testes** — TDD (teste escrito antes da implementacao).
+**211 testes mapeados** — TDD (teste escrito antes da implementacao).
 
-### Testes unitarios (87 Java + 24 Python)
+### Testes unitarios (100 Java + 27 Python)
 
 Testam logica pura sem dependencias externas (sem banco, sem rede, sem Docker).
 
@@ -339,14 +348,17 @@ Testam logica pura sem dependencias externas (sem banco, sem rede, sem Docker).
 | ---------------- | ------ | --------------------------------------------------------------- |
 | PasswordTest     | 18     | Politica de senha, BCrypt, matching, reconstrucao, Value Object |
 | UserTest         | 27     | Invariantes, hierarquia (10 combinacoes), identidade, email     |
-| SolverClientTest | 10     | Serializacao/deserializacao JSON, roundtrip, construcao         |
+| SolverClientTest | 12     | Serializacao/deserializacao JSON, roundtrip, construcao e metadados async |
+| ContractsV1Test  | 3      | Presenca/consistencia do pacote `contracts/v1` (OpenAPI, eventos e exemplos) |
 | ClienteTest      | 16     | Invariantes de cliente, coordenadas, identidade da entidade     |
 | PedidoTest       | 16     | Invariantes de pedido, janela HARD/ASAP, identidade da entidade |
-| test_vrp         | 14     | Solver CVRPTW, capacidade, time windows, multiplas viagens      |
+| PedidoStateMachineTest | 8 | Transicoes validas/invalidas e regra de cobranca por cancelamento em rota |
+| test_vrp         | 14     | Solver CVRPTW, capacidade, time windows, multiplas viagens, cancelamento cooperativo |
 | test_models      | 6      | Validacao Pydantic, defaults, galoes >= 1                       |
 | test_matrix      | 5      | Haversine, simetria, fallback OSRM → Haversine                 |
+| test_main_async  | 2      | Fluxo async de job e cancelamento antecipado no solver          |
 
-### Testes de integracao (48 Java)
+### Testes de integracao (84 Java)
 
 Testam interacao com PostgreSQL real (porta 5435, tmpfs, dados em memoria).
 
@@ -356,6 +368,11 @@ Testam interacao com PostgreSQL real (porta 5435, tmpfs, dados em memoria).
 | UserRepositoryTest    | 21     | CRUD completo, email unico, todos os enum, soft delete, hash persistido |
 | ClienteRepositoryTest | 13     | CRUD completo, telefone unico, mapeamento de enum e coordenadas |
 | PedidoRepositoryTest  | 12     | CRUD completo, filtros por cliente/pendentes, FKs e status/janelas |
+| RotaServiceTest       | 12     | Fluxo fim-a-fim + rollback + idempotencia + reprocessamento de pendentes + lock distribuido de planejamento + concorrencia sem cancelamento indevido + alta disputa multi-instancia |
+| PedidoLifecycleServiceTest | 3 | Transicao com lock pessimista + efeitos de cancelamento/cobranca |
+| AtendimentoTelefonicoServiceTest | 7 | Entrada telefonica idempotente por `external_call_id` e normalizacao de telefone |
+| ExecucaoEntregaServiceTest | 4 | Eventos mobile/operacionais e transicoes de status de execucao |
+| ReplanejamentoWorkerServiceTest | 3 | Coalescencia por debounce + lock distribuido + marcacao do outbox |
 
 Isolamento entre testes: limpeza por `TRUNCATE ... RESTART IDENTITY CASCADE` nos testes de repositorio.
 Sem mocks. Banco real em tmpfs.
@@ -363,11 +380,11 @@ Sem mocks. Banco real em tmpfs.
 ### Rodando os testes
 
 ```bash
-# Java (135 testes — pre-requisito: postgres-oop-test rodando)
+# Java (184 testes — pre-requisito: postgres-oop-test rodando e migrations 001-011)
 mvn test
 
-# Python (24 testes — dentro do venv)
-cd solver && pytest tests/ -v
+# Python (27 testes — dentro do venv do solver)
+cd solver && .venv/bin/python -m pytest tests/ -v
 ```
 
 ---
@@ -389,10 +406,22 @@ agua-viva/
 │       ├── 005_create_pedidos.sql
 │       ├── 006_create_rotas_entregas.sql
 │       ├── 007_create_configuracoes.sql
-│       └── 008_create_views_cte.sql
+│       ├── 008_create_views_cte.sql
+│       ├── 009_add_dynamic_dispatch_controls.sql
+│       ├── 010_add_external_call_id_to_pedidos.sql
+│       └── 011_create_dispatch_events.sql
+├── contracts/
+│   ├── README.md                       # Ownership + versao + compatibilidade
+│   └── v1/
+│       ├── openapi.yaml                # Contrato OpenAPI congelado (A0)
+│       ├── CHANGELOG.md
+│       ├── events/catalogo-eventos.json
+│       └── examples/*.json
 ├── src/
 │   ├── main/java/com/aguaviva/
 │   │   ├── App.java                    # Entry point (health check)
+│   │   ├── api/
+│   │   │   └── ApiServer.java          # API HTTP nativa (atendimento/eventos/replanejamento)
 │   │   ├── domain/
 │   │   │   ├── user/
 │   │   │   │   ├── Password.java       # Value Object — hash, compare, validate
@@ -404,16 +433,28 @@ agua-viva/
 │   │   │   └── pedido/
 │   │   │       ├── Pedido.java         # Entidade com invariantes de janela/status
 │   │   │       ├── PedidoStatus.java   # Enum de status do pedido
-│   │   │       └── JanelaTipo.java     # Enum HARD/ASAP
+│   │   │       ├── JanelaTipo.java     # Enum HARD/ASAP
+│   │   │       ├── PedidoStateMachine.java      # Regras de transicao de status
+│   │   │       └── PedidoTransitionResult.java  # Resultado de transicao + regra de cobranca
 │   │   ├── repository/
 │   │   │   ├── ConnectionFactory.java  # Pool JDBC via HikariCP
 │   │   │   ├── UserRepository.java     # CRUD de usuarios
 │   │   │   ├── ClienteRepository.java  # CRUD de clientes
 │   │   │   └── PedidoRepository.java   # CRUD de pedidos
+│   │   ├── service/
+│   │   │   ├── RotaService.java        # Orquestra solver + persistencia de rotas/entregas
+│   │   │   ├── PedidoLifecycleService.java   # Porta unica de transicao de status
+│   │   │   ├── AtendimentoTelefonicoService.java # Entrada telefonica idempotente
+│   │   │   ├── ExecucaoEntregaService.java   # Eventos operacionais de rota/entrega
+│   │   │   ├── DispatchEventService.java     # Outbox em `dispatch_events`
+│   │   │   ├── ReplanejamentoWorkerService.java # Worker de replanejamento com debounce
+│   │   │   └── PlanejamentoResultado.java # Resultado da execucao de roteirizacao
 │   │   └── solver/
 │   │       ├── SolverClient.java       # HTTP client pro solver Python
 │   │       ├── SolverRequest.java      # Request — deposito, pedidos, entregadores
 │   │       ├── SolverResponse.java     # Response — rotas otimizadas
+│   │       ├── SolverAsyncAccepted.java # Ack do endpoint /solve/async
+│   │       ├── SolverJobResult.java     # Resultado consultavel por job_id
 │   │       ├── Coordenada.java         # Value Object — lat/lon
 │   │       ├── PedidoSolver.java       # Pedido formatado pro solver
 │   │       ├── Parada.java             # Parada na rota (ordem, hora prevista)
@@ -426,16 +467,25 @@ agua-viva/
 │       │   ├── cliente/
 │       │   │   └── ClienteTest.java    # 16 testes unitarios
 │       │   └── pedido/
-│       │       └── PedidoTest.java     # 16 testes unitarios
+│       │       ├── PedidoTest.java     # 16 testes unitarios
+│       │       └── PedidoStateMachineTest.java # 8 testes unitarios
 │       ├── repository/
 │       │   ├── ConnectionFactoryTest.java
 │       │   ├── UserRepositoryTest.java    # 21 testes de integracao
 │       │   ├── ClienteRepositoryTest.java # 13 testes de integracao
 │       │   └── PedidoRepositoryTest.java  # 12 testes de integracao
+│       ├── service/
+│       │   ├── RotaServiceTest.java    # 12 testes de integracao (inclui lock distribuido e alta disputa)
+│       │   ├── PedidoLifecycleServiceTest.java
+│       │   ├── AtendimentoTelefonicoServiceTest.java
+│       │   ├── ExecucaoEntregaServiceTest.java
+│       │   └── ReplanejamentoWorkerServiceTest.java
+│       ├── contracts/
+│       │   └── ContractsV1Test.java    # 3 testes de contrato para /contracts/v1
 │       └── solver/
-│           └── SolverClientTest.java   # 10 testes (serializacao/deserializacao)
+│           └── SolverClientTest.java   # 12 testes (serializacao/deserializacao + async)
 ├── solver/                             # Solver Python (segregado)
-│   ├── main.py                         # FastAPI — POST /solve, POST /map, GET /demo
+│   ├── main.py                         # FastAPI — /solve, /solve/async, /cancel/{job_id}, /result/{job_id}
 │   ├── vrp.py                          # OR-Tools CVRPTW
 │   ├── matrix.py                       # OSRM + fallback Haversine
 │   ├── models.py                       # Pydantic — contratos entrada/saida
@@ -444,7 +494,7 @@ agua-viva/
 │   ├── Dockerfile
 │   ├── osrm/
 │   │   └── prepare.sh                  # Baixa e processa mapa OSM (rodar 1x)
-│   └── tests/                          # 24 testes pytest
+│   └── tests/                          # 27 testes pytest
 └── docs/                               # Documentacao interna detalhada
 ```
 
@@ -471,19 +521,43 @@ agua-viva/
 - Docker + Docker Compose
 - Python 3.12+ (para testes locais do solver)
 
-### Subir o banco
+### Subir banco e aplicar schema completo (001-011)
 
 ```bash
 docker compose up -d postgres-oop-dev postgres-oop-test
 ./apply-migrations.sh
+
+# aplicar tambem no banco de teste (porta 5435)
+CONTAINER_NAME=postgres-oop-test POSTGRES_DB=agua_viva_oop_test ./apply-migrations.sh
 ```
 
 ### Compilar e testar (Java)
 
 ```bash
-mvn test           # 135 testes (unitarios + integracao)
+mvn test           # 184 testes (unitarios + integracao)
 mvn clean compile  # compilar sem testes
 ```
+
+### Gerar diagramas da arquitetura (sobrescrevendo sempre)
+
+```bash
+./scripts/gerar-diagramas.sh
+```
+
+Saidas geradas/atualizadas automaticamente em `target/diagramas`:
+- `target/diagramas/camadas.dot` (visao limpa por camada)
+- `target/diagramas/pacotes.dot` (visao limpa por pacote interno)
+- `target/diagramas/jdeps/classes.dot`
+- `target/diagramas/jdeps/summary.dot`
+- `target/diagramas/dependencies.dot`
+- `target/diagramas/pacotes.mmd`
+- `target/diagramas/camadas.mmd`
+- `target/diagramas/camadas.svg` (quando `dot`/Graphviz estiver instalado)
+- `target/diagramas/pacotes.svg` (quando `dot`/Graphviz estiver instalado)
+- `target/diagramas/dependencies.svg` (quando `dot`/Graphviz estiver instalado)
+
+O script limpa a pasta de saida antes de gerar, entao os arquivos antigos sempre sao substituidos pelos novos.
+Observacao: `target/diagramas/jdeps/classes.dot` e o dump bruto do `jdeps` (mais poluido); para analise visual, use primeiro `camadas.dot` e `pacotes.dot`.
 
 ### Preparar e subir o solver
 
@@ -497,8 +571,30 @@ docker compose up -d osrm nominatim solver
 # 3. Testar solver localmente (opcional)
 cd solver && python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-pytest tests/ -v   # 24 testes
+pytest tests/ -v   # 27 testes
 ```
+
+### Subir API Java (atendimento/eventos/replanejamento)
+
+```bash
+# com solver ja disponivel em http://localhost:8080
+SOLVER_URL=http://localhost:8080 API_PORT=8081 \
+  mvn -DskipTests exec:java -Dexec.mainClass=com.aguaviva.App -Dexec.args=api
+```
+
+Endpoints:
+- `GET /health`
+- `POST /api/atendimento/pedidos`
+- `POST /api/eventos`
+- `POST /api/replanejamento/run`
+
+### Contratos compartilhados (A0)
+
+Pacote canonico de handoff A->B em `/contracts/v1`:
+- `openapi.yaml`
+- `events/catalogo-eventos.json`
+- `examples/*.json`
+- `CHANGELOG.md`
 
 ### Variaveis de ambiente
 
@@ -515,6 +611,8 @@ cp .env.example .env
 | POSTGRES_USER     | postgres          | Usuario            |
 | POSTGRES_PASSWORD | postgres          | Senha              |
 | POSTGRES_DB       | agua_viva_oop_dev | Nome do banco dev  |
+| SOLVER_URL        | http://localhost:8080 | URL do solver Python |
+| API_PORT          | 8081              | Porta da API Java  |
 
 O banco de teste roda na porta **5435** com dados em memoria (tmpfs).
 
@@ -525,11 +623,11 @@ O banco de teste roda na porta **5435** com dados em memoria (tmpfs).
 - [x] **Fase 1** — Fundacao (pom.xml, Docker, migrations, ConnectionFactory, health check)
 - [x] **Fase 2** — Domain: User + UserPapel + Password (TDD, 45 testes)
 - [x] **Fase 3** — Repository: UserRepository (TDD, 21 testes de integracao)
-- [x] **Fase 4** — Solver Python: OR-Tools CVRPTW + OSRM + Nominatim (24 testes)
-- [x] **Fase 5** — Integracao Java-Solver: SolverClient + Gson (10 testes)
+- [x] **Fase 4** — Solver Python: OR-Tools CVRPTW + OSRM + Nominatim + fluxo async/cancel (27 testes)
+- [x] **Fase 5** — Integracao Java-Solver: SolverClient + Gson + contrato async/cancel (12 testes)
 - [x] **Fase 6** — Repository: ClienteRepository + PedidoRepository
-- [ ] **Fase 7** — Service: RotaService (orquestra solver + repositorios)
-- [ ] **Fase 8** — Maquina de estados do Pedido (transicoes de status)
+- [ ] **Fase 7** — Service: RotaService (em andamento: transacao + idempotencia + reuso local + `plan_version` + worker/outbox)
+- [ ] **Fase 8** — Maquina de estados do Pedido (parcial: transicoes, testes e integracao no service; faltam trilhas completas de auditoria)
 - [ ] **Fase 9** — Vales (debito atomico, saldo, movimentacoes)
 - [ ] **Fase 10** — Frontend: Leaflet.js (mapa com rotas)
 
@@ -540,7 +638,7 @@ O banco de teste roda na porta **5435** com dados em memoria (tmpfs).
 | Aspecto         | Next.js (agua-viva)  | Java (agua-viva-oop)          |
 | --------------- | -------------------- | ----------------------------- |
 | Dominio         | Mesmo                | Mesmo                         |
-| Schema do banco | Mesmo (8 migrations) | Mesmo (8 migrations)          |
+| Schema do banco | Mesmo (11 migrations) | Mesmo (11 migrations)          |
 | Persistencia    | pg (SQL puro)        | JDBC (SQL puro)               |
 | Models          | models/\*.js         | domain/\*/\*.java (OOP pura)  |
 | Testes          | Jest + TDD           | JUnit 5 + TDD                 |

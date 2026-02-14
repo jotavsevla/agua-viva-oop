@@ -1,0 +1,459 @@
+openapi: 3.0.3
+info:
+  title: Agua Viva API Contracts
+  version: 1.0.0
+  description: |
+    Contrato canonico compartilhado entre Time A (core operacional)
+    e Time B (produto/UI).
+
+servers:
+  - url: http://localhost:8081
+    description: Java API local
+
+paths:
+  /health:
+    get:
+      summary: Health check da API
+      tags: [infra]
+      responses:
+        '200':
+          description: API online
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+                required: [status]
+
+  /api/atendimento/pedidos:
+    post:
+      summary: Registrar pedido de atendimento telefonico
+      tags: [atendimento]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AtendimentoRequest'
+      responses:
+        '200':
+          description: Pedido registrado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AtendimentoResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/eventos:
+    post:
+      summary: Registrar evento operacional
+      tags: [operacao]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EventoRequest'
+      responses:
+        '200':
+          description: Evento aplicado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventoResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/replanejamento/run:
+    post:
+      summary: Processar lote de eventos pendentes para replanejamento
+      tags: [operacao]
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReplanejamentoRequest'
+      responses:
+        '200':
+          description: Worker executado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReplanejamentoResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/pedidos/{pedidoId}/timeline:
+    get:
+      summary: Timeline de transicoes do pedido
+      tags: [timeline]
+      x-handoff-status: ready-handoff
+      x-dependency: A2
+      parameters:
+        - name: pedidoId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Timeline retornada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TimelineResponse'
+        '404':
+          description: Pedido nao encontrado
+
+  /api/financeiro/clientes/{clienteId}/saldo:
+    get:
+      summary: Consultar saldo de vales
+      tags: [financeiro]
+      x-handoff-status: pending-handoff
+      x-dependency: A3
+      parameters:
+        - name: clienteId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Saldo retornado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SaldoResponse'
+
+  /api/financeiro/clientes/{clienteId}/extrato:
+    get:
+      summary: Consultar extrato de vales
+      tags: [financeiro]
+      x-handoff-status: pending-handoff
+      x-dependency: A3
+      parameters:
+        - name: clienteId
+          in: path
+          required: true
+          schema:
+            type: integer
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 50
+      responses:
+        '200':
+          description: Extrato retornado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExtratoResponse'
+
+  /api/financeiro/cobrancas/{pedidoId}:
+    post:
+      summary: Registrar quitacao de cobranca de cancelamento
+      tags: [financeiro]
+      x-handoff-status: pending-handoff
+      x-dependency: A3
+      parameters:
+        - name: pedidoId
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                valorCentavos:
+                  type: integer
+                registradoPor:
+                  type: integer
+              required: [valorCentavos, registradoPor]
+      responses:
+        '200':
+          description: Cobranca atualizada
+
+  /api/dispatch/stream:
+    get:
+      summary: Stream de eventos operacionais (SSE)
+      tags: [dispatch]
+      x-handoff-status: pending-handoff
+      x-dependency: A4
+      responses:
+        '200':
+          description: Stream de eventos
+          content:
+            text/event-stream:
+              schema:
+                type: string
+
+  /api/produto/pedidos:
+    get:
+      summary: Lista paginada de pedidos para produto externo
+      tags: [produto]
+      x-handoff-status: pending-handoff
+      x-dependency: A5
+      parameters:
+        - name: page
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 1
+        - name: pageSize
+          in: query
+          required: false
+          schema:
+            type: integer
+            default: 20
+        - name: status
+          in: query
+          required: false
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Lista paginada
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PedidoPageResponse'
+
+components:
+  schemas:
+    AtendimentoRequest:
+      type: object
+      properties:
+        externalCallId:
+          type: string
+          maxLength: 64
+        telefone:
+          type: string
+        quantidadeGaloes:
+          type: integer
+          minimum: 1
+        atendenteId:
+          type: integer
+          minimum: 1
+      required: [telefone, quantidadeGaloes, atendenteId]
+
+    AtendimentoResponse:
+      type: object
+      properties:
+        pedidoId:
+          type: integer
+        clienteId:
+          type: integer
+        telefoneNormalizado:
+          type: string
+        clienteCriado:
+          type: boolean
+        idempotente:
+          type: boolean
+      required: [pedidoId, clienteId, telefoneNormalizado, clienteCriado, idempotente]
+
+    EventoRequest:
+      type: object
+      properties:
+        eventType:
+          type: string
+          enum: [ROTA_INICIADA, PEDIDO_ENTREGUE, PEDIDO_FALHOU, PEDIDO_CANCELADO]
+        rotaId:
+          type: integer
+        entregaId:
+          type: integer
+        motivo:
+          type: string
+        cobrancaCancelamentoCentavos:
+          type: integer
+      required: [eventType]
+
+    EventoResponse:
+      type: object
+      properties:
+        evento:
+          type: string
+        rotaId:
+          type: integer
+        entregaId:
+          type: integer
+        pedidoId:
+          type: integer
+        idempotente:
+          type: boolean
+      required: [evento, rotaId, entregaId, pedidoId, idempotente]
+
+    ReplanejamentoRequest:
+      type: object
+      properties:
+        debounceSegundos:
+          type: integer
+          minimum: 1
+          default: 20
+        limiteEventos:
+          type: integer
+          minimum: 1
+          default: 100
+
+    ReplanejamentoResponse:
+      type: object
+      properties:
+        eventosProcessados:
+          type: integer
+        replanejou:
+          type: boolean
+        rotasCriadas:
+          type: integer
+        entregasCriadas:
+          type: integer
+        pedidosNaoAtendidos:
+          type: integer
+      required:
+        [eventosProcessados, replanejou, rotasCriadas, entregasCriadas, pedidosNaoAtendidos]
+
+    TimelineEvent:
+      type: object
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        deStatus:
+          type: string
+        paraStatus:
+          type: string
+        origem:
+          type: string
+        observacao:
+          type: string
+      required: [timestamp, deStatus, paraStatus, origem]
+
+    TimelineResponse:
+      type: object
+      properties:
+        pedidoId:
+          type: integer
+        statusAtual:
+          type: string
+        eventos:
+          type: array
+          items:
+            $ref: '#/components/schemas/TimelineEvent'
+      required: [pedidoId, statusAtual, eventos]
+
+    SaldoResponse:
+      type: object
+      properties:
+        clienteId:
+          type: integer
+        quantidade:
+          type: integer
+      required: [clienteId, quantidade]
+
+    ExtratoItem:
+      type: object
+      properties:
+        data:
+          type: string
+          format: date-time
+        tipo:
+          type: string
+          enum: [CREDITO, DEBITO]
+        quantidade:
+          type: integer
+        saldoApos:
+          type: integer
+        registradoPor:
+          type: string
+        pedidoId:
+          type: integer
+        observacao:
+          type: string
+      required: [data, tipo, quantidade, saldoApos, registradoPor]
+
+    ExtratoResponse:
+      type: object
+      properties:
+        clienteId:
+          type: integer
+        itens:
+          type: array
+          items:
+            $ref: '#/components/schemas/ExtratoItem'
+      required: [clienteId, itens]
+
+    PedidoResumo:
+      type: object
+      properties:
+        pedidoId:
+          type: integer
+        clienteNome:
+          type: string
+        status:
+          type: string
+        criadoEm:
+          type: string
+          format: date-time
+      required: [pedidoId, clienteNome, status, criadoEm]
+
+    PedidoPageResponse:
+      type: object
+      properties:
+        page:
+          type: integer
+        pageSize:
+          type: integer
+        total:
+          type: integer
+        itens:
+          type: array
+          items:
+            $ref: '#/components/schemas/PedidoResumo'
+      required: [page, pageSize, total, itens]
+
+    ErrorResponse:
+      type: object
+      properties:
+        erro:
+          type: string
+        detalhe:
+          type: string
+      required: [erro]
+
+  responses:
+    BadRequest:
+      description: Requisicao invalida
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: Conflito de estado ou regra de negocio
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalError:
+      description: Erro interno
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

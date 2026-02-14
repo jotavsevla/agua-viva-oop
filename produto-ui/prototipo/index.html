@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Agua Viva - Time B Prototype</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="bg-orb orb-a"></div>
+    <div class="bg-orb orb-b"></div>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <p class="brand-tag">AGUA VIVA</p>
+          <h1>Centro Operacional</h1>
+          <p class="brand-sub">Time B · B0 + B1</p>
+        </div>
+        <nav class="main-nav">
+          <button data-view="pedidos" class="nav-item active">Pedidos</button>
+          <button data-view="financeiro" class="nav-item">Financeiro</button>
+          <button data-view="despacho" class="nav-item">Despacho</button>
+        </nav>
+        <div class="legend-box">
+          <p class="legend-title">Estados</p>
+          <p><span class="dot ok"></span> Entregue / normal</p>
+          <p><span class="dot warn"></span> Em risco / pendente</p>
+          <p><span class="dot danger"></span> Falha / cancelado</p>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <h2 id="view-title">Pedidos</h2>
+            <p class="subtitle">Prototipo navegavel para validacao de fluxo</p>
+          </div>
+          <div class="topbar-right">
+            <div class="mode-switch" role="group" aria-label="estado da interface">
+              <button data-mode="success" class="mode active">Success</button>
+              <button data-mode="empty" class="mode">Empty</button>
+              <button data-mode="error" class="mode">Error</button>
+            </div>
+            <p class="clock" id="clock">--:--:--</p>
+          </div>
+        </header>
+
+        <section class="api-bar">
+          <label for="api-base" class="api-label">API base</label>
+          <input
+            id="api-base"
+            class="api-input mono"
+            type="text"
+            value="http://localhost:8081"
+            spellcheck="false"
+          />
+          <button id="api-connect" class="btn">Testar conexao</button>
+          <span id="api-status" class="pill warn">API: pendente</span>
+        </section>
+
+        <section class="metrics" id="metrics"></section>
+        <section id="view-root" class="view-root" aria-live="polite"></section>
+      </main>
+    </div>
+
+    <script src="./lib/timeline-utils.js" defer></script>
+    <script src="./lib/timeline-flow.js" defer></script>
+    <script src="./app.js" defer></script>
+  </body>
+</html>

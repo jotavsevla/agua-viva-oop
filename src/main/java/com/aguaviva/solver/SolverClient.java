@@ -2,9 +2,11 @@ package com.aguaviva.solver;
 
 import java.io.IOException;
 import java.net.URI;
+import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
 import com.google.gson.FieldNamingPolicy;
@@ -53,5 +55,84 @@ public final class SolverClient {
         }
 
         return gson.fromJson(httpResp.body(), SolverResponse.class);
+    }
+
+    public SolverAsyncAccepted submitAsync(SolverRequest request) throws IOException, InterruptedException {
+        String body = gson.toJson(request);
+
+        HttpRequest httpReq = HttpRequest.newBuilder()
+                .uri(URI.create(solverUrl + "/solve/async"))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body))
+                .build();
+
+        HttpResponse<String> httpResp = httpClient.send(httpReq, HttpResponse.BodyHandlers.ofString());
+        if (httpResp.statusCode() != 200 && httpResp.statusCode() != 202) {
+            throw new IOException(
+                    "Solver async retornou status " + httpResp.statusCode() + ": " + httpResp.body()
+            );
+        }
+
+        return gson.fromJson(httpResp.body(), SolverAsyncAccepted.class);
+    }
+
+    public boolean cancel(String jobId) throws IOException, InterruptedException {
+        Objects.requireNonNull(jobId, "jobId nao pode ser nulo");
+        if (jobId.isBlank()) {
+            throw new IllegalArgumentException("jobId nao pode ser vazio");
+        }
+
+        String encoded = URLEncoder.encode(jobId, StandardCharsets.UTF_8);
+        HttpRequest httpReq = HttpRequest.newBuilder()
+                .uri(URI.create(solverUrl + "/cancel/" + encoded))
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build();
+
+        HttpResponse<String> httpResp = httpClient.send(httpReq, HttpResponse.BodyHandlers.ofString());
+        if (httpResp.statusCode() == 404) {
+            return false;
+        }
+        if (httpResp.statusCode() != 200) {
+            throw new IOException(
+                    "Cancelamento retornou status " + httpResp.statusCode() + ": " + httpResp.body()
+            );
+        }
+        return true;
+    }
+
+    public SolverJobResult getResult(String jobId) throws IOException, InterruptedException {
+        Objects.requireNonNull(jobId, "jobId nao pode ser nulo");
+        if (jobId.isBlank()) {
+            throw new IllegalArgumentException("jobId nao pode ser vazio");
+        }
+
+        String encoded = URLEncoder.encode(jobId, StandardCharsets.UTF_8);
+        HttpRequest httpReq = HttpRequest.newBuilder()
+                .uri(URI.create(solverUrl + "/result/" + encoded))
+                .GET()
+                .build();
+
+        HttpResponse<String> httpResp = httpClient.send(httpReq, HttpResponse.BodyHandlers.ofString());
+        if (httpResp.statusCode() == 404) {
+            return null;
+        }
+        if (httpResp.statusCode() != 200) {
+            throw new IOException(
+                    "Consulta de resultado retornou status " + httpResp.statusCode() + ": " + httpResp.body()
+            );
+        }
+
+        return gson.fromJson(httpResp.body(), SolverJobResult.class);
+    }
+
+    public void cancelBestEffort(String jobId) {
+        if (jobId == null || jobId.isBlank()) {
+            return;
+        }
+        try {
+            cancel(jobId);
+        } catch (Exception ignored) {
+            // Melhor esforco: cancelamento nao deve derrubar fluxo de replanejamento.
+        }
     }
 }

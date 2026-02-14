@@ -149,3 +149,23 @@ def test_infeasible_drops_node():
         vehicle_capacity=5,
     )
     assert 1 in dropped
+
+
+def test_cancel_checker_descarta_todos_os_nos():
+    matrix = [
+        [0, 300, 300],
+        [300, 0, 300],
+        [300, 300, 0],
+    ]
+
+    routes, dropped = solve(
+        duration_matrix=matrix,
+        demands=[0, 1, 1],
+        time_windows=[(0, 36000), (0, 36000), (0, 36000)],
+        num_drivers=1,
+        vehicle_capacity=5,
+        cancel_checker=lambda: True,
+    )
+
+    assert routes == []
+    assert dropped == [1, 2]

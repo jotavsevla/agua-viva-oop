@@ -24,6 +24,8 @@ class Pedido(BaseModel):
 
 
 class SolverRequest(BaseModel):
+    job_id: str | None = None
+    plan_version: int | None = None
     deposito: Coordenada
     capacidade_veiculo: int = 5
     horario_inicio: str = "08:00"    # "HH:MM"
@@ -49,3 +51,15 @@ class Rota(BaseModel):
 class SolverResponse(BaseModel):
     rotas: list[Rota]
     nao_atendidos: list[int]  # pedido_ids sem rota viavel
+
+
+class AsyncSolveAccepted(BaseModel):
+    job_id: str
+    status: str
+
+
+class AsyncSolveResult(BaseModel):
+    job_id: str
+    status: str
+    response: SolverResponse | None = None
+    erro: str | None = None
