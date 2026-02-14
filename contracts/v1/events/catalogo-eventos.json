@@ -1,0 +1,40 @@
+{
+  "version": "1.0.0",
+  "eventos": [
+    {
+      "event_type": "PEDIDO_CRIADO",
+      "aggregate_type": "PEDIDO",
+      "publicado_por": "AtendimentoTelefonicoService",
+      "trigger_replanejamento": true,
+      "descricao": "Pedido criado no fluxo de atendimento"
+    },
+    {
+      "event_type": "ROTA_INICIADA",
+      "aggregate_type": "ROTA",
+      "publicado_por": "ExecucaoEntregaService",
+      "trigger_replanejamento": false,
+      "descricao": "Entregador iniciou a rota"
+    },
+    {
+      "event_type": "PEDIDO_ENTREGUE",
+      "aggregate_type": "PEDIDO",
+      "publicado_por": "ExecucaoEntregaService",
+      "trigger_replanejamento": false,
+      "descricao": "Entrega finalizada com sucesso"
+    },
+    {
+      "event_type": "PEDIDO_FALHOU",
+      "aggregate_type": "PEDIDO",
+      "publicado_por": "ExecucaoEntregaService",
+      "trigger_replanejamento": true,
+      "descricao": "Falha operacional de entrega"
+    },
+    {
+      "event_type": "PEDIDO_CANCELADO",
+      "aggregate_type": "PEDIDO",
+      "publicado_por": "ExecucaoEntregaService",
+      "trigger_replanejamento": true,
+      "descricao": "Pedido cancelado durante execucao"
+    }
+  ]
+}

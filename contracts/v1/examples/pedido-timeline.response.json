@@ -1,0 +1,24 @@
+{
+  "pedidoId": 128,
+  "statusAtual": "ENTREGUE",
+  "eventos": [
+    {
+      "timestamp": "2026-02-13T08:10:00",
+      "deStatus": "NOVO",
+      "paraStatus": "PENDENTE",
+      "origem": "Atendimento"
+    },
+    {
+      "timestamp": "2026-02-13T09:02:00",
+      "deStatus": "CONFIRMADO",
+      "paraStatus": "EM_ROTA",
+      "origem": "Despacho"
+    },
+    {
+      "timestamp": "2026-02-13T10:14:00",
+      "deStatus": "EM_ROTA",
+      "paraStatus": "ENTREGUE",
+      "origem": "Evento operacional"
+    }
+  ]
+}
