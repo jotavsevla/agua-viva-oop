@@ -32,7 +32,14 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.function.BooleanSupplier;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
@@ -468,6 +475,175 @@ class RotaServiceTest {
         assertEquals("PENDENTE", statusDoPedido(pedido.getId()));
     }
 
+    @Test
+    void deveRetornarSemProcessarQuandoLockDistribuidoDePlanejamentoNaoDisponivel() throws Exception {
+        int atendenteId = criarAtendenteId("atendente9@teste.com");
+        criarEntregadorId("entregador9@teste.com", true);
+        int clienteId = criarClienteComSaldo("(38) 99999-7801", 10);
+        Pedido pedido = pedidoRepository.save(new Pedido(clienteId, 1, JanelaTipo.ASAP, null, null, atendenteId));
+
+        solverStub.setSolveResponse("""
+                {
+                  "rotas": [
+                    {
+                      "entregador_id": 1,
+                      "numero_no_dia": 1,
+                      "paradas": [
+                        {"ordem": 1, "pedido_id": %d, "lat": -16.7210, "lon": -43.8610, "hora_prevista": "08:30"}
+                      ]
+                    }
+                  ],
+                  "nao_atendidos": []
+                }
+                """.formatted(pedido.getId()));
+
+        try (Connection concorrente = factory.getConnection();
+             PreparedStatement stmt = concorrente.prepareStatement("SELECT pg_advisory_lock(?)")) {
+            stmt.setLong(1, RotaService.PLANEJAMENTO_LOCK_KEY);
+            stmt.execute();
+
+            PlanejamentoResultado resultado = criarService().planejarRotasPendentes();
+
+            assertEquals(0, resultado.rotasCriadas());
+            assertEquals(0, resultado.entregasCriadas());
+            assertEquals(0, resultado.pedidosNaoAtendidos());
+            assertEquals(0, solverStub.requestCount());
+            assertEquals(0, contarLinhas("rotas"));
+            assertEquals(0, contarLinhas("entregas"));
+            assertEquals("PENDENTE", statusDoPedido(pedido.getId()));
+        } finally {
+            try (Connection concorrente = factory.getConnection();
+                 PreparedStatement unlock = concorrente.prepareStatement("SELECT pg_advisory_unlock(?)")) {
+                unlock.setLong(1, RotaService.PLANEJAMENTO_LOCK_KEY);
+                unlock.execute();
+            }
+        }
+    }
+
+    @Test
+    void devePermitirApenasUmPlanejamentoConcorrenteSemCancelarJobAtivo() throws Exception {
+        int atendenteId = criarAtendenteId("atendente10@teste.com");
+        int entregadorId = criarEntregadorId("entregador10@teste.com", true);
+        int clienteId = criarClienteComSaldo("(38) 99999-7901", 10);
+        Pedido pedido = pedidoRepository.save(new Pedido(clienteId, 1, JanelaTipo.ASAP, null, null, atendenteId));
+
+        solverStub.setSolveDelayMillis(400);
+        solverStub.resetCancelCount();
+        solverStub.setSolveResponse("""
+                {
+                  "rotas": [
+                    {
+                      "entregador_id": %d,
+                      "numero_no_dia": 1,
+                      "paradas": [
+                        {"ordem": 1, "pedido_id": %d, "lat": -16.7210, "lon": -43.8610, "hora_prevista": "08:30"}
+                      ]
+                    }
+                  ],
+                  "nao_atendidos": []
+                }
+                """.formatted(entregadorId, pedido.getId()));
+
+        RotaService service = criarService();
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<PlanejamentoResultado> primeira = executor.submit(service::planejarRotasPendentes);
+            aguardarAte(() -> solverStub.requestCount() == 1, 3000, "Primeira chamada nao iniciou o solver");
+            Future<PlanejamentoResultado> segunda = executor.submit(service::planejarRotasPendentes);
+
+            PlanejamentoResultado resultadoPrimeira = primeira.get(5, TimeUnit.SECONDS);
+            PlanejamentoResultado resultadoSegunda = segunda.get(5, TimeUnit.SECONDS);
+
+            assertEquals(1, resultadoPrimeira.rotasCriadas());
+            assertEquals(1, resultadoPrimeira.entregasCriadas());
+            assertEquals(0, resultadoPrimeira.pedidosNaoAtendidos());
+
+            assertEquals(0, resultadoSegunda.rotasCriadas());
+            assertEquals(0, resultadoSegunda.entregasCriadas());
+            assertEquals(0, resultadoSegunda.pedidosNaoAtendidos());
+
+            assertEquals(0, solverStub.cancelCount());
+            assertEquals(1, solverStub.requestCount());
+            assertEquals(1, contarLinhas("rotas"));
+            assertEquals(1, contarLinhas("entregas"));
+            assertEquals("CONFIRMADO", statusDoPedido(pedido.getId()));
+        } finally {
+            solverStub.setSolveDelayMillis(0);
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void deveEvitarDuplicidadeQuandoMultiplasInstanciasPlanejamAoMesmoTempo() throws Exception {
+        int atendenteId = criarAtendenteId("atendente11@teste.com");
+        int entregadorId = criarEntregadorId("entregador11@teste.com", true);
+        int clienteId = criarClienteComSaldo("(38) 99999-8001", 10);
+        Pedido pedido = pedidoRepository.save(new Pedido(clienteId, 1, JanelaTipo.ASAP, null, null, atendenteId));
+
+        solverStub.setSolveDelayMillis(250);
+        solverStub.resetCancelCount();
+        solverStub.resetRequestCount();
+        solverStub.setSolveResponse("""
+                {
+                  "rotas": [
+                    {
+                      "entregador_id": %d,
+                      "numero_no_dia": 1,
+                      "paradas": [
+                        {"ordem": 1, "pedido_id": %d, "lat": -16.7210, "lon": -43.8610, "hora_prevista": "08:30"}
+                      ]
+                    }
+                  ],
+                  "nao_atendidos": []
+                }
+                """.formatted(entregadorId, pedido.getId()));
+
+        RotaService instanciaA = criarService();
+        RotaService instanciaB = criarService();
+        int concorrencia = 8;
+        ExecutorService executor = Executors.newFixedThreadPool(concorrencia);
+        List<Future<PlanejamentoResultado>> futures = new ArrayList<>();
+        try {
+            for (int i = 0; i < concorrencia; i++) {
+                RotaService alvo = (i % 2 == 0) ? instanciaA : instanciaB;
+                futures.add(executor.submit(alvo::planejarRotasPendentes));
+            }
+
+            int resultadosComPlanejamento = 0;
+            int resultadosSemPlanejamento = 0;
+            for (Future<PlanejamentoResultado> future : futures) {
+                PlanejamentoResultado resultado = future.get(5, TimeUnit.SECONDS);
+                if (resultado.rotasCriadas() == 1) {
+                    resultadosComPlanejamento++;
+                } else if (resultado.rotasCriadas() == 0 && resultado.entregasCriadas() == 0) {
+                    resultadosSemPlanejamento++;
+                }
+            }
+
+            assertEquals(1, resultadosComPlanejamento);
+            assertEquals(concorrencia - 1, resultadosSemPlanejamento);
+            assertEquals(1, solverStub.requestCount());
+            assertEquals(0, solverStub.cancelCount());
+            assertEquals(1, contarLinhas("rotas"));
+            assertEquals(1, contarLinhas("entregas"));
+            assertEquals("CONFIRMADO", statusDoPedido(pedido.getId()));
+        } finally {
+            solverStub.setSolveDelayMillis(0);
+            executor.shutdownNow();
+        }
+    }
+
+    private static void aguardarAte(BooleanSupplier condicao, long timeoutMillis, String erro) throws InterruptedException {
+        long deadline = System.currentTimeMillis() + timeoutMillis;
+        while (System.currentTimeMillis() < deadline) {
+            if (condicao.getAsBoolean()) {
+                return;
+            }
+            Thread.sleep(10);
+        }
+        throw new AssertionError(erro);
+    }
+
     private int contarLinhas(String tabela) throws Exception {
         try (Connection conn = factory.getConnection();
              Statement stmt = conn.createStatement();
@@ -518,11 +694,14 @@ class RotaServiceTest {
         private HttpServer server;
         private volatile String solveResponse = "{\"rotas\":[],\"nao_atendidos\":[]}";
         private volatile int statusCode = 200;
+        private volatile int solveDelayMillis = 0;
         private final AtomicInteger requestCount = new AtomicInteger(0);
+        private final AtomicInteger cancelCount = new AtomicInteger(0);
 
         void start() throws IOException {
             server = HttpServer.create(new InetSocketAddress(0), 0);
             server.createContext("/solve", new SolveHandler());
+            server.createContext("/cancel", new CancelHandler());
             server.start();
         }
 
@@ -546,6 +725,18 @@ class RotaServiceTest {
             requestCount.set(0);
         }
 
+        int cancelCount() {
+            return cancelCount.get();
+        }
+
+        void resetCancelCount() {
+            cancelCount.set(0);
+        }
+
+        void setSolveDelayMillis(int solveDelayMillis) {
+            this.solveDelayMillis = Math.max(0, solveDelayMillis);
+        }
+
         String baseUrl() {
             return "http://localhost:" + server.getAddress().getPort();
         }
@@ -554,9 +745,29 @@ class RotaServiceTest {
             @Override
             public void handle(HttpExchange exchange) throws IOException {
                 requestCount.incrementAndGet();
+                if (solveDelayMillis > 0) {
+                    try {
+                        Thread.sleep(solveDelayMillis);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }
                 byte[] bytes = solveResponse.getBytes(StandardCharsets.UTF_8);
                 exchange.getResponseHeaders().add("Content-Type", "application/json");
                 exchange.sendResponseHeaders(statusCode, bytes.length);
+                try (OutputStream os = exchange.getResponseBody()) {
+                    os.write(bytes);
+                }
+            }
+        }
+
+        private final class CancelHandler implements HttpHandler {
+            @Override
+            public void handle(HttpExchange exchange) throws IOException {
+                cancelCount.incrementAndGet();
+                byte[] bytes = "{\"cancelado\":true}".getBytes(StandardCharsets.UTF_8);
+                exchange.getResponseHeaders().add("Content-Type", "application/json");
+                exchange.sendResponseHeaders(200, bytes.length);
                 try (OutputStream os = exchange.getResponseBody()) {
                     os.write(bytes);
                 }

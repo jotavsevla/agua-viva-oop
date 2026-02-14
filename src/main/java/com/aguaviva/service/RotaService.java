@@ -32,6 +32,7 @@ import java.util.concurrent.atomic.AtomicReference;
 public class RotaService {
 
     private static final DateTimeFormatter HH_MM = DateTimeFormatter.ofPattern("HH:mm");
+    static final long PLANEJAMENTO_LOCK_KEY = 61001L;
 
     private final AtomicLong lastRequestedPlanVersion = new AtomicLong(0);
     private final AtomicReference<String> activeJobId = new AtomicReference<>();
@@ -54,29 +55,34 @@ public class RotaService {
     }
 
     public PlanejamentoResultado planejarRotasPendentes() {
-        long planVersion = lastRequestedPlanVersion.incrementAndGet();
-        String currentJobId = buildJobId(planVersion);
-        String previousJobId = activeJobId.getAndSet(currentJobId);
-        if (previousJobId != null && !previousJobId.equals(currentJobId)) {
-            solverClient.cancelBestEffort(previousJobId);
-        }
+        String currentJobId = null;
 
         try (Connection conn = connectionFactory.getConnection()) {
             conn.setAutoCommit(false);
             try {
+                if (!tentarAdquirirLockPlanejamento(conn)) {
+                    conn.commit();
+                    return new PlanejamentoResultado(0, 0, 0);
+                }
+
+                long planVersion = lastRequestedPlanVersion.incrementAndGet();
+                currentJobId = buildJobId(planVersion);
+                String previousJobId = activeJobId.getAndSet(currentJobId);
+                if (previousJobId != null && !previousJobId.equals(currentJobId)) {
+                    solverClient.cancelBestEffort(previousJobId);
+                }
+
                 boolean planVersionEnabled = hasPlanVersionColumns(conn);
                 ConfiguracaoRoteirizacao cfg = carregarConfiguracao(conn);
                 List<Integer> entregadoresAtivos = buscarEntregadoresAtivos(conn);
                 if (entregadoresAtivos.isEmpty()) {
                     conn.commit();
-                    clearActiveJob(currentJobId);
                     return new PlanejamentoResultado(0, 0, 0);
                 }
 
                 List<PedidoSolver> pedidos = buscarPedidosParaSolver(conn);
                 if (pedidos.isEmpty()) {
                     conn.commit();
-                    clearActiveJob(currentJobId);
                     return new PlanejamentoResultado(0, 0, 0);
                 }
 
@@ -94,7 +100,6 @@ public class RotaService {
                 List<PedidoSolver> pendentesParaSolver = insercaoLocal.pedidosRestantes();
                 if (pendentesParaSolver.isEmpty()) {
                     conn.commit();
-                    clearActiveJob(currentJobId);
                     return new PlanejamentoResultado(rotasCriadas, entregasCriadas, 0);
                 }
 
@@ -110,11 +115,6 @@ public class RotaService {
                 );
 
                 SolverResponse solverResponse = solverClient.solve(request);
-
-                if (planVersion < lastRequestedPlanVersion.get()) {
-                    conn.rollback();
-                    return new PlanejamentoResultado(0, 0, pendentesParaSolver.size());
-                }
 
                 for (RotaSolver rota : solverResponse.getRotas()) {
                     int rotaId = inserirRota(
@@ -134,7 +134,6 @@ public class RotaService {
                 }
 
                 conn.commit();
-                clearActiveJob(currentJobId);
                 return new PlanejamentoResultado(rotasCriadas, entregasCriadas, solverResponse.getNaoAtendidos().size());
             } catch (InterruptedException e) {
                 conn.rollback();
@@ -144,6 +143,9 @@ public class RotaService {
                 conn.rollback();
                 throw new IllegalStateException("Falha ao planejar rotas", e);
             } finally {
+                if (currentJobId != null) {
+                    clearActiveJob(currentJobId);
+                }
                 conn.setAutoCommit(true);
             }
         } catch (SQLException e) {
@@ -454,6 +456,18 @@ public class RotaService {
 
     private boolean hasPlanVersionColumns(Connection conn) throws SQLException {
         return hasColumn(conn, "rotas", "plan_version") && hasColumn(conn, "entregas", "plan_version");
+    }
+
+    private boolean tentarAdquirirLockPlanejamento(Connection conn) throws SQLException {
+        try (PreparedStatement stmt = conn.prepareStatement("SELECT pg_try_advisory_xact_lock(?)")) {
+            stmt.setLong(1, PLANEJAMENTO_LOCK_KEY);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (!rs.next()) {
+                    return false;
+                }
+                return rs.getBoolean(1);
+            }
+        }
     }
 
     private boolean hasColumn(Connection conn, String tabela, String coluna) throws SQLException {
