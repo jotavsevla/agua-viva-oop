@@ -21,6 +21,7 @@ import java.sql.Statement;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -184,6 +185,55 @@ class AtendimentoTelefonicoServiceTest {
                 () -> service.registrarPedido("   ", "(38) 99999-7001", 1, atendenteId));
     }
 
+    @Test
+    void deveRetornarPedidoAtivoQuandoAtendimentoManualEncontrarPedidoAberto() throws Exception {
+        int atendenteId = criarAtendenteId("telefone5@teste.com");
+        Cliente cliente = clienteRepository.save(new Cliente(
+                "Cliente manual",
+                "(38) 99876-8001",
+                ClienteTipo.PF,
+                "Rua B, 12"
+        ));
+        int pedidoExistenteId = inserirPedido(cliente.getId(), atendenteId, "PENDENTE", "call-manual-001");
+
+        AtendimentoTelefonicoResultado resultado = service.registrarPedidoManual(
+                "(38) 99876-8001",
+                2,
+                atendenteId
+        );
+
+        assertTrue(resultado.idempotente());
+        assertFalse(resultado.clienteCriado());
+        assertEquals(cliente.getId(), resultado.clienteId());
+        assertEquals(pedidoExistenteId, resultado.pedidoId());
+        assertEquals(1, contarLinhas("pedidos"));
+    }
+
+    @Test
+    void deveCriarPedidoQuandoAtendimentoManualNaoEncontrarPedidoAtivo() throws Exception {
+        int atendenteId = criarAtendenteId("telefone6@teste.com");
+        Cliente cliente = clienteRepository.save(new Cliente(
+                "Cliente historico",
+                "(38) 99876-8002",
+                ClienteTipo.PF,
+                "Rua C, 30"
+        ));
+        inserirPedido(cliente.getId(), atendenteId, "ENTREGUE", "call-manual-002");
+
+        AtendimentoTelefonicoResultado resultado = service.registrarPedidoManual(
+                "(38) 99876-8002",
+                1,
+                atendenteId
+        );
+
+        assertFalse(resultado.idempotente());
+        assertFalse(resultado.clienteCriado());
+        assertEquals(cliente.getId(), resultado.clienteId());
+        assertEquals(2, contarLinhas("pedidos"));
+        assertEquals("PENDENTE", statusPedido(resultado.pedidoId()));
+        assertNull(externalCallIdPedido(resultado.pedidoId()));
+    }
+
     private int contarLinhas(String tabela) throws Exception {
         try (Connection conn = factory.getConnection();
              Statement stmt = conn.createStatement();
@@ -211,6 +261,22 @@ class AtendimentoTelefonicoServiceTest {
             try (ResultSet rs = stmt.executeQuery()) {
                 rs.next();
                 return rs.getString(1);
+            }
+        }
+    }
+
+    private int inserirPedido(int clienteId, int atendenteId, String status, String externalCallId) throws Exception {
+        try (Connection conn = factory.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                     "INSERT INTO pedidos (cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por, external_call_id) "
+                             + "VALUES (?, 1, 'ASAP', NULL, NULL, ?, ?, ?) RETURNING id")) {
+            stmt.setInt(1, clienteId);
+            stmt.setObject(2, status, java.sql.Types.OTHER);
+            stmt.setInt(3, atendenteId);
+            stmt.setString(4, externalCallId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                rs.next();
+                return rs.getInt(1);
             }
         }
     }

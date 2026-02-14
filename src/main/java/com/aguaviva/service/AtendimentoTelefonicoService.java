@@ -62,20 +62,11 @@ public class AtendimentoTelefonicoService {
 
                 lockPorTelefone(conn, telefoneNormalizado);
 
-                int clienteId;
-                boolean clienteCriado;
-                Optional<Integer> clienteExistente = buscarClienteIdPorTelefoneNormalizado(conn, telefoneNormalizado);
-                if (clienteExistente.isPresent()) {
-                    clienteId = clienteExistente.get();
-                    clienteCriado = false;
-                } else {
-                    clienteId = inserirClienteMinimo(conn, telefoneNormalizado);
-                    clienteCriado = true;
-                }
+                ClienteResolveResult cliente = obterOuCriarClientePorTelefone(conn, telefoneNormalizado);
 
                 InsertPedidoResult insert = inserirPedidoPendenteIdempotente(
                         conn,
-                        clienteId,
+                        cliente.clienteId(),
                         quantidadeGaloes,
                         atendenteId,
                         externalCallIdNormalizado
@@ -96,7 +87,7 @@ public class AtendimentoTelefonicoService {
                         insert.pedidoId(),
                         insert.clienteId(),
                         telefoneNormalizado,
-                        clienteCriado && !insert.idempotente(),
+                        cliente.clienteCriado() && !insert.idempotente(),
                         insert.idempotente()
                 );
             } catch (Exception e) {
@@ -110,6 +101,72 @@ public class AtendimentoTelefonicoService {
                 throw new IllegalArgumentException("Atendente informado nao existe", e);
             }
             throw new IllegalStateException("Falha ao registrar pedido via atendimento telefonico", e);
+        }
+    }
+
+    public AtendimentoTelefonicoResultado registrarPedidoManual(
+            String telefoneInformado,
+            int quantidadeGaloes,
+            int atendenteId
+    ) {
+        String telefoneNormalizado = normalizePhone(telefoneInformado);
+        validateQuantidade(quantidadeGaloes);
+        validateAtendenteId(atendenteId);
+
+        try (Connection conn = connectionFactory.getConnection()) {
+            conn.setAutoCommit(false);
+            try {
+                lockPorTelefone(conn, telefoneNormalizado);
+
+                ClienteResolveResult cliente = obterOuCriarClientePorTelefone(conn, telefoneNormalizado);
+                Optional<PedidoExistente> pedidoAtivo = buscarPedidoAbertoPorClienteId(conn, cliente.clienteId());
+
+                if (pedidoAtivo.isPresent()) {
+                    conn.commit();
+                    PedidoExistente existente = pedidoAtivo.get();
+                    return new AtendimentoTelefonicoResultado(
+                            existente.pedidoId(),
+                            existente.clienteId(),
+                            telefoneNormalizado,
+                            false,
+                            true
+                    );
+                }
+
+                InsertPedidoResult insert = inserirPedidoPendente(
+                        conn,
+                        cliente.clienteId(),
+                        quantidadeGaloes,
+                        atendenteId
+                );
+
+                dispatchEventService.publicar(
+                        conn,
+                        DispatchEventTypes.PEDIDO_CRIADO,
+                        "PEDIDO",
+                        (long) insert.pedidoId(),
+                        new PedidoCriadoPayload(insert.pedidoId(), insert.clienteId(), null)
+                );
+
+                conn.commit();
+                return new AtendimentoTelefonicoResultado(
+                        insert.pedidoId(),
+                        insert.clienteId(),
+                        telefoneNormalizado,
+                        cliente.clienteCriado(),
+                        false
+                );
+            } catch (Exception e) {
+                conn.rollback();
+                throw e;
+            } finally {
+                conn.setAutoCommit(true);
+            }
+        } catch (SQLException e) {
+            if ("23503".equals(e.getSQLState())) {
+                throw new IllegalArgumentException("Atendente informado nao existe", e);
+            }
+            throw new IllegalStateException("Falha ao registrar pedido via atendimento manual", e);
         }
     }
 
@@ -202,6 +259,34 @@ public class AtendimentoTelefonicoService {
         throw new SQLException("Falha ao criar cliente minimo para atendimento telefonico");
     }
 
+    private ClienteResolveResult obterOuCriarClientePorTelefone(Connection conn, String telefoneNormalizado) throws SQLException {
+        Optional<Integer> clienteExistente = buscarClienteIdPorTelefoneNormalizado(conn, telefoneNormalizado);
+        if (clienteExistente.isPresent()) {
+            return new ClienteResolveResult(clienteExistente.get(), false);
+        }
+        int clienteId = inserirClienteMinimo(conn, telefoneNormalizado);
+        return new ClienteResolveResult(clienteId, true);
+    }
+
+    private Optional<PedidoExistente> buscarPedidoAbertoPorClienteId(Connection conn, int clienteId) throws SQLException {
+        String sql = "SELECT id, cliente_id FROM pedidos "
+                + "WHERE cliente_id = ? "
+                + "AND status::text IN ('PENDENTE', 'CONFIRMADO', 'EM_ROTA') "
+                + "ORDER BY id DESC LIMIT 1";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, clienteId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return Optional.of(new PedidoExistente(
+                            rs.getInt("id"),
+                            rs.getInt("cliente_id")
+                    ));
+                }
+                return Optional.empty();
+            }
+        }
+    }
+
     private InsertPedidoResult inserirPedidoPendenteIdempotente(
             Connection conn,
             int clienteId,
@@ -238,6 +323,38 @@ public class AtendimentoTelefonicoService {
         PedidoExistente existente = buscarPedidoPorExternalCallId(conn, externalCallId)
                 .orElseThrow(() -> new SQLException("Pedido idempotente nao encontrado para external_call_id"));
         return new InsertPedidoResult(existente.pedidoId(), existente.clienteId(), true);
+    }
+
+    private InsertPedidoResult inserirPedidoPendente(
+            Connection conn,
+            int clienteId,
+            int quantidadeGaloes,
+            int atendenteId
+    ) throws SQLException {
+        String sql = "INSERT INTO pedidos (cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por) "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                + "RETURNING id, cliente_id";
+
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, clienteId);
+            stmt.setInt(2, quantidadeGaloes);
+            stmt.setObject(3, "ASAP", Types.OTHER);
+            stmt.setNull(4, Types.TIME);
+            stmt.setNull(5, Types.TIME);
+            stmt.setObject(6, "PENDENTE", Types.OTHER);
+            stmt.setInt(7, atendenteId);
+
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (rs.next()) {
+                    return new InsertPedidoResult(
+                            rs.getInt("id"),
+                            rs.getInt("cliente_id"),
+                            false
+                    );
+                }
+            }
+        }
+        throw new SQLException("Falha ao criar pedido pendente em atendimento manual");
     }
 
     private static String normalizeExternalCallId(String value) {
@@ -277,6 +394,9 @@ public class AtendimentoTelefonicoService {
     }
 
     private record PedidoExistente(int pedidoId, int clienteId) {
+    }
+
+    private record ClienteResolveResult(int clienteId, boolean clienteCriado) {
     }
 
     private record InsertPedidoResult(int pedidoId, int clienteId, boolean idempotente) {
