@@ -3,6 +3,16 @@
 Guia completo da suite de testes do projeto.
 Metodologia TDD: teste escrito **antes** da implementacao.
 
+## Posicionamento de Estrategia
+
+Concordamos com o criterio de classificacao por **escopo e risco de comportamento**.
+
+- A divisao "rapido vs lento" ajuda na operacao, mas nao e a principal para decidir prioridade.
+- A divisao principal aqui e:
+  - **Unitario**: risco local de regra/objeto.
+  - **Integracao**: risco de fronteira (transacao, SQL real, HTTP real, contratos, concorrencia).
+- Quando o nucleo de dominio esta modelado, priorizamos integracao nas fronteiras de maior risco.
+
 ---
 
 ## Resumo
@@ -15,21 +25,23 @@ Metodologia TDD: teste escrito **antes** da implementacao.
 | PedidoTest            | Java      | Unitario   | 16     | Domain     |
 | PedidoStateMachineTest| Java      | Unitario   | 8      | Domain     |
 | SolverClientTest      | Java      | Unitario   | 12     | Solver     |
+| ContractsV1Test       | Java      | Unitario   | 3      | Contracts  |
 | ConnectionFactoryTest | Java      | Integracao | 2      | Repository |
 | UserRepositoryTest    | Java      | Integracao | 21     | Repository |
 | ClienteRepositoryTest | Java      | Integracao | 13     | Repository |
 | PedidoRepositoryTest  | Java      | Integracao | 12     | Repository |
-| RotaServiceTest       | Java      | Integracao | 9      | Service    |
+| RotaServiceTest       | Java      | Integracao | 12     | Service    |
 | PedidoLifecycleServiceTest | Java | Integracao | 3      | Service    |
-| AtendimentoTelefonicoServiceTest | Java | Integracao | 5      | Service    |
+| AtendimentoTelefonicoServiceTest | Java | Integracao | 7      | Service    |
 | ExecucaoEntregaServiceTest | Java | Integracao | 4      | Service    |
 | ReplanejamentoWorkerServiceTest | Java | Integracao | 3      | Service    |
+| ApiServerTest         | Java      | Integracao | 7      | API/Service |
 | test_vrp              | Python    | Unitario   | 14     | Solver     |
 | test_models           | Python    | Unitario   | 6      | Solver     |
 | test_matrix           | Python    | Unitario   | 5      | Solver     |
 | test_main_async       | Python    | Unitario   | 2      | Solver     |
 
-**Total: 196 testes** (169 Java + 27 Python)
+**Total: 211 testes** (184 Java + 27 Python)
 
 ---
 
@@ -52,10 +64,45 @@ mvn test
 mvn test -Dtest=PasswordTest
 mvn test -Dtest=UserRepositoryTest
 mvn -Dtest=AtendimentoTelefonicoServiceTest,ExecucaoEntregaServiceTest,ReplanejamentoWorkerServiceTest test
+mvn -Dtest=ApiServerTest test
 
 # Com output detalhado
 mvn test -Dsurefire.useFile=false
 ```
+
+### Execucao orientada por risco (recomendado)
+
+```bash
+# Fronteira de maior risco operacional (transacao + concorrencia + estado)
+mvn -Dtest=AtendimentoTelefonicoServiceTest,ExecucaoEntregaServiceTest,PedidoLifecycleServiceTest,RotaServiceTest,ReplanejamentoWorkerServiceTest test
+
+# Fronteira HTTP da API (contrato de entrada/saida real)
+mvn -Dtest=ApiServerTest test
+
+# Fronteira de persistencia (SQL real, constraints, mapeamento)
+mvn -Dtest=ConnectionFactoryTest,UserRepositoryTest,ClienteRepositoryTest,PedidoRepositoryTest test
+```
+
+### Estilizacao (CI em rollout gradual)
+
+Script local:
+
+```bash
+scripts/check-style.sh <arquivos...>
+```
+
+Exemplo para simular o comportamento do CI (somente arquivos alterados):
+
+```bash
+mapfile -t changed_files < <(git diff --name-only --diff-filter=ACMRT origin/main...HEAD)
+scripts/check-style.sh "${changed_files[@]}"
+```
+
+O job `style-check` no GitHub Actions:
+
+- roda em `continue-on-error` (nao bloqueante nesta fase inicial)
+- valida apenas arquivos alterados no push/PR
+- checa `CRLF` e trailing whitespace
 
 **Pre-requisito para testes de integracao:** `postgres-oop-test` rodando e migracoes `001-011` aplicadas no banco de teste.
 
@@ -88,7 +135,7 @@ cd solver
 
 ---
 
-## Testes Unitarios vs Integracao
+## Testes Unitarios vs Integracao (com foco em escopo/risco)
 
 ### Testes Unitarios
 
@@ -102,6 +149,7 @@ Testam logica pura **sem dependencias externas** (sem banco, sem rede, sem Docke
 | `PedidoTest`      | Invariantes de quantidade/janela/status, regras de construcao e identidade da entidade |
 | `PedidoStateMachineTest` | Transicoes de status validas/invalidas e regra de cobranca por cancelamento em rota |
 | `SolverClientTest`| Serializacao Java→JSON (snake_case via Gson), deserializacao JSON→Java, roundtrip request/response e contratos async |
+| `ContractsV1Test` | Integridade do pacote `/contracts/v1` (OpenAPI, catalogo de eventos e exemplos obrigatorios) |
 
 **Caracteristicas:**
 - Executam em milissegundos
@@ -119,7 +167,7 @@ Testam a **interacao com o banco PostgreSQL real** (porta 5435, tmpfs).
 | `UserRepositoryTest`   | CRUD completo (save, findById, findByEmail, findAll, update, desativar), constraints de email unico, mapeamento de todos os enum `UserPapel`, campos opcionais (telefone), hash de senha persistido corretamente |
 | `ClienteRepositoryTest`| CRUD completo (save, findById, findByTelefone, findAll, update), constraint de telefone unico, mapeamento de enum `ClienteTipo` e coordenadas |
 | `PedidoRepositoryTest` | CRUD completo (save, findById, findByCliente, findPendentes, update), mapeamento de `JanelaTipo`/`PedidoStatus`, validacao de FKs (`cliente_id`, `criado_por`) |
-| `RotaServiceTest`      | Orquestracao fim-a-fim da roteirizacao (solver stub HTTP + PostgreSQL real), persistencia de `rotas`/`entregas`, rollback transacional, idempotencia, reprocessamento sem conflito de `numero_no_dia` e short-circuit quando nao ha elegiveis |
+| `RotaServiceTest`      | Orquestracao fim-a-fim da roteirizacao (solver stub HTTP + PostgreSQL real), persistencia de `rotas`/`entregas`, rollback transacional, idempotencia, reprocessamento sem conflito de `numero_no_dia`, lock distribuido de planejamento, alta disputa multi-instancia e short-circuit quando nao ha elegiveis |
 | `PedidoLifecycleServiceTest` | Porta unica de transicao de status com lock pessimista (`SELECT ... FOR UPDATE`) e efeitos financeiros de cancelamento |
 | `AtendimentoTelefonicoServiceTest` | Intake telefonico transacional com normalizacao de telefone e idempotencia por `external_call_id` |
 | `ExecucaoEntregaServiceTest` | Aplicacao dos eventos operacionais (`ROTA_INICIADA`, `PEDIDO_ENTREGUE`, `PEDIDO_FALHOU`, `PEDIDO_CANCELADO`) |
@@ -131,6 +179,17 @@ Testam a **interacao com o banco PostgreSQL real** (porta 5435, tmpfs).
 - Limpeza automatica entre testes (delecao ou `TRUNCATE ... RESTART IDENTITY CASCADE`, dependendo da suite)
 - Lifecycle JUnit 5: `@BeforeAll` (cria pool), `@BeforeEach` (limpa dados), `@AfterEach` (quando necessario) e `@AfterAll` (fecha pool)
 - Tempo de execucao: ~25-30s (inclui startup do HikariCP)
+- Capturam risco de fronteira que unitario nao cobre (SQL, lock, HTTP, status transacional)
+
+### Matriz de prioridade por risco
+
+| Prioridade | Tipo de comportamento | Exemplo de suite |
+| ---------- | --------------------- | ---------------- |
+| Alta       | Transacao + concorrencia + efeitos colaterais | `RotaServiceTest`, `ReplanejamentoWorkerServiceTest` |
+| Alta       | Contrato HTTP real da API | `ApiServerTest` |
+| Media      | Persistencia e constraints SQL | `UserRepositoryTest`, `PedidoRepositoryTest` |
+| Media      | Contrato e serializacao | `ContractsV1Test`, `SolverClientTest` |
+| Base       | Invariantes locais de dominio | `UserTest`, `PedidoTest`, `PedidoStateMachineTest` |
 
 ---
 
@@ -272,20 +331,32 @@ Metadados async
   deveDeserializarResultadoDeJobAsync
 ```
 
-### Suites Service (24 testes)
+### ContractsV1Test (3 testes)
 
 ```
-RotaServiceTest (9 testes)
+Pacote canonico de contratos
+  deveDefinirOpenApiV1ComEndpointsCoreOperacionais
+  deveManterCatalogoEventosAlinhadoAoBackend
+  deveTerExemplosJsonValidosParaEndpointsCore
+```
+
+### Suites Service/API (36 testes)
+
+```
+RotaServiceTest (12 testes)
   Planejamento completo com solver stub + persistencia de rotas/entregas
   Rollback em falhas e short-circuit sem elegiveis
   Idempotencia e reprocessamento sem duplicacao
+  Lock distribuido para evitar planejamento concorrente entre instancias
+  Concorrencia no mesmo service sem cancelamento indevido do job ativo
+  Alta disputa com duas instancias concorrentes sem duplicar rota/entrega
 
 PedidoLifecycleServiceTest (3 testes)
   Transicao centralizada com lock pessimista
   Cobranca em cancelamento em rota (PENDENTE/NAO_APLICAVEL)
   Rejeicao de transicao invalida pelo dominio
 
-AtendimentoTelefonicoServiceTest (5 testes)
+AtendimentoTelefonicoServiceTest (7 testes)
   Normalizacao de telefone e criacao de cliente minimo
   Criacao de pedido em PENDENTE
   Idempotencia por `external_call_id`
@@ -298,6 +369,16 @@ ReplanejamentoWorkerServiceTest (3 testes)
   Debounce por janela de tempo
   Lock distribuido para evitar worker concorrente
   Marcacao de eventos processados no outbox `dispatch_events`
+
+ApiServerTest (7 testes)
+  Rota HTTP de atendimento com `externalCallId` ausente (fluxo manual)
+  Rota HTTP de atendimento com `externalCallId` presente (idempotencia)
+  Rota HTTP de timeline com status atual e eventos operacionais do pedido
+  Rota HTTP de timeline com pedido inexistente (404)
+  Rota HTTP de timeline com falha operacional e motivo de cancelamento
+  Rota HTTP de timeline com cancelamento solicitado e motivo
+  Fluxo integrado via HTTP: atendimento -> eventos -> timeline
+  Validacao de contrato JSON real na fronteira API
 ```
 
 ### Testes Python (27 testes)

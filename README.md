@@ -34,7 +34,7 @@ O ciclo e sempre o mesmo:
 
 Isso vale para domain, repository, service e solver. Nenhuma classe existe sem teste.
 
-**196 testes mapeados** (169 Java + 27 Python), zero falhas. Os testes nao sao formais —
+**211 testes mapeados** (184 Java + 27 Python), zero falhas. Os testes nao sao formais —
 eles documentam o comportamento esperado do sistema.
 
 ### Objetos com comportamento, nao DTOs
@@ -338,9 +338,9 @@ a integracao completa desse fluxo no service segue em andamento.
 
 ## Testes
 
-**196 testes mapeados** — TDD (teste escrito antes da implementacao).
+**211 testes mapeados** — TDD (teste escrito antes da implementacao).
 
-### Testes unitarios (97 Java + 27 Python)
+### Testes unitarios (100 Java + 27 Python)
 
 Testam logica pura sem dependencias externas (sem banco, sem rede, sem Docker).
 
@@ -349,6 +349,7 @@ Testam logica pura sem dependencias externas (sem banco, sem rede, sem Docker).
 | PasswordTest     | 18     | Politica de senha, BCrypt, matching, reconstrucao, Value Object |
 | UserTest         | 27     | Invariantes, hierarquia (10 combinacoes), identidade, email     |
 | SolverClientTest | 12     | Serializacao/deserializacao JSON, roundtrip, construcao e metadados async |
+| ContractsV1Test  | 3      | Presenca/consistencia do pacote `contracts/v1` (OpenAPI, eventos e exemplos) |
 | ClienteTest      | 16     | Invariantes de cliente, coordenadas, identidade da entidade     |
 | PedidoTest       | 16     | Invariantes de pedido, janela HARD/ASAP, identidade da entidade |
 | PedidoStateMachineTest | 8 | Transicoes validas/invalidas e regra de cobranca por cancelamento em rota |
@@ -357,7 +358,7 @@ Testam logica pura sem dependencias externas (sem banco, sem rede, sem Docker).
 | test_matrix      | 5      | Haversine, simetria, fallback OSRM → Haversine                 |
 | test_main_async  | 2      | Fluxo async de job e cancelamento antecipado no solver          |
 
-### Testes de integracao (72 Java)
+### Testes de integracao (84 Java)
 
 Testam interacao com PostgreSQL real (porta 5435, tmpfs, dados em memoria).
 
@@ -367,9 +368,9 @@ Testam interacao com PostgreSQL real (porta 5435, tmpfs, dados em memoria).
 | UserRepositoryTest    | 21     | CRUD completo, email unico, todos os enum, soft delete, hash persistido |
 | ClienteRepositoryTest | 13     | CRUD completo, telefone unico, mapeamento de enum e coordenadas |
 | PedidoRepositoryTest  | 12     | CRUD completo, filtros por cliente/pendentes, FKs e status/janelas |
-| RotaServiceTest       | 9      | Fluxo fim-a-fim + rollback + idempotencia + reprocessamento de pendentes |
+| RotaServiceTest       | 12     | Fluxo fim-a-fim + rollback + idempotencia + reprocessamento de pendentes + lock distribuido de planejamento + concorrencia sem cancelamento indevido + alta disputa multi-instancia |
 | PedidoLifecycleServiceTest | 3 | Transicao com lock pessimista + efeitos de cancelamento/cobranca |
-| AtendimentoTelefonicoServiceTest | 5 | Entrada telefonica idempotente por `external_call_id` e normalizacao de telefone |
+| AtendimentoTelefonicoServiceTest | 7 | Entrada telefonica idempotente por `external_call_id` e normalizacao de telefone |
 | ExecucaoEntregaServiceTest | 4 | Eventos mobile/operacionais e transicoes de status de execucao |
 | ReplanejamentoWorkerServiceTest | 3 | Coalescencia por debounce + lock distribuido + marcacao do outbox |
 
@@ -379,7 +380,7 @@ Sem mocks. Banco real em tmpfs.
 ### Rodando os testes
 
 ```bash
-# Java (169 testes — pre-requisito: postgres-oop-test rodando e migrations 001-011)
+# Java (184 testes — pre-requisito: postgres-oop-test rodando e migrations 001-011)
 mvn test
 
 # Python (27 testes — dentro do venv do solver)
@@ -409,6 +410,13 @@ agua-viva/
 │       ├── 009_add_dynamic_dispatch_controls.sql
 │       ├── 010_add_external_call_id_to_pedidos.sql
 │       └── 011_create_dispatch_events.sql
+├── contracts/
+│   ├── README.md                       # Ownership + versao + compatibilidade
+│   └── v1/
+│       ├── openapi.yaml                # Contrato OpenAPI congelado (A0)
+│       ├── CHANGELOG.md
+│       ├── events/catalogo-eventos.json
+│       └── examples/*.json
 ├── src/
 │   ├── main/java/com/aguaviva/
 │   │   ├── App.java                    # Entry point (health check)
@@ -467,11 +475,13 @@ agua-viva/
 │       │   ├── ClienteRepositoryTest.java # 13 testes de integracao
 │       │   └── PedidoRepositoryTest.java  # 12 testes de integracao
 │       ├── service/
-│       │   ├── RotaServiceTest.java    # 9 testes de integracao (solver stub + banco real)
+│       │   ├── RotaServiceTest.java    # 12 testes de integracao (inclui lock distribuido e alta disputa)
 │       │   ├── PedidoLifecycleServiceTest.java
 │       │   ├── AtendimentoTelefonicoServiceTest.java
 │       │   ├── ExecucaoEntregaServiceTest.java
 │       │   └── ReplanejamentoWorkerServiceTest.java
+│       ├── contracts/
+│       │   └── ContractsV1Test.java    # 3 testes de contrato para /contracts/v1
 │       └── solver/
 │           └── SolverClientTest.java   # 12 testes (serializacao/deserializacao + async)
 ├── solver/                             # Solver Python (segregado)
@@ -524,9 +534,30 @@ CONTAINER_NAME=postgres-oop-test POSTGRES_DB=agua_viva_oop_test ./apply-migratio
 ### Compilar e testar (Java)
 
 ```bash
-mvn test           # 169 testes (unitarios + integracao)
+mvn test           # 184 testes (unitarios + integracao)
 mvn clean compile  # compilar sem testes
 ```
+
+### Gerar diagramas da arquitetura (sobrescrevendo sempre)
+
+```bash
+./scripts/gerar-diagramas.sh
+```
+
+Saidas geradas/atualizadas automaticamente em `target/diagramas`:
+- `target/diagramas/camadas.dot` (visao limpa por camada)
+- `target/diagramas/pacotes.dot` (visao limpa por pacote interno)
+- `target/diagramas/jdeps/classes.dot`
+- `target/diagramas/jdeps/summary.dot`
+- `target/diagramas/dependencies.dot`
+- `target/diagramas/pacotes.mmd`
+- `target/diagramas/camadas.mmd`
+- `target/diagramas/camadas.svg` (quando `dot`/Graphviz estiver instalado)
+- `target/diagramas/pacotes.svg` (quando `dot`/Graphviz estiver instalado)
+- `target/diagramas/dependencies.svg` (quando `dot`/Graphviz estiver instalado)
+
+O script limpa a pasta de saida antes de gerar, entao os arquivos antigos sempre sao substituidos pelos novos.
+Observacao: `target/diagramas/jdeps/classes.dot` e o dump bruto do `jdeps` (mais poluido); para analise visual, use primeiro `camadas.dot` e `pacotes.dot`.
 
 ### Preparar e subir o solver
 
@@ -556,6 +587,14 @@ Endpoints:
 - `POST /api/atendimento/pedidos`
 - `POST /api/eventos`
 - `POST /api/replanejamento/run`
+
+### Contratos compartilhados (A0)
+
+Pacote canonico de handoff A->B em `/contracts/v1`:
+- `openapi.yaml`
+- `events/catalogo-eventos.json`
+- `examples/*.json`
+- `CHANGELOG.md`
 
 ### Variaveis de ambiente
 

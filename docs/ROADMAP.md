@@ -13,6 +13,7 @@ Para executar com consistencia o que ja foi entregue:
 - `postgres-oop-test` ativo na porta `5435` para suites Java de integracao
 - Solver Python acessivel em `SOLVER_URL` para execucao da API de roteirizacao
 - `.env` com credenciais e portas alinhadas (`POSTGRES_*`, `SOLVER_URL`, `API_PORT`)
+- `contracts/v1` congelado como baseline de handoff A->B (`openapi.yaml`, `events/`, `examples/`)
 
 ---
 
@@ -97,8 +98,10 @@ Objetivo: orquestrar domain + repository + solver.
 - [x] `AtendimentoTelefonicoService` com idempotencia por `external_call_id`
 - [x] `ExecucaoEntregaService` para eventos operacionais (`ROTA_INICIADA`, `PEDIDO_ENTREGUE`, `PEDIDO_FALHOU`, `PEDIDO_CANCELADO`)
 - [x] `ReplanejamentoWorkerService` com debounce e lock distribuido (`pg_try_advisory_xact_lock`)
+- [x] Lock distribuido no `RotaService` para impedir planejamento concorrente entre instancias
+- [x] Testes de alta disputa no `RotaService` para evitar duplicacao em chamadas concorrentes multi-instancia
 - [x] API HTTP minima (`ApiServer`) para atendimento, eventos e disparo de replanejamento
-- [ ] Endurecer concorrencia para multiplas instancias (colisoes simultaneas no mesmo entregador/dia)
+- [ ] Endurecer concorrencia para multiplas instancias (cenarios de alta disputa, retries simultaneos e fairness)
 
 **Dependencias:** Fase 6 (repositorios de cliente/pedido).
 
@@ -150,6 +153,7 @@ Objetivo: credito pre-pago (vale-agua).
 Objetivo: visualizacao de rotas em mapa interativo.
 
 - [x] Base de API HTTP para alimentar UI e app operacional
+- [x] Endpoint HTTP `GET /api/pedidos/{pedidoId}/timeline` (A2 inicial para handoff com Time B)
 - [ ] Mapa com rotas (Leaflet.js)
 - [ ] Marcadores de clientes com informacoes
 - [ ] Rotas coloridas por entregador
@@ -173,4 +177,4 @@ Fase 9  ░░░░░░░░░░ Sistema de Vales
 Fase 10 ██░░░░░░░░ Frontend/API Produto
 ```
 
-**Status:** 6/10 fases concluidas + Fase 7 avancada + Fase 8 parcial + Fase 10 iniciada — 196 testes mapeados (169 Java + 27 Python).
+**Status:** 6/10 fases concluidas + Fase 7 avancada + Fase 8 parcial + Fase 10 iniciada — 211 testes mapeados (184 Java + 27 Python).
