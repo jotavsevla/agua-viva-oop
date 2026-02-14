@@ -521,6 +521,62 @@ class RotaServiceTest {
     }
 
     @Test
+    void devePlanejarComSucessoAoReexecutarAposLockLiberado() throws Exception {
+        int atendenteId = criarAtendenteId("atendente-retry@teste.com");
+        int entregadorId = criarEntregadorId("entregador-retry@teste.com", true);
+        int clienteId = criarClienteComSaldo("(38) 99999-7851", 10);
+        Pedido pedido = pedidoRepository.save(new Pedido(clienteId, 1, JanelaTipo.ASAP, null, null, atendenteId));
+
+        solverStub.setSolveResponse("""
+                {
+                  "rotas": [
+                    {
+                      "entregador_id": %d,
+                      "numero_no_dia": 1,
+                      "paradas": [
+                        {"ordem": 1, "pedido_id": %d, "lat": -16.7210, "lon": -43.8610, "hora_prevista": "08:30"}
+                      ]
+                    }
+                  ],
+                  "nao_atendidos": []
+                }
+                """.formatted(entregadorId, pedido.getId()));
+
+        RotaService service = criarService();
+
+        // 1) Lock bloqueado — tentativa retorna vazio
+        try (Connection concorrente = factory.getConnection();
+             PreparedStatement stmt = concorrente.prepareStatement("SELECT pg_advisory_lock(?)")) {
+            stmt.setLong(1, RotaService.PLANEJAMENTO_LOCK_KEY);
+            stmt.execute();
+
+            PlanejamentoResultado bloqueado = service.planejarRotasPendentes();
+
+            assertEquals(0, bloqueado.rotasCriadas());
+            assertEquals(0, bloqueado.entregasCriadas());
+            assertEquals(0, solverStub.requestCount());
+            assertEquals("PENDENTE", statusDoPedido(pedido.getId()));
+        } finally {
+            try (Connection concorrente = factory.getConnection();
+                 PreparedStatement unlock = concorrente.prepareStatement("SELECT pg_advisory_unlock(?)")) {
+                unlock.setLong(1, RotaService.PLANEJAMENTO_LOCK_KEY);
+                unlock.execute();
+            }
+        }
+
+        // 2) Lock liberado — retry com sucesso
+        PlanejamentoResultado retry = service.planejarRotasPendentes();
+
+        assertEquals(1, retry.rotasCriadas());
+        assertEquals(1, retry.entregasCriadas());
+        assertEquals(0, retry.pedidosNaoAtendidos());
+        assertEquals(1, solverStub.requestCount());
+        assertEquals(1, contarLinhas("rotas"));
+        assertEquals(1, contarLinhas("entregas"));
+        assertEquals("CONFIRMADO", statusDoPedido(pedido.getId()));
+    }
+
+    @Test
     void devePermitirApenasUmPlanejamentoConcorrenteSemCancelarJobAtivo() throws Exception {
         int atendenteId = criarAtendenteId("atendente10@teste.com");
         int entregadorId = criarEntregadorId("entregador10@teste.com", true);
