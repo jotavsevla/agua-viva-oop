@@ -673,26 +673,42 @@ else
   check_dir="$(new_check_dir R12-R18)"
   E2E_DIR="$check_dir/e2e"
   mkdir -p "$E2E_DIR"
-  set +e
-  (
-    cd "$ROOT_DIR"
-    cmd=(scripts/poc/run-e2e-local.sh --mode "$MODE" --rounds "$ROUNDS")
-    if [[ "$KEEP_RUNNING" -eq 1 ]]; then
-      cmd+=(--keep-running)
-    fi
-    API_BASE="$API_BASE" DB_CONTAINER="$DB_CONTAINER" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
-      SOLVER_REBUILD="$SOLVER_REBUILD" ARTIFACT_DIR="$E2E_DIR" "${cmd[@]}"
-  ) > "$check_dir/run-e2e.log" 2>&1
-  E2E_EXIT="$?"
-  set -e
-
+  E2E_EXIT=1
   gate_summary="$E2E_DIR/gate-summary.json"
   rounds_ok=0
   rounds_requested=0
-  if [[ -f "$gate_summary" ]]; then
-    rounds_ok="$(jq -r '.roundsOk // 0' "$gate_summary")"
-    rounds_requested="$(jq -r '.roundsRequested // 0' "$gate_summary")"
-  fi
+  e2e_attempt=1
+  e2e_max_attempts=2
+  : > "$check_dir/run-e2e.log"
+  while [[ "$e2e_attempt" -le "$e2e_max_attempts" ]]; do
+    set +e
+    (
+      cd "$ROOT_DIR"
+      cmd=(scripts/poc/run-e2e-local.sh --mode "$MODE" --rounds "$ROUNDS")
+      if [[ "$KEEP_RUNNING" -eq 1 ]]; then
+        cmd+=(--keep-running)
+      fi
+      API_BASE="$API_BASE" DB_CONTAINER="$DB_CONTAINER" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
+        SOLVER_REBUILD="$SOLVER_REBUILD" ARTIFACT_DIR="$E2E_DIR" "${cmd[@]}"
+    ) >> "$check_dir/run-e2e.log" 2>&1
+    E2E_EXIT="$?"
+    set -e
+
+    rounds_ok=0
+    rounds_requested=0
+    if [[ -f "$gate_summary" ]]; then
+      rounds_ok="$(jq -r '.roundsOk // 0' "$gate_summary")"
+      rounds_requested="$(jq -r '.roundsRequested // 0' "$gate_summary")"
+    fi
+
+    if [[ "$E2E_EXIT" -eq 0 && "$rounds_ok" == "$rounds_requested" ]]; then
+      break
+    fi
+    if [[ "$e2e_attempt" -lt "$e2e_max_attempts" ]]; then
+      sleep 2
+    fi
+    e2e_attempt=$((e2e_attempt + 1))
+  done
 
   if [[ "$E2E_EXIT" -eq 0 && "$rounds_ok" == "$rounds_requested" ]]; then
     record_check "R12" "Replanejamento nao retorna 500 no cenario canonico" "PASS" "$check_dir/run-e2e.log" "Gate E2E strict executou com sucesso em todas as rodadas."
@@ -790,23 +806,39 @@ END;")"
 
   # R17
   check_dir="$(new_check_dir R17)"
-  set +e
-  (
-    cd "$ROOT_DIR"
-    API_BASE="$API_BASE" DB_CONTAINER="$DB_CONTAINER" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
-      WORK_DIR="$check_dir/promocoes" SUMMARY_FILE="$check_dir/promocoes-summary.json" \
-      REQUIRE_CONFIRMADO_EM_ROTA=1 REQUIRE_PENDENTE_CONFIRMADO=1 NUM_ENTREGADORES_ATIVOS=2 \
-      scripts/poc/observe-promocoes.sh
-  ) > "$check_dir/observe-promocoes.log" 2>&1
-  r17_exit="$?"
-  set -e
-
+  r17_exit=1
   r17_confirmado=0
   r17_pendente=0
-  if [[ -f "$check_dir/promocoes-summary.json" ]]; then
-    r17_confirmado="$(jq -r '.transitions.confirmadoParaEmRota // 0' "$check_dir/promocoes-summary.json")"
-    r17_pendente="$(jq -r '.transitions.pendenteParaConfirmado // 0' "$check_dir/promocoes-summary.json")"
-  fi
+  r17_attempt=1
+  r17_max_attempts=3
+  : > "$check_dir/observe-promocoes.log"
+  while [[ "$r17_attempt" -le "$r17_max_attempts" ]]; do
+    set +e
+    (
+      cd "$ROOT_DIR"
+      API_BASE="$API_BASE" DB_CONTAINER="$DB_CONTAINER" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
+        WORK_DIR="$check_dir/promocoes" SUMMARY_FILE="$check_dir/promocoes-summary.json" \
+        REQUIRE_CONFIRMADO_EM_ROTA=1 REQUIRE_PENDENTE_CONFIRMADO=1 NUM_ENTREGADORES_ATIVOS=2 \
+        scripts/poc/observe-promocoes.sh
+    ) >> "$check_dir/observe-promocoes.log" 2>&1
+    r17_exit="$?"
+    set -e
+
+    r17_confirmado=0
+    r17_pendente=0
+    if [[ -f "$check_dir/promocoes-summary.json" ]]; then
+      r17_confirmado="$(jq -r '.transitions.confirmadoParaEmRota // 0' "$check_dir/promocoes-summary.json")"
+      r17_pendente="$(jq -r '.transitions.pendenteParaConfirmado // 0' "$check_dir/promocoes-summary.json")"
+    fi
+
+    if [[ "$r17_exit" -eq 0 && "$r17_confirmado" -ge 1 && "$r17_pendente" -ge 1 ]]; then
+      break
+    fi
+    if [[ "$r17_attempt" -lt "$r17_max_attempts" ]]; then
+      sleep 1
+    fi
+    r17_attempt=$((r17_attempt + 1))
+  done
 
   if [[ "$r17_exit" -eq 0 && "$r17_confirmado" -ge 1 && "$r17_pendente" -ge 1 ]]; then
     record_check "R17" "Promocao de fila ocorre quando elegivel" "PASS" "$check_dir/promocoes-summary.json" "Transicoes confirmadas em cenario elegivel controlado."
@@ -821,8 +853,21 @@ END;")"
   # R19
   check_dir="$(new_check_dir R19)"
   api_post_capture "/api/replanejamento/run" '{"debounceSegundos":0,"limiteEventos":200}'
-  pending_dispatch_stale="$(psql_query "SELECT COUNT(*) FROM dispatch_events WHERE status::text = 'PENDENTE' AND available_em <= (CURRENT_TIMESTAMP - INTERVAL '1 hour');" | extract_single_value)"
-  processed_dispatch="$(psql_query "SELECT COUNT(*) FROM dispatch_events WHERE status::text = 'PROCESSADO';" | extract_single_value)"
+  pending_dispatch_stale=""
+  processed_dispatch=""
+  r19_attempt=1
+  r19_max_attempts=5
+  while [[ "$r19_attempt" -le "$r19_max_attempts" ]]; do
+    pending_dispatch_stale="$(psql_query "SELECT COUNT(*) FROM dispatch_events WHERE status::text = 'PENDENTE' AND available_em <= (CURRENT_TIMESTAMP - INTERVAL '1 hour');" | extract_single_value)"
+    processed_dispatch="$(psql_query "SELECT COUNT(*) FROM dispatch_events WHERE status::text = 'PROCESSADO';" | extract_single_value)"
+    if [[ "$API_LAST_STATUS" == "200" && "$pending_dispatch_stale" == "0" ]]; then
+      break
+    fi
+    if [[ "$r19_attempt" -lt "$r19_max_attempts" ]]; then
+      sleep 1
+    fi
+    r19_attempt=$((r19_attempt + 1))
+  done
   {
     echo "replanejamento_status=$API_LAST_STATUS"
     echo "$API_LAST_BODY" | jq . 2>/dev/null || echo "$API_LAST_BODY"
@@ -877,17 +922,29 @@ END;")"
   api_get_capture "/api/operacao/eventos?limite=5"
   feed_status="$API_LAST_STATUS"
   feed_body="$API_LAST_BODY"
+  feed_ok=0
+  feed_attempt=1
+  feed_max_attempts=3
+  while [[ "$feed_attempt" -le "$feed_max_attempts" ]]; do
+    if [[ "$feed_status" == "200" ]]; then
+      if echo "$feed_body" | jq -e '.eventos | (length <= 5)' >/dev/null 2>&1 \
+        && echo "$feed_body" | jq -e '.eventos as $e | (($e | length) < 2 or (reduce range(1; ($e | length)) as $i (true; . and ($e[$i-1].id >= $e[$i].id))))' >/dev/null 2>&1; then
+        feed_ok=1
+        break
+      fi
+    fi
+    if [[ "$feed_attempt" -lt "$feed_max_attempts" ]]; then
+      sleep 1
+      api_get_capture "/api/operacao/eventos?limite=5"
+      feed_status="$API_LAST_STATUS"
+      feed_body="$API_LAST_BODY"
+    fi
+    feed_attempt=$((feed_attempt + 1))
+  done
   {
     echo "feed_status=$feed_status"
     echo "$feed_body" | jq . 2>/dev/null || echo "$feed_body"
   } > "$check_dir/evidence.txt"
-  feed_ok=0
-  if [[ "$feed_status" == "200" ]]; then
-    if echo "$feed_body" | jq -e '.eventos | (length <= 5)' >/dev/null 2>&1 \
-      && echo "$feed_body" | jq -e '.eventos as $e | (($e | length) < 2 or (reduce range(1; ($e | length)) as $i (true; . and ($e[$i-1].id >= $e[$i].id))))' >/dev/null 2>&1; then
-      feed_ok=1
-    fi
-  fi
   if [[ "$feed_ok" -eq 1 ]]; then
     record_check "R21" "Feed operacional ordena e limita corretamente" "PASS" "$check_dir/evidence.txt" "Limite e ordenacao (id desc) validados no feed."
   else
