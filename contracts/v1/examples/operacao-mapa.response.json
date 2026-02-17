@@ -1,0 +1,27 @@
+{
+  "atualizadoEm": "2026-02-17T10:02:00",
+  "ambiente": "test",
+  "deposito": {
+    "lat": -16.731,
+    "lon": -43.871
+  },
+  "rotas": [
+    {
+      "rotaId": 12,
+      "entregadorId": 7,
+      "statusRota": "EM_ANDAMENTO",
+      "camada": "PRIMARIA",
+      "paradas": [
+        {
+          "pedidoId": 101,
+          "entregaId": 55,
+          "ordemNaRota": 1,
+          "statusEntrega": "EM_EXECUCAO",
+          "quantidadeGaloes": 2,
+          "lat": -16.732,
+          "lon": -43.872
+        }
+      ]
+    }
+  ]
+}

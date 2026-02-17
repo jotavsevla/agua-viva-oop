@@ -1,0 +1,9 @@
+{
+  "pedidoId": 101,
+  "rotaPrimariaId": 12,
+  "entregaAtivaId": 55,
+  "statusPedido": "EM_ROTA",
+  "camada": "PRIMARIA_EM_EXECUCAO",
+  "rotaId": 12,
+  "entregaId": 55
+}

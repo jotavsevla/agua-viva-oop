@@ -118,6 +118,108 @@ paths:
         '404':
           description: Pedido nao encontrado
 
+  /api/pedidos/{pedidoId}/execucao:
+    get:
+      summary: Estado de execucao atual do pedido
+      tags: [operacao]
+      parameters:
+        - name: pedidoId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Estado operacional retornado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PedidoExecucaoResponse'
+        '404':
+          description: Pedido nao encontrado
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/entregadores/{entregadorId}/roteiro:
+    get:
+      summary: Roteiro operacional do entregador
+      tags: [operacao]
+      parameters:
+        - name: entregadorId
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Roteiro retornado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoteiroEntregadorResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/operacao/painel:
+    get:
+      summary: Painel consolidado do centro operacional
+      tags: [operacao]
+      responses:
+        '200':
+          description: Painel retornado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperacaoPainelResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/operacao/eventos:
+    get:
+      summary: Feed operacional de eventos de dispatch
+      tags: [operacao]
+      parameters:
+        - name: limite
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+      responses:
+        '200':
+          description: Feed operacional retornado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperacaoEventosResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/operacao/mapa:
+    get:
+      summary: Leitura geografica operacional de rotas/paradas
+      tags: [operacao]
+      responses:
+        '200':
+          description: Mapa operacional retornado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperacaoMapaResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /api/financeiro/clientes/{clienteId}/saldo:
     get:
       summary: Consultar saldo de vales
@@ -254,6 +356,10 @@ components:
         atendenteId:
           type: integer
           minimum: 1
+        metodoPagamento:
+          type: string
+          enum: [NAO_INFORMADO, DINHEIRO, PIX, CARTAO, VALE]
+          description: Opcional. Quando VALE, o checkout so e aceito se o cliente tiver saldo suficiente.
       required: [telefone, quantidadeGaloes, atendenteId]
 
     AtendimentoResponse:
@@ -274,6 +380,11 @@ components:
     EventoRequest:
       type: object
       properties:
+        externalEventId:
+          type: string
+          maxLength: 128
+          description: |
+            Opcional no ciclo atual. Quando enviado, ativa deduplicacao forte por chave.
         eventType:
           type: string
           enum: [ROTA_INICIADA, PEDIDO_ENTREGUE, PEDIDO_FALHOU, PEDIDO_CANCELADO]
@@ -281,6 +392,11 @@ components:
           type: integer
         entregaId:
           type: integer
+        actorEntregadorId:
+          type: integer
+          description: |
+            Opcional. Quando informado, deve corresponder ao entregador dono da rota/entrega;
+            em caso de divergencia o backend retorna 409.
         motivo:
           type: string
         cobrancaCancelamentoCentavos:
@@ -307,7 +423,7 @@ components:
       properties:
         debounceSegundos:
           type: integer
-          minimum: 1
+          minimum: 0
           default: 20
         limiteEventos:
           type: integer
@@ -358,6 +474,297 @@ components:
           items:
             $ref: '#/components/schemas/TimelineEvent'
       required: [pedidoId, statusAtual, eventos]
+
+    PedidoExecucaoResponse:
+      type: object
+      properties:
+        pedidoId:
+          type: integer
+        rotaPrimariaId:
+          type: integer
+          nullable: true
+        entregaAtivaId:
+          type: integer
+          nullable: true
+        statusPedido:
+          type: string
+        camada:
+          type: string
+        rotaId:
+          type: integer
+          nullable: true
+        entregaId:
+          type: integer
+          nullable: true
+      required: [pedidoId, rotaPrimariaId, entregaAtivaId, statusPedido, camada, rotaId, entregaId]
+
+    RoteiroRotaResumo:
+      type: object
+      properties:
+        rotaId:
+          type: integer
+        status:
+          type: string
+      required: [rotaId, status]
+
+    RoteiroParada:
+      type: object
+      properties:
+        entregaId:
+          type: integer
+        pedidoId:
+          type: integer
+        ordemNaRota:
+          type: integer
+        status:
+          type: string
+        quantidadeGaloes:
+          type: integer
+        clienteNome:
+          type: string
+      required: [entregaId, pedidoId, ordemNaRota, status, quantidadeGaloes, clienteNome]
+
+    RoteiroEntregadorResponse:
+      type: object
+      properties:
+        entregadorId:
+          type: integer
+        rota:
+          nullable: true
+          allOf:
+            - $ref: '#/components/schemas/RoteiroRotaResumo'
+        cargaRemanescente:
+          type: integer
+        paradasPendentesExecucao:
+          type: array
+          items:
+            $ref: '#/components/schemas/RoteiroParada'
+        paradasConcluidas:
+          type: array
+          items:
+            $ref: '#/components/schemas/RoteiroParada'
+      required: [entregadorId, rota, cargaRemanescente, paradasPendentesExecucao, paradasConcluidas]
+
+    OperacaoPainelPedidosPorStatus:
+      type: object
+      properties:
+        pendente:
+          type: integer
+        confirmado:
+          type: integer
+        emRota:
+          type: integer
+        entregue:
+          type: integer
+        cancelado:
+          type: integer
+      required: [pendente, confirmado, emRota, entregue, cancelado]
+
+    OperacaoPainelRotaEmAndamento:
+      type: object
+      properties:
+        rotaId:
+          type: integer
+        entregadorId:
+          type: integer
+        pendentes:
+          type: integer
+        emExecucao:
+          type: integer
+      required: [rotaId, entregadorId, pendentes, emExecucao]
+
+    OperacaoPainelRotaPlanejada:
+      type: object
+      properties:
+        rotaId:
+          type: integer
+        entregadorId:
+          type: integer
+        pendentes:
+          type: integer
+      required: [rotaId, entregadorId, pendentes]
+
+    OperacaoPainelPendenteElegivel:
+      type: object
+      properties:
+        pedidoId:
+          type: integer
+        criadoEm:
+          type: string
+          format: date-time
+        quantidadeGaloes:
+          type: integer
+        janelaTipo:
+          type: string
+      required: [pedidoId, criadoEm, quantidadeGaloes, janelaTipo]
+
+    OperacaoPainelConfirmadoSecundaria:
+      type: object
+      properties:
+        pedidoId:
+          type: integer
+        rotaId:
+          type: integer
+        ordemNaRota:
+          type: integer
+        entregadorId:
+          type: integer
+        quantidadeGaloes:
+          type: integer
+      required: [pedidoId, rotaId, ordemNaRota, entregadorId, quantidadeGaloes]
+
+    OperacaoPainelEmRotaPrimaria:
+      type: object
+      properties:
+        pedidoId:
+          type: integer
+        rotaId:
+          type: integer
+        entregaId:
+          type: integer
+        entregadorId:
+          type: integer
+        quantidadeGaloes:
+          type: integer
+        statusEntrega:
+          type: string
+      required: [pedidoId, rotaId, entregaId, entregadorId, quantidadeGaloes, statusEntrega]
+
+    OperacaoPainelResponse:
+      type: object
+      properties:
+        atualizadoEm:
+          type: string
+          format: date-time
+        ambiente:
+          type: string
+        pedidosPorStatus:
+          $ref: '#/components/schemas/OperacaoPainelPedidosPorStatus'
+        rotas:
+          type: object
+          properties:
+            emAndamento:
+              type: array
+              items:
+                $ref: '#/components/schemas/OperacaoPainelRotaEmAndamento'
+            planejadas:
+              type: array
+              items:
+                $ref: '#/components/schemas/OperacaoPainelRotaPlanejada'
+          required: [emAndamento, planejadas]
+        filas:
+          type: object
+          properties:
+            pendentesElegiveis:
+              type: array
+              items:
+                $ref: '#/components/schemas/OperacaoPainelPendenteElegivel'
+            confirmadosSecundaria:
+              type: array
+              items:
+                $ref: '#/components/schemas/OperacaoPainelConfirmadoSecundaria'
+            emRotaPrimaria:
+              type: array
+              items:
+                $ref: '#/components/schemas/OperacaoPainelEmRotaPrimaria'
+          required: [pendentesElegiveis, confirmadosSecundaria, emRotaPrimaria]
+      required: [atualizadoEm, ambiente, pedidosPorStatus, rotas, filas]
+
+    OperacaoEventoItem:
+      type: object
+      properties:
+        id:
+          type: integer
+        eventType:
+          type: string
+        status:
+          type: string
+        aggregateType:
+          type: string
+        aggregateId:
+          type: integer
+          nullable: true
+        payload:
+          type: object
+          additionalProperties: true
+        createdEm:
+          type: string
+          format: date-time
+        processedEm:
+          type: string
+          format: date-time
+          nullable: true
+      required: [id, eventType, status, aggregateType, aggregateId, payload, createdEm, processedEm]
+
+    OperacaoEventosResponse:
+      type: object
+      properties:
+        eventos:
+          type: array
+          items:
+            $ref: '#/components/schemas/OperacaoEventoItem'
+      required: [eventos]
+
+    OperacaoMapaDeposito:
+      type: object
+      properties:
+        lat:
+          type: number
+        lon:
+          type: number
+      required: [lat, lon]
+
+    OperacaoMapaParada:
+      type: object
+      properties:
+        pedidoId:
+          type: integer
+        entregaId:
+          type: integer
+        ordemNaRota:
+          type: integer
+        statusEntrega:
+          type: string
+        quantidadeGaloes:
+          type: integer
+        lat:
+          type: number
+        lon:
+          type: number
+      required: [pedidoId, entregaId, ordemNaRota, statusEntrega, quantidadeGaloes, lat, lon]
+
+    OperacaoMapaRota:
+      type: object
+      properties:
+        rotaId:
+          type: integer
+        entregadorId:
+          type: integer
+        statusRota:
+          type: string
+        camada:
+          type: string
+        paradas:
+          type: array
+          items:
+            $ref: '#/components/schemas/OperacaoMapaParada'
+      required: [rotaId, entregadorId, statusRota, camada, paradas]
+
+    OperacaoMapaResponse:
+      type: object
+      properties:
+        atualizadoEm:
+          type: string
+          format: date-time
+        ambiente:
+          type: string
+        deposito:
+          $ref: '#/components/schemas/OperacaoMapaDeposito'
+        rotas:
+          type: array
+          items:
+            $ref: '#/components/schemas/OperacaoMapaRota'
+      required: [atualizadoEm, ambiente, deposito, rotas]
 
     SaldoResponse:
       type: object

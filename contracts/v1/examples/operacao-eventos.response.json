@@ -1,0 +1,20 @@
+{
+  "eventos": [
+    {
+      "id": 1001,
+      "eventType": "PEDIDO_CANCELADO",
+      "status": "PROCESSADO",
+      "aggregateType": "PEDIDO",
+      "aggregateId": 101,
+      "payload": {
+        "rotaId": 12,
+        "entregaId": 55,
+        "pedidoId": 101,
+        "statusEntrega": "CANCELADA",
+        "motivo": "cliente ausente"
+      },
+      "createdEm": "2026-02-17T10:01:00",
+      "processedEm": "2026-02-17T10:01:05"
+    }
+  ]
+}
