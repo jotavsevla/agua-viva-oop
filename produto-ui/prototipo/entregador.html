@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Agua Viva - Operacao Entregador</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="bg-orb orb-a"></div>
+    <div class="bg-orb orb-b"></div>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <p class="brand-tag">AGUA VIVA</p>
+          <h1>Operacao Entregador</h1>
+          <p class="brand-sub">M2 · roteiro + eventos</p>
+        </div>
+        <nav class="main-nav">
+          <a class="nav-item" href="./index.html" style="text-decoration:none; display:block;">Centro operacional</a>
+          <a class="nav-item active" href="./entregador.html" style="text-decoration:none; display:block;">Pagina entregador</a>
+        </nav>
+        <div class="legend-box">
+          <p class="legend-title">Fluxo</p>
+          <p><span class="dot info"></span> Carregar roteiro</p>
+          <p><span class="dot ok"></span> Confirmar entrega</p>
+          <p><span class="dot danger"></span> Falhar/cancelar</p>
+        </div>
+      </aside>
+
+      <main class="workspace">
+        <header class="topbar">
+          <div>
+            <h2>Roteiro operacional</h2>
+            <p class="subtitle">Operacao de entrega no backend real</p>
+          </div>
+        </header>
+
+        <section class="api-bar">
+          <label for="api-base" class="api-label">API base</label>
+          <input id="api-base" class="api-input mono" type="text" value="http://localhost:8082" spellcheck="false" />
+          <button id="api-connect" class="btn" type="button">Testar conexao</button>
+          <span id="api-status" class="pill warn">API: pendente</span>
+        </section>
+
+        <section class="view-root" style="margin-top: 1rem;">
+          <div class="panel-grid">
+            <section class="panel">
+              <div class="panel-header">
+                <h3>Roteiro do entregador</h3>
+                <span id="roteiro-badge" class="pill info">aguardando</span>
+              </div>
+              <form id="roteiro-form" class="form-grid">
+                <div class="form-row two">
+                  <div class="form-row">
+                    <label for="entregador-id">Entregador ID</label>
+                    <input id="entregador-id" name="entregadorId" type="number" min="1" value="1" required />
+                  </div>
+                  <div class="form-row" style="align-self: end;">
+                    <button class="btn" type="submit">Carregar roteiro</button>
+                  </div>
+                </div>
+              </form>
+              <div id="roteiro-summary" class="result-box"></div>
+              <div id="roteiro-pendentes" style="margin-top: 0.75rem;"></div>
+              <div id="roteiro-concluidas" style="margin-top: 0.75rem;"></div>
+            </section>
+
+            <section class="panel">
+              <div class="panel-header">
+                <h3>Acoes do entregador</h3>
+                <span class="pill info">POST /api/eventos</span>
+              </div>
+              <button id="iniciar-rota" class="btn" type="button">Enviar ROTA_INICIADA da rota ativa</button>
+              <form id="evento-form" class="form-grid" style="margin-top: 0.75rem;">
+                <div class="form-row">
+                  <label for="event-type">Tipo de evento</label>
+                  <select id="event-type" name="eventType">
+                    <option value="PEDIDO_ENTREGUE">PEDIDO_ENTREGUE</option>
+                    <option value="PEDIDO_FALHOU">PEDIDO_FALHOU</option>
+                    <option value="PEDIDO_CANCELADO">PEDIDO_CANCELADO</option>
+                  </select>
+                </div>
+                <div class="form-row">
+                  <label for="entrega-id">Entrega ID</label>
+                  <input id="entrega-id" name="entregaId" type="number" min="1" required />
+                </div>
+                <div class="form-row">
+                  <label for="motivo">Motivo (falha/cancelamento)</label>
+                  <input id="motivo" name="motivo" type="text" placeholder="cliente ausente" />
+                </div>
+                <div class="form-row">
+                  <label for="cobranca">Cobranca cancelamento (centavos)</label>
+                  <input id="cobranca" name="cobrancaCancelamentoCentavos" type="number" min="0" />
+                </div>
+                <div class="form-row">
+                  <label for="external-event-id">External event id (opcional)</label>
+                  <input id="external-event-id" name="externalEventId" type="text" placeholder="evt-entregador-001" />
+                </div>
+                <button class="btn" type="submit">Enviar evento</button>
+              </form>
+              <div id="evento-result" class="result-box" style="margin-top: 0.75rem;"></div>
+            </section>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="./entregador.js" defer></script>
+  </body>
+</html>
