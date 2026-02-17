@@ -39,7 +39,8 @@ services:
     image: mediagis/nominatim:4.4
     container_name: nominatim-agua-viva
     environment:
-      PBF_URL: https://download.geofabrik.de/south-america/brazil/sudeste-latest.osm.pbf
+      # Pode ser apontado para um recorte menor (ex.: cidade) para reduzir tempo de import/startup.
+      PBF_URL: ${NOMINATIM_PBF_URL:-https://download.geofabrik.de/south-america/brazil/sudeste-latest.osm.pbf}
       NOMINATIM_PASSWORD: nominatim
     ports:
       - "8088:8080"
@@ -57,7 +58,8 @@ services:
       - "5000:5000"
     volumes:
       - ./solver/osrm/data:/data
-    command: osrm-routed --algorithm mld /data/sudeste-latest.osrm
+    # Dataset preprocessado em solver/osrm/data (sem extensao .osrm).
+    command: osrm-routed --algorithm mld /data/${OSRM_DATASET:-sudeste-latest}.osrm
     restart: unless-stopped
 
   # Solver Python — otimizador de rotas (OR-Tools + FastAPI)
