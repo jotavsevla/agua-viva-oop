@@ -7,6 +7,7 @@ API_BASE="${API_BASE:-http://localhost:${API_PORT}}"
 UI_PORT="${UI_PORT:-4174}"
 UI_BASE="${UI_BASE:-http://localhost:${UI_PORT}}"
 SOLVER_URL="${SOLVER_URL:-http://localhost:8080}"
+API_HEALTH_TIMEOUT_SECONDS="${API_HEALTH_TIMEOUT_SECONDS:-240}"
 COMPOSE_FILE="${COMPOSE_FILE:-compose.yml}"
 DB_CONTAINER="${DB_CONTAINER:-postgres-oop-test}"
 SOLVER_REBUILD="${SOLVER_REBUILD:-1}"
@@ -72,6 +73,7 @@ if curl -fsS "$API_BASE/health" >/dev/null 2>&1; then
   echo "[start-test-env] API ja online em $API_BASE"
 else
   echo "[start-test-env] Subindo API em $API_BASE"
+  API_LOG_FILE="$LOG_DIR/api-${API_PORT}.log"
   nohup env \
     POSTGRES_HOST="$POSTGRES_HOST" \
     POSTGRES_PORT="$POSTGRES_PORT" \
@@ -81,9 +83,23 @@ else
     SOLVER_URL="$SOLVER_URL" \
     API_PORT="$API_PORT" \
     mvn -DskipTests exec:java -Dexec.mainClass=com.aguaviva.App -Dexec.args=api \
-    > "$LOG_DIR/api-${API_PORT}.log" 2>&1 &
+    > "$API_LOG_FILE" 2>&1 &
+  API_PID=$!
 fi
-wait_http "$API_BASE/health" "api" 120
+
+if ! wait_http "$API_BASE/health" "api" "$API_HEALTH_TIMEOUT_SECONDS"; then
+  echo "[start-test-env] Falha ao subir API. Timeout=${API_HEALTH_TIMEOUT_SECONDS}s"
+  if [[ -n "${API_PID:-}" ]] && ! kill -0 "$API_PID" >/dev/null 2>&1; then
+    echo "[start-test-env] Processo da API encerrou antes de responder /health (pid=$API_PID)"
+  fi
+  if [[ -n "${API_LOG_FILE:-}" && -f "$API_LOG_FILE" ]]; then
+    echo "[start-test-env] Tail do log da API ($API_LOG_FILE):"
+    tail -n 200 "$API_LOG_FILE"
+  else
+    echo "[start-test-env] Log da API nao encontrado para diagnostico."
+  fi
+  exit 1
+fi
 
 if curl -fsS "$UI_BASE" >/dev/null 2>&1; then
   echo "[start-test-env] UI ja online em $UI_BASE"
