@@ -372,6 +372,16 @@ if [[ "$START_EXIT" -ne 0 ]]; then
   record_check "R22" "Mapa operacional sem mistura indevida de camada" "SKIPPED" "$START_LOG" "Bootstrap falhou"
   record_check "R23" "OpenAPI cobre endpoints operacionais efetivos" "SKIPPED" "$START_LOG" "Bootstrap falhou"
   record_check "R24" "Testes de contrato bloqueiam drift" "SKIPPED" "$START_LOG" "Bootstrap falhou"
+
+  log "Bootstrap do ambiente falhou (exit=$START_EXIT). Evidencia completa em: $START_LOG"
+  if [[ -s "$START_LOG" ]]; then
+    log "Tail do bootstrap (ultimas 120 linhas):"
+    while IFS= read -r line; do
+      echo "[business-gate][bootstrap] $line"
+    done < <(tail -n 120 "$START_LOG")
+  else
+    log "Arquivo de log do bootstrap ausente ou vazio."
+  fi
 else
   # R01
   check_dir="$(new_check_dir R01)"
