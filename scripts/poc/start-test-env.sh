@@ -82,7 +82,7 @@ else
     POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
     SOLVER_URL="$SOLVER_URL" \
     API_PORT="$API_PORT" \
-    mvn -DskipTests exec:java -Dexec.mainClass=com.aguaviva.App -Dexec.args=api \
+    mvn -DskipTests compile exec:java -Dexec.mainClass=com.aguaviva.App -Dexec.args=api \
     > "$API_LOG_FILE" 2>&1 &
   API_PID=$!
 fi
