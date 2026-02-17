@@ -145,6 +145,16 @@ log() {
   echo "[business-gate] $*"
 }
 
+contains_fixed_text() {
+  local needle="$1"
+  local file="$2"
+  if command -v rg >/dev/null 2>&1; then
+    rg -F "$needle" "$file" >/dev/null 2>&1
+    return
+  fi
+  grep -F "$needle" "$file" >/dev/null 2>&1
+}
+
 sql_escape() {
   printf "%s" "$1" | sed "s/'/''/g"
 }
@@ -994,14 +1004,14 @@ END;")"
     '/api/operacao/eventos:' \
     '/api/operacao/mapa:'
   do
-    if ! rg -F "$required_path" "$OPENAPI_FILE" >/dev/null 2>&1; then
+    if ! contains_fixed_text "$required_path" "$OPENAPI_FILE"; then
       r23_ok=0
     fi
   done
-  if ! rg -F 'externalEventId:' "$OPENAPI_FILE" >/dev/null 2>&1; then
+  if ! contains_fixed_text 'externalEventId:' "$OPENAPI_FILE"; then
     r23_ok=0
   fi
-  if ! rg -F 'actorEntregadorId:' "$OPENAPI_FILE" >/dev/null 2>&1; then
+  if ! contains_fixed_text 'actorEntregadorId:' "$OPENAPI_FILE"; then
     r23_ok=0
   fi
   {
