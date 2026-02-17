@@ -869,7 +869,7 @@ END;")"
   if [[ "$painel_ok" -eq 1 ]]; then
     record_check "R20" "Painel operacional consistente com banco" "PASS" "$check_dir/evidence.txt" "Contadores do painel coerentes com SQL."
   else
-    record_check "R20" "Painel operacional consistente com banco" "FAIL" "$check_dir/evidence.txt" "Divergencia entre painel e SQL." 
+    record_check "R20" "Painel operacional consistente com banco" "FAIL" "$check_dir/evidence.txt" "Divergencia entre painel e SQL."
   fi
 
   # R21
@@ -889,9 +889,9 @@ END;")"
     fi
   fi
   if [[ "$feed_ok" -eq 1 ]]; then
-    record_check "R21" "Feed operacional ordena e limita corretamente" "PASS" "$check_dir/evidence.txt" "Limite e ordenacao (id desc) validados no feed." 
+    record_check "R21" "Feed operacional ordena e limita corretamente" "PASS" "$check_dir/evidence.txt" "Limite e ordenacao (id desc) validados no feed."
   else
-    record_check "R21" "Feed operacional ordena e limita corretamente" "FAIL" "$check_dir/evidence.txt" "Feed nao respeitou limite/ordenacao esperados." 
+    record_check "R21" "Feed operacional ordena e limita corretamente" "FAIL" "$check_dir/evidence.txt" "Feed nao respeitou limite/ordenacao esperados."
   fi
 
   # R22
@@ -910,9 +910,9 @@ END;")"
     fi
   fi
   if [[ "$mapa_ok" -eq 1 ]]; then
-    record_check "R22" "Mapa operacional nao mistura camada primaria/secundaria" "PASS" "$check_dir/evidence.txt" "Camada do mapa coerente com status da rota." 
+    record_check "R22" "Mapa operacional nao mistura camada primaria/secundaria" "PASS" "$check_dir/evidence.txt" "Camada do mapa coerente com status da rota."
   else
-    record_check "R22" "Mapa operacional nao mistura camada primaria/secundaria" "FAIL" "$check_dir/evidence.txt" "Camada inconsistente no mapa operacional." 
+    record_check "R22" "Mapa operacional nao mistura camada primaria/secundaria" "FAIL" "$check_dir/evidence.txt" "Camada inconsistente no mapa operacional."
   fi
 
   # R23

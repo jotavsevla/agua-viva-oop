@@ -826,7 +826,7 @@ function renderPedidos() {
               id="externalCallId"
               name="externalCallId"
               placeholder="call-20260213-0001"
-              value="${escapeAttr(atendimentoExample.externalCallId || "")}" 
+              value="${escapeAttr(atendimentoExample.externalCallId || "")}"
             />
           </div>
           <div class="form-row">
@@ -1060,7 +1060,7 @@ function renderDespacho() {
                 name="actorEntregadorId"
                 type="number"
                 min="1"
-                value="${escapeAttr(eventoExample.actorEntregadorId || "")}" 
+                value="${escapeAttr(eventoExample.actorEntregadorId || "")}"
               />
             </div>
             <div class="form-row">
@@ -1074,7 +1074,7 @@ function renderDespacho() {
                 name="cobrancaCancelamentoCentavos"
                 type="number"
                 min="0"
-                value="${escapeAttr(eventoExample.cobrancaCancelamentoCentavos || "")}" 
+                value="${escapeAttr(eventoExample.cobrancaCancelamentoCentavos || "")}"
               />
             </div>
             <button class="btn" type="submit">Enviar evento</button>
