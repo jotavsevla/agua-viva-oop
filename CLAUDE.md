@@ -5,10 +5,13 @@ Stack: Java 21 + PostgreSQL 16 + Solver Python (OR-Tools/FastAPI).
 
 ## Fotografia atual
 
-- Branch de trabalho: feature (`codex/fase7-*`)
-- Fase 7 (RotaService): em andamento
-- Total de testes: 168 (144 Java + 24 Python)
-- Maturidade: nucleo alto, orquestracao media, entrega final baixa
+- Branch de trabalho: feature (`codex/*`)
+- Fase 7 (RotaService): avancada
+- Fase 8 (PedidoLifecycle): parcial, integrada via service
+- Fase 9 (Vales): iniciada (MVP checkout/entrega)
+- Total de testes: 256 (210 Java + 27 Python + 14 JS unit + 5 Playwright E2E)
+- Migrations: 001–013
+- Maturidade: nucleo alto, orquestracao media-alta, E2E operacional iniciado
 
 ## Diretriz principal
 
@@ -45,9 +48,10 @@ domain/     -> regras puras
 repository/ -> persistencia JDBC
 solver/     -> cliente HTTP/JSON
 service/    -> orquestracao transacional
+api/        -> HTTP endpoints (com.sun.net.httpserver)
 ```
 
-Dependencias: `service -> repository -> domain <- solver`.
+Dependencias: `api -> service -> repository -> domain <- solver`.
 
 ## Regras especificas de Service (Fase 7)
 
@@ -57,25 +61,40 @@ Dependencias: `service -> repository -> domain <- solver`.
 - Evitar duplicidade de rota/entrega em reprocessamento
 - Tratar conflito de `numero_no_dia` por entregador/dia
 
-## Cobertura atual de RotaService
+## Cobertura atual de RotaService (18 testes)
 
 Ja coberto por testes de integracao:
-- fluxo feliz
-- nao atendidos
+- fluxo feliz com persistencia de rotas/entregas e atualizacao de status
+- nao atendidos mantidos como PENDENTE
 - rollback por falha de persistencia
 - rollback por erro HTTP do solver
 - rollback por falha no lifecycle de pedido
 - idempotencia sem novos pendentes
 - reprocessamento sem conflito de numero_no_dia
-- sem entregadores ativos
-- sem pedidos elegiveis
+- sem entregadores ativos (short-circuit)
+- sem pedidos elegiveis (short-circuit)
+- pedido com pagamento nao-vale elegivel mesmo sem saldo
+- reaproveitamento de rota com cancelamento sem duplicidade
 - lock distribuido indisponivel (retorno vazio)
 - retry apos lock liberado (sucesso no reprocessamento)
-- concorrencia mesma instancia (2 threads, advisory lock)
-- concorrencia multi-instancia (8 threads, 2 instancias, advisory lock)
+- concorrencia mesma instancia sem cancelamento indevido
+- concorrencia multi-instancia sem duplicidade de rota/entrega
+- alta disputa com rodadas sucessivas
+- retries simultaneos apos liberacao de lock
+- distribuicao de vitorias entre instancias
+
+## Cobertura E2E (Playwright — 5 testes)
+
+Loop operacional ponta-a-ponta via UI + API + banco real:
+- cenario feliz (atendimento → rota → entrega → timeline = ENTREGUE)
+- cenario falha (atendimento → rota → falha → replanejamento → timeline = CANCELADO)
+- cenario cancelamento (atendimento → rota → cancelamento com cobranca → timeline = CANCELADO)
+- checkout VALE com saldo suficiente (HTTP 200)
+- checkout VALE sem saldo (HTTP 400)
 
 Pendentes de fase:
-- acoplamento correto com maquina de estados (Fase 8)
+- trilhas completas de auditoria (Fase 8)
+- endpoints financeiros de saldo/extrato/cobranca
 
 ## Formatacao de codigo
 
@@ -95,7 +114,7 @@ O Spotless nao altera comportamento — apenas estilo.
 ## Comandos de validacao
 
 ```bash
-# Java
+# Java (210 testes — pre-requisito: postgres-oop-test + migrations 001-013)
 mvn test
 mvn test -Dtest=RotaServiceTest
 
@@ -103,8 +122,14 @@ mvn test -Dtest=RotaServiceTest
 mvn spotless:check
 mvn spotless:apply
 
-# Python (usar sempre o venv local do solver)
+# Python (27 testes — usar sempre o venv local do solver)
 solver/.venv/bin/python -m pytest -q solver/tests
+
+# JS unit (14 testes — produto-ui)
+cd produto-ui/prototipo && node --test tests/
+
+# E2E Playwright (5 testes — requer API + banco dev + prototipo rodando)
+cd produto-ui/prototipo && npx playwright test e2e/poc-m1-ui.spec.js
 ```
 
 ## Infra de desenvolvimento
@@ -126,5 +151,6 @@ reexecutar testes com permissao de rede/local no executor.
 
 ## Objetivo de curto prazo
 
-Completar Fase 7 com confiabilidade de orquestracao (concorrencia),
-preparando transicao para Fase 8 (maquina de estados de pedidos).
+Fechar PoC operacional (milestones M0–M2) com loop E2E repetivel:
+pedido → rota → evento → replanejamento → timeline.
+Preparar Fase 8 (trilhas de auditoria) e Fase 9 (financeiro completo).
