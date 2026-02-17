@@ -1,4 +1,4 @@
-from vrp import solve, hhmm_to_seconds, seconds_to_hhmm
+from vrp import MAX_TRIPS_PER_DRIVER, solve, hhmm_to_seconds, seconds_to_hhmm
 
 
 # ---------- conversao de tempo ----------
@@ -66,9 +66,10 @@ def test_single_delivery():
     assert node == 1
 
 
-def test_capacity_forces_multiple_trips():
-    # 3 entregas de 3 galoes cada, veiculo carrega 5
-    # Precisa de pelo menos 2 viagens (3+3 > 5)
+def test_capacity_single_trip_limits_atendimentos():
+    # Modelo temporario: 1 trip por entregador.
+    # 3 entregas de 3 galoes cada, veiculo carrega 5:
+    # somente 1 entrega pode ser atendida na rodada.
     matrix = [
         [0, 300, 300, 300],
         [300, 0, 300, 300],
@@ -82,8 +83,8 @@ def test_capacity_forces_multiple_trips():
         num_drivers=1,
         vehicle_capacity=5,
     )
-    assert len(dropped) == 0
-    assert len(routes) >= 2
+    assert len(routes) <= 1
+    assert len(dropped) >= 2
     for _, stops in routes:
         total_demand = sum([0, 3, 3, 3][node] for node, _ in stops)
         assert total_demand <= 5
@@ -132,6 +133,45 @@ def test_multiple_drivers():
         for node, _ in stops:
             all_nodes.add(node)
     assert all_nodes == {1, 2, 3, 4, 5, 6}
+
+
+def test_vehicle_capacities_por_entregador():
+    matrix = [
+        [0, 300],
+        [300, 0],
+    ]
+    routes, dropped = solve(
+        duration_matrix=matrix,
+        demands=[0, 3],
+        time_windows=[(0, 36000), (0, 36000)],
+        num_drivers=2,
+        vehicle_capacity=5,
+        vehicle_capacities=[2, 5],
+    )
+
+    assert dropped == []
+    assert len(routes) == 1
+    vehicle_id, stops = routes[0]
+    assert vehicle_id // MAX_TRIPS_PER_DRIVER == 1
+    assert stops[0][0] == 1
+
+
+def test_capacidade_zero_nao_aloca_entregas():
+    matrix = [
+        [0, 300],
+        [300, 0],
+    ]
+    routes, dropped = solve(
+        duration_matrix=matrix,
+        demands=[0, 1],
+        time_windows=[(0, 36000), (0, 36000)],
+        num_drivers=1,
+        vehicle_capacity=5,
+        vehicle_capacities=[0],
+    )
+
+    assert routes == []
+    assert dropped == [1]
 
 
 def test_infeasible_drops_node():

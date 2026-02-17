@@ -80,35 +80,43 @@ public class RotaService {
                     return new PlanejamentoResultado(0, 0, 0);
                 }
 
-                List<PedidoSolver> pedidos = buscarPedidosParaSolver(conn);
-                if (pedidos.isEmpty()) {
+                List<Integer> capacidadesEntregadores =
+                        calcularCapacidadesRemanescentesPorEntregador(conn, entregadoresAtivos, cfg.capacidadeVeiculo());
+                int capacidadeLivreTotal = capacidadesEntregadores.stream().mapToInt(Integer::intValue).sum();
+
+                if (!existePedidoSemEntregaAbertaParaPlanejar(conn)) {
                     conn.commit();
                     return new PlanejamentoResultado(0, 0, 0);
                 }
 
-                InsercaoLocalResult insercaoLocal =
-                        tentarInsercaoLocal(conn, pedidos, cfg.capacidadeVeiculo(), planVersion, planVersionEnabled);
+                limparCamadaSecundariaPlanejada(conn);
+                List<PedidoPlanejavel> pedidosPlanejaveis = buscarPedidosParaSolver(conn, capacidadeLivreTotal);
+                if (pedidosPlanejaveis.isEmpty()) {
+                    conn.commit();
+                    return new PlanejamentoResultado(0, 0, 0);
+                }
 
                 int rotasCriadas = 0;
-                int entregasCriadas = insercaoLocal.entregasCriadas();
+                int entregasCriadas = 0;
 
-                List<PedidoSolver> pendentesParaSolver = insercaoLocal.pedidosRestantes();
-                if (pendentesParaSolver.isEmpty()) {
-                    conn.commit();
-                    return new PlanejamentoResultado(rotasCriadas, entregasCriadas, 0);
-                }
+                List<PedidoSolver> pedidosParaSolver = pedidosPlanejaveis.stream()
+                        .map(PedidoPlanejavel::pedidoSolver)
+                        .toList();
 
                 SolverRequest request = new SolverRequest(
                         currentJobId,
                         planVersion,
                         new Coordenada(cfg.depositoLat(), cfg.depositoLon()),
                         cfg.capacidadeVeiculo(),
+                        capacidadesEntregadores,
                         cfg.horarioInicio(),
                         cfg.horarioFim(),
                         entregadoresAtivos,
-                        pendentesParaSolver);
+                        pedidosParaSolver);
 
                 SolverResponse solverResponse = solverClient.solve(request);
+                validarPoliticaTemporariaCamadaSecundaria(solverResponse);
+                Map<Integer, PedidoPlanejavel> pedidosPorId = indexarPedidosPorId(pedidosPlanejaveis);
 
                 for (RotaSolver rota : solverResponse.getRotas()) {
                     int rotaId = inserirRota(
@@ -117,7 +125,7 @@ public class RotaService {
 
                     for (Parada parada : rota.getParadas()) {
                         inserirEntrega(conn, parada, rotaId, planVersion, planVersionEnabled);
-                        pedidoLifecycleService.transicionar(conn, parada.getPedidoId(), PedidoStatus.CONFIRMADO);
+                        confirmarPedidoSeNecessario(conn, pedidosPorId.get(parada.getPedidoId()));
                         entregasCriadas++;
                     }
                 }
@@ -183,10 +191,11 @@ public class RotaService {
         return ids;
     }
 
-    private List<PedidoSolver> buscarPedidosParaSolver(Connection conn) throws SQLException {
-        // FIFO com elegibilidade: respeita ordem temporal de entrada sem ignorar capacidade/saldo minimo.
+    private List<PedidoPlanejavel> buscarPedidosParaSolver(Connection conn, int capacidadeLivreTotal) throws SQLException {
+        // FIFO global (criado_em, id): PENDENTE elegivel + CONFIRMADO sem entrega aberta.
         String sql = "SELECT "
                 + "p.id AS pedido_id, "
+                + "p.status::text AS pedido_status, "
                 + "p.quantidade_galoes, "
                 + "p.janela_tipo::text AS janela_tipo, "
                 + "p.janela_inicio, "
@@ -196,13 +205,17 @@ public class RotaService {
                 + "CASE WHEN p.janela_tipo::text = 'HARD' THEN 1 ELSE 2 END AS prioridade "
                 + "FROM pedidos p "
                 + "JOIN clientes c ON c.id = p.cliente_id "
-                + "JOIN saldo_vales sv ON sv.cliente_id = c.id "
-                + "WHERE p.status::text = 'PENDENTE' "
-                + "AND sv.quantidade > 0 "
-                + "AND p.quantidade_galoes <= sv.quantidade "
+                + "LEFT JOIN saldo_vales sv ON sv.cliente_id = c.id "
+                + "WHERE p.status::text IN ('PENDENTE', 'CONFIRMADO') "
+                + "AND (p.metodo_pagamento::text <> 'VALE' OR COALESCE(sv.quantidade, 0) >= p.quantidade_galoes) "
+                + "AND NOT EXISTS ("
+                + "    SELECT 1 FROM entregas e2 "
+                + "    WHERE e2.pedido_id = p.id "
+                + "    AND e2.status::text IN ('PENDENTE', 'EM_EXECUCAO')"
+                + ") "
                 + "ORDER BY p.criado_em, p.id";
 
-        List<PedidoSolver> pedidos = new ArrayList<>();
+        List<PedidoPlanejavel> elegiveis = new ArrayList<>();
 
         try (PreparedStatement stmt = conn.prepareStatement(sql);
                 ResultSet rs = stmt.executeQuery()) {
@@ -218,7 +231,7 @@ public class RotaService {
                 LocalTime janelaInicio = rs.getObject("janela_inicio", LocalTime.class);
                 LocalTime janelaFim = rs.getObject("janela_fim", LocalTime.class);
 
-                pedidos.add(new PedidoSolver(
+                PedidoSolver pedidoSolver = new PedidoSolver(
                         rs.getInt("pedido_id"),
                         lat,
                         lon,
@@ -226,11 +239,47 @@ public class RotaService {
                         rs.getString("janela_tipo"),
                         formatTime(janelaInicio),
                         formatTime(janelaFim),
-                        rs.getInt("prioridade")));
+                        rs.getInt("prioridade"));
+                elegiveis.add(new PedidoPlanejavel(pedidoSolver, rs.getString("pedido_status")));
             }
         }
 
-        return pedidos;
+        return aplicarPromocaoConfirmadosPorFifo(elegiveis, capacidadeLivreTotal);
+    }
+
+    private boolean existePedidoSemEntregaAbertaParaPlanejar(Connection conn) throws SQLException {
+        String sql = "SELECT 1 "
+                + "FROM pedidos p "
+                + "JOIN clientes c ON c.id = p.cliente_id "
+                + "LEFT JOIN saldo_vales sv ON sv.cliente_id = c.id "
+                + "WHERE p.status::text IN ('PENDENTE', 'CONFIRMADO') "
+                + "AND (p.metodo_pagamento::text <> 'VALE' OR COALESCE(sv.quantidade, 0) >= p.quantidade_galoes) "
+                + "AND NOT EXISTS ("
+                + "    SELECT 1 FROM entregas e2 "
+                + "    WHERE e2.pedido_id = p.id "
+                + "    AND e2.status::text IN ('PENDENTE', 'EM_EXECUCAO')"
+                + ") "
+                + "LIMIT 1";
+        try (PreparedStatement stmt = conn.prepareStatement(sql);
+                ResultSet rs = stmt.executeQuery()) {
+            return rs.next();
+        }
+    }
+
+    private void limparCamadaSecundariaPlanejada(Connection conn) throws SQLException {
+        String deleteEntregas = "DELETE FROM entregas e "
+                + "USING rotas r "
+                + "WHERE e.rota_id = r.id "
+                + "AND r.data = CURRENT_DATE "
+                + "AND r.status::text = 'PLANEJADA'";
+        try (PreparedStatement stmt = conn.prepareStatement(deleteEntregas)) {
+            stmt.executeUpdate();
+        }
+
+        String deleteRotas = "DELETE FROM rotas WHERE data = CURRENT_DATE AND status::text = 'PLANEJADA'";
+        try (PreparedStatement stmt = conn.prepareStatement(deleteRotas)) {
+            stmt.executeUpdate();
+        }
     }
 
     private int inserirRota(
@@ -267,6 +316,18 @@ public class RotaService {
         }
 
         throw new SQLException("Falha ao inserir rota apos tentativas");
+    }
+
+    private void validarPoliticaTemporariaCamadaSecundaria(SolverResponse solverResponse) {
+        Map<Integer, Integer> rotasPorEntregador = new HashMap<>();
+        for (RotaSolver rota : solverResponse.getRotas()) {
+            int quantidade = rotasPorEntregador.merge(rota.getEntregadorId(), 1, Integer::sum);
+            if (quantidade > 1) {
+                throw new IllegalStateException(
+                        "Solver violou politica temporaria: mais de uma rota PLANEJADA para entregador "
+                                + rota.getEntregadorId());
+            }
+        }
     }
 
     private int reservarNumeroNoDia(Connection conn, int entregadorId, int numeroNoDiaSugerido) throws SQLException {
@@ -315,104 +376,80 @@ public class RotaService {
         }
     }
 
-    private InsercaoLocalResult tentarInsercaoLocal(
-            Connection conn,
-            List<PedidoSolver> pendentes,
-            int capacidadeVeiculo,
-            long planVersion,
-            boolean planVersionEnabled)
-            throws SQLException {
-        List<RotaCandidate> rotas = buscarRotasComSlotCanceladoOuFalho(conn);
-        if (rotas.isEmpty()) {
-            return new InsercaoLocalResult(0, pendentes);
-        }
-
-        List<PedidoSolver> restantes = new ArrayList<>();
-        int inseridas = 0;
-
-        for (PedidoSolver pedido : pendentes) {
-            RotaCandidate candidata = escolherRotaComCapacidade(rotas, pedido.getGaloes(), capacidadeVeiculo);
-            if (candidata == null) {
-                restantes.add(pedido);
-                continue;
-            }
-
-            inserirEntregaLocal(
-                    conn,
-                    pedido.getPedidoId(),
-                    candidata.rotaId(),
-                    candidata.nextOrder(),
-                    planVersion,
-                    planVersionEnabled);
-            pedidoLifecycleService.transicionar(conn, pedido.getPedidoId(), PedidoStatus.CONFIRMADO);
-            candidata.addCarga(pedido.getGaloes());
-            inseridas++;
-        }
-
-        return new InsercaoLocalResult(inseridas, restantes);
-    }
-
-    private void inserirEntregaLocal(
-            Connection conn, int pedidoId, int rotaId, int ordemNaRota, long planVersion, boolean planVersionEnabled)
-            throws SQLException {
-        String sql = planVersionEnabled
-                ? "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, hora_prevista, status, plan_version) VALUES (?, ?, ?, ?, ?, ?)"
-                : "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, hora_prevista, status) VALUES (?, ?, ?, ?, ?)";
-
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setInt(1, pedidoId);
-            stmt.setInt(2, rotaId);
-            stmt.setInt(3, ordemNaRota);
-            stmt.setObject(4, null);
-            stmt.setObject(5, "PENDENTE", Types.OTHER);
-            if (planVersionEnabled) {
-                stmt.setLong(6, planVersion);
-            }
-            stmt.executeUpdate();
-        }
-    }
-
-    private List<RotaCandidate> buscarRotasComSlotCanceladoOuFalho(Connection conn) throws SQLException {
-        String sql = "SELECT r.id, r.entregador_id, "
-                + "COALESCE(SUM(p.quantidade_galoes) FILTER (WHERE e.status::text IN ('PENDENTE', 'EM_EXECUCAO')), 0) AS carga_ativa, "
-                + "COALESCE(MAX(e.ordem_na_rota), 0) AS max_ordem, "
-                + "COUNT(*) FILTER (WHERE e.status::text IN ('CANCELADA', 'FALHOU')) AS slots_recuperaveis, "
-                + "r.status::text AS rota_status "
+    private List<Integer> calcularCapacidadesRemanescentesPorEntregador(
+            Connection conn, List<Integer> entregadoresAtivos, int capacidadePadrao) throws SQLException {
+        String sql = "SELECT r.entregador_id, COALESCE(SUM(p.quantidade_galoes), 0) AS carga_comprometida "
                 + "FROM rotas r "
-                + "LEFT JOIN entregas e ON e.rota_id = r.id "
-                + "LEFT JOIN pedidos p ON p.id = e.pedido_id "
-                + "WHERE r.data = CURRENT_DATE AND r.status::text IN ('PLANEJADA', 'EM_ANDAMENTO') "
-                + "GROUP BY r.id, r.entregador_id, r.status "
-                + "HAVING COUNT(*) FILTER (WHERE e.status::text IN ('CANCELADA', 'FALHOU')) > 0 "
-                + "ORDER BY slots_recuperaveis DESC, CASE WHEN r.status::text = 'EM_ANDAMENTO' THEN 0 ELSE 1 END, r.id";
+                + "JOIN entregas e ON e.rota_id = r.id "
+                + "JOIN pedidos p ON p.id = e.pedido_id "
+                + "WHERE r.data = CURRENT_DATE "
+                + "AND r.status::text = 'EM_ANDAMENTO' "
+                + "AND e.status::text IN ('PENDENTE', 'EM_EXECUCAO') "
+                + "GROUP BY r.entregador_id";
 
-        List<RotaCandidate> result = new ArrayList<>();
+        Map<Integer, Integer> cargaComprometidaPorEntregador = new HashMap<>();
         try (PreparedStatement stmt = conn.prepareStatement(sql);
                 ResultSet rs = stmt.executeQuery()) {
             while (rs.next()) {
-                result.add(new RotaCandidate(
-                        rs.getInt("id"), rs.getInt("entregador_id"), rs.getInt("carga_ativa"), rs.getInt("max_ordem")));
+                cargaComprometidaPorEntregador.put(rs.getInt("entregador_id"), rs.getInt("carga_comprometida"));
             }
         }
-        return result;
+
+        List<Integer> capacidades = new ArrayList<>(entregadoresAtivos.size());
+        for (Integer entregadorId : entregadoresAtivos) {
+            int cargaComprometida = cargaComprometidaPorEntregador.getOrDefault(entregadorId, 0);
+            capacidades.add(Math.max(0, capacidadePadrao - cargaComprometida));
+        }
+        return capacidades;
     }
 
-    private RotaCandidate escolherRotaComCapacidade(List<RotaCandidate> rotas, int demanda, int capacidadeVeiculo) {
-        RotaCandidate melhor = null;
-        int melhorFolga = Integer.MIN_VALUE;
-
-        for (RotaCandidate rota : rotas) {
-            int folga = capacidadeVeiculo - rota.cargaAtiva() - demanda;
-            if (folga < 0) {
-                continue;
-            }
-            if (folga > melhorFolga) {
-                melhor = rota;
-                melhorFolga = folga;
-            }
+    private List<PedidoPlanejavel> aplicarPromocaoConfirmadosPorFifo(
+            List<PedidoPlanejavel> elegiveis, int capacidadeLivreTotal) {
+        if (elegiveis.isEmpty()) {
+            return List.of();
         }
 
-        return melhor;
+        int capacidadeRestante = Math.max(0, capacidadeLivreTotal);
+        List<PedidoPlanejavel> selecionados = new ArrayList<>(elegiveis.size());
+
+        for (PedidoPlanejavel item : elegiveis) {
+            if (!"CONFIRMADO".equals(item.statusPedido())) {
+                selecionados.add(item);
+                continue;
+            }
+
+            if (capacidadeRestante == 0) {
+                continue;
+            }
+
+            int demanda = item.pedidoSolver().getGaloes();
+            if (demanda > capacidadeRestante) {
+                // Mantem determinismo por ordem de chegada e permite pular item que nao cabe.
+                continue;
+            }
+            selecionados.add(item);
+            capacidadeRestante -= demanda;
+        }
+
+        return selecionados;
+    }
+
+    private Map<Integer, PedidoPlanejavel> indexarPedidosPorId(List<PedidoPlanejavel> pedidosPlanejaveis) {
+        Map<Integer, PedidoPlanejavel> index = new HashMap<>();
+        for (PedidoPlanejavel item : pedidosPlanejaveis) {
+            index.put(item.pedidoSolver().getPedidoId(), item);
+        }
+        return index;
+    }
+
+    private void confirmarPedidoSeNecessario(Connection conn, PedidoPlanejavel pedidoPlanejavel) throws SQLException {
+        if (pedidoPlanejavel == null) {
+            throw new IllegalStateException("Solver retornou pedido nao elegivel para o ciclo atual");
+        }
+        if ("PENDENTE".equals(pedidoPlanejavel.statusPedido())) {
+            pedidoLifecycleService.transicionar(
+                    conn, pedidoPlanejavel.pedidoSolver().getPedidoId(), PedidoStatus.CONFIRMADO);
+        }
     }
 
     private static Double toNullableDouble(ResultSet rs, String column) throws SQLException {
@@ -484,36 +521,5 @@ public class RotaService {
     private record ConfiguracaoRoteirizacao(
             int capacidadeVeiculo, String horarioInicio, String horarioFim, double depositoLat, double depositoLon) {}
 
-    private record InsercaoLocalResult(int entregasCriadas, List<PedidoSolver> pedidosRestantes) {}
-
-    private static final class RotaCandidate {
-        private final int rotaId;
-        private final int entregadorId;
-        private int cargaAtiva;
-        private int maxOrdem;
-
-        private RotaCandidate(int rotaId, int entregadorId, int cargaAtiva, int maxOrdem) {
-            this.rotaId = rotaId;
-            this.entregadorId = entregadorId;
-            this.cargaAtiva = cargaAtiva;
-            this.maxOrdem = maxOrdem;
-        }
-
-        int rotaId() {
-            return rotaId;
-        }
-
-        int cargaAtiva() {
-            return cargaAtiva;
-        }
-
-        int nextOrder() {
-            maxOrdem += 1;
-            return maxOrdem;
-        }
-
-        void addCarga(int quantidade) {
-            this.cargaAtiva += quantidade;
-        }
-    }
+    private record PedidoPlanejavel(PedidoSolver pedidoSolver, String statusPedido) {}
 }

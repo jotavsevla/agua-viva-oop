@@ -1,4 +1,6 @@
 {
+  "externalEventId": "evt-20260216-0001",
   "eventType": "PEDIDO_ENTREGUE",
+  "actorEntregadorId": 44,
   "entregaId": 55671
 }

@@ -1,0 +1,6 @@
+{
+  "externalEventId": "evt-poc-falhou-001",
+  "eventType": "PEDIDO_FALHOU",
+  "entregaId": 55671,
+  "motivo": "cliente ausente"
+}

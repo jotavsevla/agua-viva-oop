@@ -1,0 +1,7 @@
+{
+  "externalEventId": "evt-poc-cancelado-001",
+  "eventType": "PEDIDO_CANCELADO",
+  "entregaId": 55671,
+  "motivo": "cliente cancelou",
+  "cobrancaCancelamentoCentavos": 2500
+}

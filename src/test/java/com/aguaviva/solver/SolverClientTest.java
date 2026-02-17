@@ -2,10 +2,15 @@ package com.aguaviva.solver;
 
 import static org.junit.jupiter.api.Assertions.*;
 
+import com.sun.net.httpserver.HttpServer;
 import com.google.gson.FieldNamingPolicy;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import java.io.OutputStream;
+import java.net.InetSocketAddress;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 
 class SolverClientTest {
@@ -57,6 +62,24 @@ class SolverClientTest {
         assertTrue(json.contains("\"janela_inicio\":\"09:00\""));
         assertTrue(json.contains("\"janela_fim\":\"11:00\""));
         assertTrue(json.contains("\"prioridade\":1"));
+    }
+
+    @Test
+    void deveSerializarCapacidadesPorEntregadorQuandoInformadas() {
+        var req = new SolverRequest(
+                "job-cap",
+                5L,
+                new Coordenada(-16.7344, -43.8772),
+                5,
+                List.of(3, 5),
+                "08:00",
+                "18:00",
+                List.of(1, 2),
+                List.of(new PedidoSolver(42, -16.71, -43.85, 2, "ASAP", null, null, 2)));
+
+        String json = gson().toJson(req);
+
+        assertTrue(json.contains("\"capacidades_entregadores\":[3,5]"));
     }
 
     @Test
@@ -255,5 +278,62 @@ class SolverClientTest {
     @Test
     void deveRejeitarUrlVazia() {
         assertThrows(IllegalArgumentException.class, () -> new SolverClient(""));
+    }
+
+    @Test
+    void deveEnviarSolveSemUpgradeH2cParaCompatibilidadeComFastApi() throws Exception {
+        AtomicReference<String> upgradeHeader = new AtomicReference<>(null);
+        AtomicReference<String> bodyRecebido = new AtomicReference<>("");
+        HttpServer server = HttpServer.create(new InetSocketAddress(0), 0);
+        server.createContext("/solve", exchange -> {
+            byte[] body = exchange.getRequestBody().readAllBytes();
+            bodyRecebido.set(new String(body, StandardCharsets.UTF_8));
+            upgradeHeader.set(exchange.getRequestHeaders().getFirst("Upgrade"));
+
+            byte[] responseBody;
+            int status;
+            if (upgradeHeader.get() != null && !upgradeHeader.get().isBlank()) {
+                status = 422;
+                responseBody = """
+                        {"detail":[{"type":"missing","loc":["body"],"msg":"Field required","input":null}]}
+                        """
+                        .getBytes(StandardCharsets.UTF_8);
+            } else {
+                status = 200;
+                responseBody = """
+                        {"rotas":[],"nao_atendidos":[]}
+                        """
+                        .getBytes(StandardCharsets.UTF_8);
+            }
+            exchange.getResponseHeaders().add("Content-Type", "application/json");
+            exchange.sendResponseHeaders(status, responseBody.length);
+            try (OutputStream os = exchange.getResponseBody()) {
+                os.write(responseBody);
+            }
+        });
+        server.start();
+
+        try {
+            int port = server.getAddress().getPort();
+            SolverClient client = new SolverClient("http://localhost:" + port);
+            SolverRequest request = new SolverRequest(
+                    "job-http11",
+                    1L,
+                    new Coordenada(-16.7344, -43.8772),
+                    5,
+                    "08:00",
+                    "18:00",
+                    List.of(1),
+                    List.of(new PedidoSolver(1, -16.71, -43.85, 1, "ASAP", null, null, 2)));
+
+            SolverResponse response = client.solve(request);
+            assertNotNull(response);
+            assertTrue(response.getRotas().isEmpty());
+            assertTrue(response.getNaoAtendidos().isEmpty());
+            assertNull(upgradeHeader.get());
+            assertFalse(bodyRecebido.get().isBlank());
+        } finally {
+            server.stop(0);
+        }
     }
 }

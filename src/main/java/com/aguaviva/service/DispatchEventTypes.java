@@ -11,10 +11,15 @@ public final class DispatchEventTypes {
     public static final String PEDIDO_CANCELADO = "PEDIDO_CANCELADO";
 
     private static final Set<String> REPLANEJAMENTO_TRIGGER = Set.of(PEDIDO_CRIADO, PEDIDO_FALHOU, PEDIDO_CANCELADO);
+    private static final Set<String> REPLANEJAMENTO_IMEDIATO_TRIGGER = Set.of(PEDIDO_FALHOU, PEDIDO_CANCELADO);
 
     private DispatchEventTypes() {}
 
     public static boolean exigeReplanejamento(String eventType) {
         return REPLANEJAMENTO_TRIGGER.contains(eventType);
+    }
+
+    public static boolean exigeReplanejamentoImediato(String eventType) {
+        return REPLANEJAMENTO_IMEDIATO_TRIGGER.contains(eventType);
     }
 }

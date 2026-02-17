@@ -48,10 +48,12 @@ def test_solver_request_custom():
     req = SolverRequest(
         deposito=Coordenada(lat=-16.7244, lon=-43.8636),
         capacidade_veiculo=10,
+        capacidades_entregadores=[4],
         horario_inicio="07:00",
         horario_fim="17:00",
         entregadores=[1],
         pedidos=[],
     )
     assert req.capacidade_veiculo == 10
+    assert req.capacidades_entregadores == [4]
     assert req.horario_inicio == "07:00"

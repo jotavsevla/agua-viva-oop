@@ -20,12 +20,12 @@
         <div class="brand">
           <p class="brand-tag">AGUA VIVA</p>
           <h1>Centro Operacional</h1>
-          <p class="brand-sub">Time B · B0 + B1</p>
+          <p class="brand-sub">PoC operacional (dados reais)</p>
         </div>
         <nav class="main-nav">
           <button data-view="pedidos" class="nav-item active">Pedidos</button>
-          <button data-view="financeiro" class="nav-item">Financeiro</button>
           <button data-view="despacho" class="nav-item">Despacho</button>
+          <a class="nav-item" href="./entregador.html" style="text-decoration:none; display:block;">Pagina entregador</a>
         </nav>
         <div class="legend-box">
           <p class="legend-title">Estados</p>
@@ -57,7 +57,7 @@
             id="api-base"
             class="api-input mono"
             type="text"
-            value="http://localhost:8081"
+            value="http://localhost:8082"
             spellcheck="false"
           />
           <button id="api-connect" class="btn">Testar conexao</button>
@@ -68,9 +68,6 @@
         <section id="view-root" class="view-root" aria-live="polite"></section>
       </main>
     </div>
-
-    <script src="./lib/timeline-utils.js" defer></script>
-    <script src="./lib/timeline-flow.js" defer></script>
     <script src="./app.js" defer></script>
   </body>
 </html>

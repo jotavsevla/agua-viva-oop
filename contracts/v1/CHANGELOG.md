@@ -1,5 +1,21 @@
 # Changelog - Contracts v1
 
+## 1.0.4 - 2026-02-14
+
+- Adiciona exemplos canonicos de payload da PoC operacional:
+  - `poc-atendimento.request.json`
+  - `poc-evento-rota-iniciada.request.json`
+  - `poc-evento-pedido-entregue.request.json`
+  - `poc-evento-pedido-falhou.request.json`
+  - `poc-evento-pedido-cancelado.request.json`
+  - `poc-replanejamento.request.json`
+- Mantem compatibilidade com `v1.0.0` (alteracao nao-breaking).
+
+## 1.0.3 - 2026-02-14
+
+- Atualiza schema de `AtendimentoRequest` com campo opcional `metodoPagamento`.
+- Mantem compatibilidade com `v1.0.0` (alteracao nao-breaking).
+
 ## 1.0.2 - 2026-02-13
 
 - Marca `GET /api/pedidos/{pedidoId}/timeline` como `x-handoff-status: ready-handoff`.

@@ -26,3 +26,12 @@ solver/osrm/data/
 
 # claude
 .claude
+
+# Prototipo UI (node/playwright)
+produto-ui/prototipo/node_modules/
+produto-ui/prototipo/test-results/
+produto-ui/prototipo/playwright-report/
+
+# Markdown de documentacao local (publico no GitHub: apenas README da raiz)
+**/*.md
+!/README.md

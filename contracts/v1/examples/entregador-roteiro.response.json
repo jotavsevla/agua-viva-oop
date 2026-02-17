@@ -1,0 +1,19 @@
+{
+  "entregadorId": 7,
+  "rota": {
+    "rotaId": 12,
+    "status": "EM_ANDAMENTO"
+  },
+  "cargaRemanescente": 3,
+  "paradasPendentesExecucao": [
+    {
+      "entregaId": 55,
+      "pedidoId": 101,
+      "ordemNaRota": 1,
+      "status": "EM_EXECUCAO",
+      "quantidadeGaloes": 2,
+      "clienteNome": "Cliente PoC"
+    }
+  ],
+  "paradasConcluidas": []
+}

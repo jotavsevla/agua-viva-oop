@@ -28,6 +28,7 @@ class SolverRequest(BaseModel):
     plan_version: int | None = None
     deposito: Coordenada
     capacidade_veiculo: int = 5
+    capacidades_entregadores: list[int] | None = None
     horario_inicio: str = "08:00"    # "HH:MM"
     horario_fim: str = "18:00"       # "HH:MM"
     entregadores: list[int]          # user IDs dos entregadores ativos

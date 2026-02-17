@@ -1,0 +1,7 @@
+{
+  "externalCallId": "call-vale-001",
+  "telefone": "(38) 99876-1234",
+  "quantidadeGaloes": 2,
+  "atendenteId": 1,
+  "metodoPagamento": "VALE"
+}

@@ -118,6 +118,7 @@ def _solve_internal(req: SolverRequest, cancel_checker) -> SolverResponse:
         time_windows=time_windows,
         num_drivers=len(req.entregadores),
         vehicle_capacity=req.capacidade_veiculo,
+        vehicle_capacities=req.capacidades_entregadores,
         cancel_checker=cancel_checker,
     )
 

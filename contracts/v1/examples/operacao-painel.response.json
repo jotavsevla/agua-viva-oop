@@ -1,0 +1,49 @@
+{
+  "atualizadoEm": "2026-02-17T10:00:00",
+  "ambiente": "test",
+  "pedidosPorStatus": {
+    "pendente": 1,
+    "confirmado": 2,
+    "emRota": 1,
+    "entregue": 10,
+    "cancelado": 3
+  },
+  "rotas": {
+    "emAndamento": [
+      {
+        "rotaId": 12,
+        "entregadorId": 7,
+        "pendentes": 1,
+        "emExecucao": 1
+      }
+    ],
+    "planejadas": [
+      {
+        "rotaId": 13,
+        "entregadorId": 8,
+        "pendentes": 2
+      }
+    ]
+  },
+  "filas": {
+    "pendentesElegiveis": [
+      {
+        "pedidoId": 999,
+        "criadoEm": "2026-02-17T09:55:00",
+        "quantidadeGaloes": 1,
+        "janelaTipo": "ASAP"
+      }
+    ],
+    "confirmadosSecundaria": [],
+    "emRotaPrimaria": [
+      {
+        "pedidoId": 101,
+        "rotaId": 12,
+        "entregaId": 55,
+        "entregadorId": 7,
+        "quantidadeGaloes": 2,
+        "statusEntrega": "EM_EXECUCAO"
+      }
+    ]
+  }
+}

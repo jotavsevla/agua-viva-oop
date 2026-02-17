@@ -3,7 +3,7 @@ from collections.abc import Callable
 from ortools.constraint_solver import routing_enums_pb2, pywrapcp
 
 SERVICE_TIME_S = 120  # 2 min por parada (estacionar, entregar, receber)
-MAX_TRIPS_PER_DRIVER = 3
+MAX_TRIPS_PER_DRIVER = 1
 
 
 def hhmm_to_seconds(hhmm: str, base: str = "08:00") -> int:
@@ -24,6 +24,7 @@ def solve(
     time_windows: list[tuple[int, int]],
     num_drivers: int,
     vehicle_capacity: int,
+    vehicle_capacities: list[int] | None = None,
     max_seconds: int = 5,
     cancel_checker: Callable[[], bool] | None = None,
 ) -> tuple[list[tuple[int, list[tuple[int, int]]]], list[int]]:
@@ -51,6 +52,12 @@ def solve(
 
     num_vehicles = num_drivers * MAX_TRIPS_PER_DRIVER
     work_day_s = time_windows[0][1]  # fim do expediente em segundos
+
+    capacities_by_driver = vehicle_capacities
+    if capacities_by_driver is not None and len(capacities_by_driver) != num_drivers:
+        raise ValueError("vehicle_capacities deve ter o mesmo tamanho de num_drivers")
+    if capacities_by_driver is None:
+        capacities_by_driver = [vehicle_capacity] * num_drivers
 
     manager = pywrapcp.RoutingIndexManager(n, num_vehicles, 0)
     routing = pywrapcp.RoutingModel(manager)
@@ -84,12 +91,18 @@ def solve(
         routing.AddVariableMinimizedByFinalizer(time_dim.CumulVar(routing.End(v)))
 
     # --- Dimensao de capacidade ---
-    def demand_callback(from_index):
-        return demands[manager.IndexToNode(from_index)]
+    # A demanda e contabilizada na entrada do no de entrega (to_index),
+    # evitando alocacoes inconsistentes em cenarios de capacidade limite.
+    def demand_transit_callback(_, to_index):
+        to_node = manager.IndexToNode(to_index)
+        return demands[to_node] if to_node != 0 else 0
 
-    demand_cb = routing.RegisterUnaryTransitCallback(demand_callback)
-    routing.AddDimensionWithVehicleCapacity(
-        demand_cb, 0, [vehicle_capacity] * num_vehicles, True, "Capacity"
+    demand_cb = routing.RegisterTransitCallback(demand_transit_callback)
+    capacities_by_vehicle: list[int] = []
+    for capacity in capacities_by_driver:
+        capacities_by_vehicle.extend([capacity] * MAX_TRIPS_PER_DRIVER)
+    routing.AddDimensionWithVehicleTransitAndCapacity(
+        [demand_cb] * num_vehicles, 0, capacities_by_vehicle, True, "Capacity"
     )
 
     # --- Permitir dropar nos com penalidade (quando inviavel) ---

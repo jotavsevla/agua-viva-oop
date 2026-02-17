@@ -176,6 +176,10 @@ body {
   background: var(--danger);
 }
 
+.dot.info {
+  background: var(--info);
+}
+
 .workspace {
   padding: var(--space-16);
 }
@@ -456,6 +460,18 @@ ul {
   color: var(--info);
 }
 
+.stop.dep {
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.map-legend {
+  margin-top: var(--space-8);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
 .notice,
 .empty-state {
   border: 1px dashed var(--line);
@@ -520,6 +536,33 @@ textarea {
   border-radius: var(--radius-sm);
   background: rgba(24, 43, 54, 0.54);
   padding: var(--space-8);
+}
+
+.e2e-steps {
+  margin-top: var(--space-8);
+  display: grid;
+  gap: var(--space-4);
+}
+
+.e2e-step {
+  list-style: none;
+  border: 1px solid rgba(73, 104, 121, 0.4);
+  border-radius: var(--radius-sm);
+  background: rgba(17, 29, 36, 0.7);
+  padding: var(--space-8);
+}
+
+.e2e-detail {
+  margin-top: var(--space-4);
+}
+
+.sql-hint {
+  border: 1px solid rgba(73, 104, 121, 0.5);
+  border-radius: var(--radius-sm);
+  background: rgba(10, 16, 21, 0.8);
+  padding: var(--space-8);
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .btn:focus-visible,
