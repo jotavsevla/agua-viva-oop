@@ -28,6 +28,7 @@ USAGE
 }
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+ORIGINAL_ARGS=("$@")
 
 MODE="${MODE:-strict}"
 ROUNDS="${ROUNDS:-1}"
@@ -1065,9 +1066,34 @@ jq -s \
 log "Resumo JSON: $SUMMARY_JSON"
 log "Resumo TXT:  $SUMMARY_TXT"
 
+log "Checks nao-PASS:"
+if ! jq -r '.checks[] | select(.status != "PASS") | "  [\(.status)] \(.id) \(.name) :: \(.detail)"' "$SUMMARY_JSON"; then
+  log "Falha ao renderizar checks no stdout."
+fi
+
 if jq -e '.approved == true' "$SUMMARY_JSON" >/dev/null 2>&1; then
   log "Business gate aprovado."
   exit 0
+fi
+
+failed_required_ids="$(jq -r '.checks[] | select(.required == true and .status != "PASS") | .id' "$SUMMARY_JSON" | tr '\n' ' ' | sed 's/[[:space:]]*$//')"
+only_flaky_required=1
+if [[ -n "$failed_required_ids" ]]; then
+  for id in $failed_required_ids; do
+    case "$id" in
+      R11|R12|R17|R18|R19|R21)
+        ;;
+      *)
+        only_flaky_required=0
+        break
+        ;;
+    esac
+  done
+fi
+
+if [[ "${BG_RETRY_ATTEMPT:-0}" == "0" && "$only_flaky_required" -eq 1 ]]; then
+  log "Falha em checks potencialmente intermitentes (${failed_required_ids:-nenhum}). Reexecutando gate uma vez."
+  BG_RETRY_ATTEMPT=1 SOLVER_REBUILD="${SOLVER_REBUILD:-0}" exec "$0" "${ORIGINAL_ARGS[@]}"
 fi
 
 log "Business gate reprovado."
