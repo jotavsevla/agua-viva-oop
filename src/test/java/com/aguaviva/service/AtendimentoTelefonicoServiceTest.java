@@ -112,6 +112,49 @@ class AtendimentoTelefonicoServiceTest {
     }
 
     @Test
+    void deveCriarPedidoComMetodoValeQuandoClienteTemSaldoSuficiente() throws Exception {
+        int atendenteId = criarAtendenteId("telefone1b@teste.com");
+        Cliente cliente = clienteRepository.save(
+                new Cliente("Cliente com vale", "(38) 99888-1101", ClienteTipo.PF, "Rua Vale, 10"));
+        inserirSaldoVale(cliente.getId(), 5);
+
+        AtendimentoTelefonicoResultado resultado =
+                service.registrarPedido("call-vale-001", "(38) 99888-1101", 2, atendenteId, "VALE");
+
+        assertFalse(resultado.idempotente());
+        assertEquals(cliente.getId(), resultado.clienteId());
+        assertEquals("VALE", metodoPagamentoPedido(resultado.pedidoId()));
+    }
+
+    @Test
+    void deveRejeitarPedidoComMetodoValeQuandoClienteNaoTemSaldoSuficiente() throws Exception {
+        int atendenteId = criarAtendenteId("telefone1c@teste.com");
+        Cliente cliente = clienteRepository.save(
+                new Cliente("Cliente sem saldo", "(38) 99888-1102", ClienteTipo.PF, "Rua Vale, 20"));
+        inserirSaldoVale(cliente.getId(), 1);
+
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.registrarPedido("call-vale-002", "(38) 99888-1102", 2, atendenteId, "VALE"));
+
+        assertTrue(ex.getMessage().contains("cliente nao possui vale"));
+        assertEquals(0, contarLinhas("pedidos"));
+    }
+
+    @Test
+    void deveRejeitarPedidoComMetodoValeQuandoClienteNaoPossuiSaldoCadastrado() throws Exception {
+        int atendenteId = criarAtendenteId("telefone1d@teste.com");
+        clienteRepository.save(new Cliente("Cliente sem saldo", "(38) 99888-1103", ClienteTipo.PF, "Rua Vale, 30"));
+
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.registrarPedido("call-vale-003", "(38) 99888-1103", 1, atendenteId, "VALE"));
+
+        assertTrue(ex.getMessage().contains("cliente nao possui vale"));
+        assertEquals(0, contarLinhas("pedidos"));
+    }
+
+    @Test
     void deveReaproveitarClienteExistentePorTelefoneNormalizado() throws Exception {
         int atendenteId = criarAtendenteId("telefone2@teste.com");
         Cliente cliente = clienteRepository.save(
@@ -193,6 +236,21 @@ class AtendimentoTelefonicoServiceTest {
         assertNull(externalCallIdPedido(resultado.pedidoId()));
     }
 
+    @Test
+    void deveRejeitarAtendimentoManualComMetodoValeSemSaldoSuficiente() throws Exception {
+        int atendenteId = criarAtendenteId("telefone7@teste.com");
+        Cliente cliente = clienteRepository.save(
+                new Cliente("Cliente manual sem saldo", "(38) 99888-1104", ClienteTipo.PF, "Rua Vale, 40"));
+        inserirSaldoVale(cliente.getId(), 0);
+
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.registrarPedidoManual("(38) 99888-1104", 1, atendenteId, "VALE"));
+
+        assertTrue(ex.getMessage().contains("cliente nao possui vale"));
+        assertEquals(0, contarLinhas("pedidos"));
+    }
+
     private int contarLinhas(String tabela) throws Exception {
         try (Connection conn = factory.getConnection();
                 Statement stmt = conn.createStatement();
@@ -221,6 +279,29 @@ class AtendimentoTelefonicoServiceTest {
                 rs.next();
                 return rs.getString(1);
             }
+        }
+    }
+
+    private String metodoPagamentoPedido(int pedidoId) throws Exception {
+        try (Connection conn = factory.getConnection();
+                PreparedStatement stmt =
+                        conn.prepareStatement("SELECT metodo_pagamento::text FROM pedidos WHERE id = ?")) {
+            stmt.setInt(1, pedidoId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                rs.next();
+                return rs.getString(1);
+            }
+        }
+    }
+
+    private void inserirSaldoVale(int clienteId, int quantidade) throws Exception {
+        try (Connection conn = factory.getConnection();
+                PreparedStatement stmt = conn.prepareStatement(
+                        "INSERT INTO saldo_vales (cliente_id, quantidade) VALUES (?, ?) "
+                                + "ON CONFLICT (cliente_id) DO UPDATE SET quantidade = EXCLUDED.quantidade, atualizado_em = CURRENT_TIMESTAMP")) {
+            stmt.setInt(1, clienteId);
+            stmt.setInt(2, quantidade);
+            stmt.executeUpdate();
         }
     }
 

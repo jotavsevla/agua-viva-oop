@@ -3,6 +3,8 @@ package com.aguaviva.service;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.aguaviva.domain.cliente.Cliente;
 import com.aguaviva.domain.cliente.ClienteTipo;
@@ -161,6 +163,30 @@ class ExecucaoEntregaServiceTest {
     }
 
     @Test
+    void naoDeveDuplicarEventoDeRotaIniciadaQuandoChamadaForIdempotenteSemPendencias() throws Exception {
+        int atendenteId = criarAtendenteId("exec1b@teste.com");
+        int entregadorId = criarEntregadorId("ent1b@teste.com");
+        int clienteId = criarClienteId("(38) 99999-9111");
+        int pedidoId = criarPedido(clienteId, atendenteId, PedidoStatus.CONFIRMADO);
+        int rotaId = criarRota(entregadorId, "PLANEJADA");
+        int entregaId = criarEntrega(pedidoId, rotaId, "PENDENTE");
+
+        ExecucaoEntregaResultado primeira = execucaoService.registrarRotaIniciada(rotaId);
+        ExecucaoEntregaResultado segunda = execucaoService.registrarRotaIniciada(rotaId);
+
+        assertFalse(primeira.idempotente());
+        assertEquals("EM_ANDAMENTO", statusRota(rotaId));
+        assertEquals("EM_EXECUCAO", statusEntrega(entregaId));
+        assertEquals("EM_ROTA", statusPedido(pedidoId));
+
+        assertEquals(rotaId, segunda.rotaId());
+        assertEquals(0, segunda.entregaId());
+        assertEquals(0, segunda.pedidoId());
+        assertTrue(segunda.idempotente());
+        assertEquals(1, contarEventos(DispatchEventTypes.ROTA_INICIADA));
+    }
+
+    @Test
     void deveConcluirEntregaEPedido() throws Exception {
         int atendenteId = criarAtendenteId("exec2@teste.com");
         int entregadorId = criarEntregadorId("ent2@teste.com");
@@ -177,6 +203,48 @@ class ExecucaoEntregaServiceTest {
         assertEquals("ENTREGUE", statusPedido(pedidoId));
         assertEquals("CONCLUIDA", statusRota(rotaId));
         assertEquals(1, contarEventos(DispatchEventTypes.PEDIDO_ENTREGUE));
+    }
+
+    @Test
+    void deveDebitarSaldoValeQuandoConcluirEntregaDePedidoPagoComVale() throws Exception {
+        int atendenteId = criarAtendenteId("exec2b@teste.com");
+        int entregadorId = criarEntregadorId("ent2b@teste.com");
+        int clienteId = criarClienteId("(38) 99999-9105");
+        int pedidoId = criarPedido(clienteId, atendenteId, PedidoStatus.EM_ROTA);
+        int rotaId = criarRota(entregadorId, "EM_ANDAMENTO");
+        int entregaId = criarEntrega(pedidoId, rotaId, "EM_EXECUCAO");
+
+        inserirSaldoVale(clienteId, 3);
+        atualizarMetodoPagamentoPedido(pedidoId, "VALE");
+
+        ExecucaoEntregaResultado resultado = execucaoService.registrarPedidoEntregue(entregaId);
+
+        assertFalse(resultado.idempotente());
+        assertEquals("ENTREGUE", statusEntrega(entregaId));
+        assertEquals("ENTREGUE", statusPedido(pedidoId));
+        assertEquals(2, saldoValeCliente(clienteId));
+        assertEquals(1, contarDebitoValePorPedido(pedidoId));
+    }
+
+    @Test
+    void naoDeveDebitarSaldoValeQuandoConcluirEntregaDePedidoComOutroMetodoPagamento() throws Exception {
+        int atendenteId = criarAtendenteId("exec2c@teste.com");
+        int entregadorId = criarEntregadorId("ent2c@teste.com");
+        int clienteId = criarClienteId("(38) 99999-9106");
+        int pedidoId = criarPedido(clienteId, atendenteId, PedidoStatus.EM_ROTA);
+        int rotaId = criarRota(entregadorId, "EM_ANDAMENTO");
+        int entregaId = criarEntrega(pedidoId, rotaId, "EM_EXECUCAO");
+
+        inserirSaldoVale(clienteId, 3);
+        atualizarMetodoPagamentoPedido(pedidoId, "PIX");
+
+        ExecucaoEntregaResultado resultado = execucaoService.registrarPedidoEntregue(entregaId);
+
+        assertFalse(resultado.idempotente());
+        assertEquals("ENTREGUE", statusEntrega(entregaId));
+        assertEquals("ENTREGUE", statusPedido(pedidoId));
+        assertEquals(3, saldoValeCliente(clienteId));
+        assertEquals(0, contarDebitoValePorPedido(pedidoId));
     }
 
     @Test
@@ -220,6 +288,104 @@ class ExecucaoEntregaServiceTest {
             assertEquals("NAO_APLICAVEL", cobrancaStatusPedido(pedidoId));
         }
         assertEquals(1, contarEventos(DispatchEventTypes.PEDIDO_FALHOU));
+    }
+
+    @Test
+    void deveBloquearEventoTerminalQuandoEntregaNaoEstaEmExecucao() throws Exception {
+        int atendenteId = criarAtendenteId("exec5@teste.com");
+        int entregadorId = criarEntregadorId("ent5@teste.com");
+        int clienteId = criarClienteId("(38) 99999-9107");
+        int pedidoId = criarPedido(clienteId, atendenteId, PedidoStatus.EM_ROTA);
+        int rotaId = criarRota(entregadorId, "EM_ANDAMENTO");
+        int entregaId = criarEntrega(pedidoId, rotaId, "PENDENTE");
+
+        IllegalStateException ex =
+                assertThrows(IllegalStateException.class, () -> execucaoService.registrarPedidoEntregue(entregaId));
+
+        assertTrue(ex.getMessage().contains("EM_EXECUCAO"));
+        assertEquals("PENDENTE", statusEntrega(entregaId));
+        assertEquals("EM_ROTA", statusPedido(pedidoId));
+        assertEquals(0, contarEventos(DispatchEventTypes.PEDIDO_ENTREGUE));
+    }
+
+    @Test
+    void deveRetornarIdempotenteSemDuplicarOutboxAoRepetirEventoTerminal() throws Exception {
+        int atendenteId = criarAtendenteId("exec6@teste.com");
+        int entregadorId = criarEntregadorId("ent6@teste.com");
+        int clienteId = criarClienteId("(38) 99999-9108");
+        int pedidoId = criarPedido(clienteId, atendenteId, PedidoStatus.EM_ROTA);
+        int rotaId = criarRota(entregadorId, "EM_ANDAMENTO");
+        int entregaId = criarEntrega(pedidoId, rotaId, "EM_EXECUCAO");
+
+        ExecucaoEntregaResultado primeira = execucaoService.registrarPedidoEntregue(entregaId);
+        ExecucaoEntregaResultado segunda = execucaoService.registrarPedidoEntregue(entregaId);
+
+        assertFalse(primeira.idempotente());
+        assertTrue(segunda.idempotente());
+        assertEquals("ENTREGUE", statusEntrega(entregaId));
+        assertEquals("ENTREGUE", statusPedido(pedidoId));
+        assertEquals(1, contarEventos(DispatchEventTypes.PEDIDO_ENTREGUE));
+    }
+
+    @Test
+    void deveBloquearEventoTerminalDivergenteQuandoEntregaJaFinalizada() throws Exception {
+        int atendenteId = criarAtendenteId("exec6b@teste.com");
+        int entregadorId = criarEntregadorId("ent6b@teste.com");
+        int clienteId = criarClienteId("(38) 99999-9109");
+        int pedidoId = criarPedido(clienteId, atendenteId, PedidoStatus.EM_ROTA);
+        int rotaId = criarRota(entregadorId, "EM_ANDAMENTO");
+        int entregaId = criarEntrega(pedidoId, rotaId, "EM_EXECUCAO");
+
+        ExecucaoEntregaResultado primeira = execucaoService.registrarPedidoEntregue(entregaId);
+        IllegalStateException ex = assertThrows(
+                IllegalStateException.class,
+                () -> execucaoService.registrarPedidoCancelado(entregaId, "cliente cancelou", 1000));
+
+        assertFalse(primeira.idempotente());
+        assertTrue(ex.getMessage().contains("ja finalizada"));
+        assertEquals("ENTREGUE", statusEntrega(entregaId));
+        assertEquals("ENTREGUE", statusPedido(pedidoId));
+        assertEquals(1, contarEventos(DispatchEventTypes.PEDIDO_ENTREGUE));
+        assertEquals(0, contarEventos(DispatchEventTypes.PEDIDO_CANCELADO));
+    }
+
+    @Test
+    void deveBloquearRotaIniciadaQuandoActorEntregadorNaoForDonoDaRota() throws Exception {
+        int atendenteId = criarAtendenteId("exec7@teste.com");
+        int entregadorCorreto = criarEntregadorId("ent7-correto@teste.com");
+        int outroEntregador = criarEntregadorId("ent7-incorreto@teste.com");
+        int clienteId = criarClienteId("(38) 99999-9112");
+        int pedidoId = criarPedido(clienteId, atendenteId, PedidoStatus.CONFIRMADO);
+        int rotaId = criarRota(entregadorCorreto, "PLANEJADA");
+        int entregaId = criarEntrega(pedidoId, rotaId, "PENDENTE");
+
+        IllegalStateException ex =
+                assertThrows(IllegalStateException.class, () -> execucaoService.registrarRotaIniciada(rotaId, outroEntregador));
+
+        assertTrue(ex.getMessage().toLowerCase().contains("entregador"));
+        assertEquals("PLANEJADA", statusRota(rotaId));
+        assertEquals("PENDENTE", statusEntrega(entregaId));
+        assertEquals("CONFIRMADO", statusPedido(pedidoId));
+    }
+
+    @Test
+    void deveBloquearEventoTerminalQuandoActorEntregadorNaoForDonoDaEntrega() throws Exception {
+        int atendenteId = criarAtendenteId("exec8@teste.com");
+        int entregadorCorreto = criarEntregadorId("ent8-correto@teste.com");
+        int outroEntregador = criarEntregadorId("ent8-incorreto@teste.com");
+        int clienteId = criarClienteId("(38) 99999-9113");
+        int pedidoId = criarPedido(clienteId, atendenteId, PedidoStatus.EM_ROTA);
+        int rotaId = criarRota(entregadorCorreto, "EM_ANDAMENTO");
+        int entregaId = criarEntrega(pedidoId, rotaId, "EM_EXECUCAO");
+
+        IllegalStateException ex = assertThrows(
+                IllegalStateException.class,
+                () -> execucaoService.registrarPedidoEntregue(entregaId, outroEntregador));
+
+        assertTrue(ex.getMessage().toLowerCase().contains("entregador"));
+        assertEquals("EM_EXECUCAO", statusEntrega(entregaId));
+        assertEquals("EM_ROTA", statusPedido(pedidoId));
+        assertEquals(0, contarEventos(DispatchEventTypes.PEDIDO_ENTREGUE));
     }
 
     private boolean hasColumn(String tabela, String coluna) throws Exception {
@@ -308,6 +474,51 @@ class ExecucaoEntregaServiceTest {
                 PreparedStatement stmt =
                         conn.prepareStatement("SELECT COUNT(*) FROM dispatch_events WHERE event_type = ?")) {
             stmt.setString(1, eventType);
+            try (ResultSet rs = stmt.executeQuery()) {
+                rs.next();
+                return rs.getInt(1);
+            }
+        }
+    }
+
+    private void atualizarMetodoPagamentoPedido(int pedidoId, String metodoPagamento) throws Exception {
+        try (Connection conn = factory.getConnection();
+                PreparedStatement stmt =
+                        conn.prepareStatement("UPDATE pedidos SET metodo_pagamento = ? WHERE id = ?")) {
+            stmt.setObject(1, metodoPagamento, java.sql.Types.OTHER);
+            stmt.setInt(2, pedidoId);
+            stmt.executeUpdate();
+        }
+    }
+
+    private void inserirSaldoVale(int clienteId, int quantidade) throws Exception {
+        try (Connection conn = factory.getConnection();
+                PreparedStatement stmt = conn.prepareStatement(
+                        "INSERT INTO saldo_vales (cliente_id, quantidade) VALUES (?, ?) "
+                                + "ON CONFLICT (cliente_id) DO UPDATE SET quantidade = EXCLUDED.quantidade, atualizado_em = CURRENT_TIMESTAMP")) {
+            stmt.setInt(1, clienteId);
+            stmt.setInt(2, quantidade);
+            stmt.executeUpdate();
+        }
+    }
+
+    private int saldoValeCliente(int clienteId) throws Exception {
+        try (Connection conn = factory.getConnection();
+                PreparedStatement stmt =
+                        conn.prepareStatement("SELECT quantidade FROM saldo_vales WHERE cliente_id = ?")) {
+            stmt.setInt(1, clienteId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                rs.next();
+                return rs.getInt(1);
+            }
+        }
+    }
+
+    private int contarDebitoValePorPedido(int pedidoId) throws Exception {
+        try (Connection conn = factory.getConnection();
+                PreparedStatement stmt = conn.prepareStatement(
+                        "SELECT COUNT(*) FROM movimentacao_vales WHERE pedido_id = ? AND tipo::text = 'DEBITO'")) {
+            stmt.setInt(1, pedidoId);
             try (ResultSet rs = stmt.executeQuery()) {
                 rs.next();
                 return rs.getInt(1);

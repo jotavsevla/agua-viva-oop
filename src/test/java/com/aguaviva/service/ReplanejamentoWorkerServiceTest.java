@@ -121,6 +121,30 @@ class ReplanejamentoWorkerServiceTest {
         assertEquals(1, contarPendentes());
     }
 
+    @Test
+    void deveDispararReplanejamentoQuandoEventoForCancelamento() throws Exception {
+        inserirEvento(DispatchEventTypes.PEDIDO_CANCELADO, 40);
+
+        ReplanejamentoWorkerResultado resultado = workerService.processarPendentes(0, 100);
+
+        assertTrue(resultado.replanejou());
+        assertEquals(1, resultado.eventosProcessados());
+        assertEquals(1, replanejamentoCalls.get());
+        assertEquals(1, contarProcessados());
+    }
+
+    @Test
+    void naoDeveDispararReplanejamentoQuandoEventoForApenasRotaIniciada() throws Exception {
+        inserirEvento(DispatchEventTypes.ROTA_INICIADA, 40);
+
+        ReplanejamentoWorkerResultado resultado = workerService.processarPendentes(0, 100);
+
+        assertFalse(resultado.replanejou());
+        assertEquals(1, resultado.eventosProcessados());
+        assertEquals(0, replanejamentoCalls.get());
+        assertEquals(1, contarProcessados());
+    }
+
     private void inserirEvento(String eventType, int secondsAgo) throws Exception {
         String sql = "INSERT INTO dispatch_events (event_type, aggregate_type, aggregate_id, payload, available_em) "
                 + "VALUES (?, 'PEDIDO', 1, '{}'::jsonb, CURRENT_TIMESTAMP - (? * INTERVAL '1 second'))";
