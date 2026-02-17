@@ -1,0 +1,23 @@
+{
+  "name": "prototipo",
+  "version": "1.0.0",
+  "description": "Prototipo navegavel do Time B para validar:",
+  "main": "app.js",
+  "directories": {
+    "lib": "lib",
+    "test": "tests"
+  },
+  "scripts": {
+    "test": "npm run test:node",
+    "test:node": "node --test tests/*.test.js",
+    "test:pw": "playwright test e2e/poc-m1-ui.spec.js --workers=1",
+    "test:pw:headed": "playwright test e2e/poc-m1-ui.spec.js --workers=1 --headed"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "devDependencies": {
+    "@playwright/test": "^1.58.2"
+  }
+}
