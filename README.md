@@ -7,6 +7,58 @@ O objetivo e estudar e aplicar **Orientacao a Objetos verdadeira** em Java,
 com **PostgreSQL isolado em Docker** (SQL puro, sem ORM) e um **solver Python**
 que resolve roteamento de veiculos com restricoes reais.
 
+## Escopo Publico
+
+Este `README.md` e a referencia publica do projeto.
+Documentacao adicional e mantida apenas em material interno/local.
+Status consolidado de negocio desta fase esta resumido neste proprio README.
+
+## Memoria Tecnica Recente (PoC Operacional)
+
+Contexto consolidado desta rodada (M1/M2), com foco em robustez operacional e visibilidade real de frota.
+
+### Questoes sanadas de regra de negocio
+
+1. Evento terminal (`PEDIDO_ENTREGUE`, `PEDIDO_FALHOU`, `PEDIDO_CANCELADO`) so entra quando a entrega esta em `EM_EXECUCAO`; fora disso retorna `409` (bloqueio de transicao invalida).
+2. Repeticao de evento operacional com mesma chave (`externalEventId`) e mesmo payload nao duplica efeito; resposta volta `200` com marcacao idempotente.
+3. Reuso da mesma chave com payload diferente e bloqueado com `409`, impedindo divergencia logica para o mesmo evento externo.
+4. Fluxo operacional no prototipo roda sem fallback silencioso para mock em eventos/replanejamento; o estado visivel vem do banco real de teste.
+5. Leitura operacional para despacho consolidada com endpoints reais (`/api/operacao/painel`, `/api/operacao/eventos`, `/api/operacao/mapa`) para evidenciar fila `PENDENTE/CONFIRMADO/EM_ROTA` e rotas de trabalho.
+
+### Questoes tecnicas sanadas que afetavam a regra
+
+1. `ConnectionFactory` passou a resolver config por prioridade `runtime env > .env > default`, eliminando mismatch entre ambiente `dev` e `test`.
+2. `scripts/poc/start-test-env.sh` passou a subir API/UI com `nohup`, evitando queda de processo apos encerramento do shell.
+3. Incidente recorrente de "API offline" com dados inconsistentes foi rastreado para desalinhamento de ambiente e esta mitigado no fluxo padrao de teste.
+
+Validacao rapida recomendada:
+
+```bash
+scripts/poc/start-test-env.sh
+curl -sS http://localhost:8082/api/operacao/painel | jq '.ambiente'
+curl -sS http://localhost:8082/api/operacao/mapa | jq '{rotas: (.rotas | length), deposito: .deposito}'
+```
+
+Esperado: `ambiente = "test"` e retorno de mapa sem fallback local.
+
+### Gate Oficial de Negocio (PoC)
+
+Fluxo oficial de aceite operacional:
+
+```bash
+# 1 rodada strict (padrao de trabalho diario)
+scripts/poc/run-business-gate.sh
+
+# gate forte 3x (PR/nightly)
+scripts/poc/run-business-gate.sh --mode strict --rounds 3
+```
+
+Regras do gate oficial:
+
+1. Nao aceita verde parcial por etapa nao executada.
+2. Em `strict`, etapas obrigatorias do E2E (Playwright + suite + promocoes) sao mandatórias.
+3. Evidencias sao consolidadas em `artifacts/poc/business-gate-<timestamp>/business-summary.json`.
+
 ---
 
 ## Por que este projeto existe
@@ -34,7 +86,7 @@ O ciclo e sempre o mesmo:
 
 Isso vale para domain, repository, service e solver. Nenhuma classe existe sem teste.
 
-**211 testes mapeados** (184 Java + 27 Python), zero falhas. Os testes nao sao formais —
+Suite de testes mapeada em Java/Python/JS/Playwright, com TDD estrito e sem mocks. Os testes nao sao formais —
 eles documentam o comportamento esperado do sistema.
 
 ### Objetos com comportamento, nao DTOs
@@ -204,7 +256,8 @@ FROM metricas_brutas mb JOIN users u ON u.id = mb.entregador_id;
    │  domain/     → Regras de negocio (OOP pura)            │
    │  repository/ → JDBC (leitura/gravacao)                 │
    │  solver/     → SolverClient (HTTP + JSON)              │
-   │  service/    → Orquestracao (RotaService inicial)      │
+   │  service/    → Orquestracao transacional                │
+   │  api/        → Endpoints HTTP (JDK built-in)           │
    └───────────────────────┬────────────────────────────────┘
                            │
                     ┌──────┴──────┐
@@ -228,15 +281,19 @@ Constraints do banco viram excecoes semanticas (`IllegalArgumentException`).
 Classes imutaveis que espelham o contrato JSON do solver.
 Gson com `LOWER_CASE_WITH_UNDERSCORES` converte `capacidadeVeiculo` → `capacidade_veiculo`.
 
-**Service** (`service/`) — Em implementacao. Orquestra domain + repository + solver.
-Gerencia transacoes e coordena fluxos de negocio. Ja inclui:
-- `RotaService` com planejamento transacional, `plan_version`, cancelamento best-effort e reaproveitamento local
-- `PedidoLifecycleService` como porta unica de transicao de status (state machine + lock)
-- `AtendimentoTelefonicoService` com idempotencia por `external_call_id`
-- `ExecucaoEntregaService` para eventos operacionais (`ROTA_INICIADA`, `PEDIDO_ENTREGUE`, `PEDIDO_FALHOU`, `PEDIDO_CANCELADO`)
+**Service** (`service/`) — Orquestra domain + repository + solver.
+Gerencia transacoes e coordena fluxos de negocio:
+- `RotaService` com planejamento transacional, `plan_version`, cancelamento best-effort, concorrencia multi-instancia e reaproveitamento local
+- `PedidoLifecycleService` como porta unica de transicao de status (state machine + lock pessimista)
+- `AtendimentoTelefonicoService` com idempotencia por `external_call_id` e regra de vale no checkout
+- `ExecucaoEntregaService` para eventos operacionais (`ROTA_INICIADA`, `PEDIDO_ENTREGUE`, `PEDIDO_FALHOU`, `PEDIDO_CANCELADO`) + debito de vale + regra terminal so em `EM_EXECUCAO`
+- `EventoOperacionalIdempotenciaService` com deduplicacao por `external_event_id` + hash de payload
 - `ReplanejamentoWorkerService` com debounce e lock via `pg_try_advisory_xact_lock`
 
-Dependencias apontam sempre para o centro: `service → repository → domain ← solver`.
+**API** (`api/`) — Endpoints HTTP via `com.sun.net.httpserver` (JDK built-in).
+`ApiServer` registra rotas, CORS e despacha para services.
+
+Dependencias apontam sempre para o centro: `api → service → repository → domain ← solver`.
 
 ---
 
@@ -307,7 +364,7 @@ reconstroi quem e quem na resposta.
 
 ## Banco de Dados
 
-Schema com **11 migrations SQL** — PostgreSQL com enums nativos, indices parciais,
+Schema com **15 migrations SQL** — PostgreSQL com enums nativos, indices parciais,
 constraints de negocio, views com CTEs, window functions e funcoes SQL.
 
 | Migration | Tabela                | Descricao                                 |
@@ -323,6 +380,10 @@ constraints de negocio, views com CTEs, window functions e funcoes SQL.
 | 009       | controles dinamicos   | `plan_version`, `solver_jobs`, cancelamento/cobranca em operacao dinamica |
 | 010       | idempotencia telefonica | `pedidos.external_call_id` (UNIQUE) para retries sem duplicacao |
 | 011       | outbox de despacho    | `dispatch_events` para coalescencia/debounce de replanejamento |
+| 012       | metodo de pagamento   | Enum `pedido_metodo_pagamento`, coluna em `pedidos`, idempotencia de debito de vale |
+| 013       | idempotencia de eventos | Tabela `eventos_operacionais_idempotencia` com hash de payload |
+| 014       | camada secundaria     | Unicidade de rota `PLANEJADA` por entregador/dia |
+| 015       | camada primaria       | Unicidade de rota `EM_ANDAMENTO` por entregador/dia |
 
 ### Status do pedido
 
@@ -338,9 +399,10 @@ a integracao completa desse fluxo no service segue em andamento.
 
 ## Testes
 
-**211 testes mapeados** — TDD (teste escrito antes da implementacao).
+Suite de testes mapeada em multiplas camadas — TDD (teste escrito antes da implementacao).
+Matriz objetiva `regra de negocio -> teste -> evidencia`: nesta secao.
 
-### Testes unitarios (100 Java + 27 Python)
+### Testes unitarios (Java + 29 Python)
 
 Testam logica pura sem dependencias externas (sem banco, sem rede, sem Docker).
 
@@ -348,43 +410,72 @@ Testam logica pura sem dependencias externas (sem banco, sem rede, sem Docker).
 | ---------------- | ------ | --------------------------------------------------------------- |
 | PasswordTest     | 18     | Politica de senha, BCrypt, matching, reconstrucao, Value Object |
 | UserTest         | 27     | Invariantes, hierarquia (10 combinacoes), identidade, email     |
-| SolverClientTest | 12     | Serializacao/deserializacao JSON, roundtrip, construcao e metadados async |
+| SolverClientTest | 14     | Serializacao/deserializacao JSON, roundtrip, construcao, metadados async e compatibilidade HTTP |
 | ContractsV1Test  | 3      | Presenca/consistencia do pacote `contracts/v1` (OpenAPI, eventos e exemplos) |
 | ClienteTest      | 16     | Invariantes de cliente, coordenadas, identidade da entidade     |
 | PedidoTest       | 16     | Invariantes de pedido, janela HARD/ASAP, identidade da entidade |
 | PedidoStateMachineTest | 8 | Transicoes validas/invalidas e regra de cobranca por cancelamento em rota |
-| test_vrp         | 14     | Solver CVRPTW, capacidade, time windows, multiplas viagens, cancelamento cooperativo |
+| test_vrp         | 16     | Solver CVRPTW, capacidade, time windows, multiplas viagens, cancelamento cooperativo |
 | test_models      | 6      | Validacao Pydantic, defaults, galoes >= 1                       |
 | test_matrix      | 5      | Haversine, simetria, fallback OSRM → Haversine                 |
 | test_main_async  | 2      | Fluxo async de job e cancelamento antecipado no solver          |
 
-### Testes de integracao (84 Java)
+### Testes de integracao (Java)
 
 Testam interacao com PostgreSQL real (porta 5435, tmpfs, dados em memoria).
 
 | Suite                 | Testes | O que valida                                                 |
 | --------------------- | ------ | ------------------------------------------------------------ |
-| ConnectionFactoryTest | 2      | Conexao valida, versao do PostgreSQL                         |
+| ConnectionFactoryTest | 5      | Conexao valida + versao PostgreSQL + resolucao de config (`runtime env > .env > default`) |
 | UserRepositoryTest    | 21     | CRUD completo, email unico, todos os enum, soft delete, hash persistido |
 | ClienteRepositoryTest | 13     | CRUD completo, telefone unico, mapeamento de enum e coordenadas |
 | PedidoRepositoryTest  | 12     | CRUD completo, filtros por cliente/pendentes, FKs e status/janelas |
-| RotaServiceTest       | 12     | Fluxo fim-a-fim + rollback + idempotencia + reprocessamento de pendentes + lock distribuido de planejamento + concorrencia sem cancelamento indevido + alta disputa multi-instancia |
+| RotaServiceTest       | 24     | Fluxo fim-a-fim + rollback + idempotencia + reprocessamento + pagamento nao-vale + lock distribuido + concorrencia multi-instancia + alta disputa + retries simultaneos |
 | PedidoLifecycleServiceTest | 3 | Transicao com lock pessimista + efeitos de cancelamento/cobranca |
-| AtendimentoTelefonicoServiceTest | 7 | Entrada telefonica idempotente por `external_call_id` e normalizacao de telefone |
-| ExecucaoEntregaServiceTest | 4 | Eventos mobile/operacionais e transicoes de status de execucao |
-| ReplanejamentoWorkerServiceTest | 3 | Coalescencia por debounce + lock distribuido + marcacao do outbox |
+| AtendimentoTelefonicoServiceTest | 11 | Entrada telefonica/manual idempotente por `external_call_id`, regra de vale, reaproveitamento de pedido ativo |
+| ExecucaoEntregaServiceTest | 12 | Eventos operacionais + debito de vale + idempotencia de eventos terminais + bloqueio de estado invalido |
+| ReplanejamentoWorkerServiceTest | 5 | Coalescencia por debounce + lock distribuido + trigger seletivo por tipo de evento |
+| ApiServerTest | 28 | Contrato HTTP completo (atendimento, eventos com idempotencia/409, CORS, vale, replanejamento, timeline, execucao, roteiro, painel, feed e mapa operacional) |
+
+### Testes JS unit (15)
+
+Testam helpers do prototipo UI sem dependencia de browser ou banco.
+
+| Suite                | Testes | O que valida                                   |
+| -------------------- | ------ | ---------------------------------------------- |
+| timeline-flow.test   | 3      | Fetch de timeline com fallback                 |
+| timeline-utils.test  | 4      | Path building, normalizacao e merge de payload |
+| operational-e2e.test | 8      | Payloads terminais, SQL lookup e validacoes    |
+
+### Testes E2E Playwright (5)
+
+Loop operacional ponta-a-ponta: UI → API HTTP → service → banco real.
+
+| Teste | Caminho exercitado | Status esperado |
+| ----- | ------------------ | --------------- |
+| cenario feliz | atendimento → rota → entrega → timeline | ENTREGUE |
+| cenario falha | atendimento → rota → falha → replanejamento → timeline | CANCELADO |
+| cenario cancelamento | atendimento → rota → cancelamento → replanejamento → timeline | CANCELADO |
+| vale com saldo | POST atendimento VALE + saldo suficiente | HTTP 200 |
+| vale sem saldo | POST atendimento VALE + saldo zero | HTTP 400 |
 
 Isolamento entre testes: limpeza por `TRUNCATE ... RESTART IDENTITY CASCADE` nos testes de repositorio.
-Sem mocks. Banco real em tmpfs.
+Sem mocks. Banco real em tmpfs (Java) e banco dev via Docker (E2E).
 
 ### Rodando os testes
 
 ```bash
-# Java (184 testes — pre-requisito: postgres-oop-test rodando e migrations 001-011)
+# Java (236 testes — pre-requisito: postgres-oop-test rodando e migrations 001-015)
 mvn test
 
-# Python (27 testes — dentro do venv do solver)
+# Python (29 testes — dentro do venv do solver)
 cd solver && .venv/bin/python -m pytest tests/ -v
+
+# JS unit (15 testes)
+cd produto-ui/prototipo && node --test tests/*.test.js
+
+# E2E Playwright (5 testes — requer API + banco dev + prototipo rodando)
+cd produto-ui/prototipo && npx playwright test e2e/poc-m1-ui.spec.js
 ```
 
 ---
@@ -409,12 +500,14 @@ agua-viva/
 │       ├── 008_create_views_cte.sql
 │       ├── 009_add_dynamic_dispatch_controls.sql
 │       ├── 010_add_external_call_id_to_pedidos.sql
-│       └── 011_create_dispatch_events.sql
+│       ├── 011_create_dispatch_events.sql
+│       ├── 012_add_pedido_metodo_pagamento_and_vale_debito_idempotency.sql
+│       ├── 013_create_eventos_operacionais_idempotencia.sql
+│       ├── 014_add_unique_planejada_por_entregador_dia.sql
+│       └── 015_add_unique_em_andamento_por_entregador_dia.sql
 ├── contracts/
-│   ├── README.md                       # Ownership + versao + compatibilidade
 │   └── v1/
 │       ├── openapi.yaml                # Contrato OpenAPI congelado (A0)
-│       ├── CHANGELOG.md
 │       ├── events/catalogo-eventos.json
 │       └── examples/*.json
 ├── src/
@@ -444,10 +537,14 @@ agua-viva/
 │   │   ├── service/
 │   │   │   ├── RotaService.java        # Orquestra solver + persistencia de rotas/entregas
 │   │   │   ├── PedidoLifecycleService.java   # Porta unica de transicao de status
-│   │   │   ├── AtendimentoTelefonicoService.java # Entrada telefonica idempotente
-│   │   │   ├── ExecucaoEntregaService.java   # Eventos operacionais de rota/entrega
+│   │   │   ├── AtendimentoTelefonicoService.java # Entrada telefonica idempotente + regra de vale
+│   │   │   ├── ExecucaoEntregaService.java   # Eventos operacionais + debito de vale
+│   │   │   ├── EventoOperacionalIdempotenciaService.java # Deduplicacao por external_event_id
 │   │   │   ├── DispatchEventService.java     # Outbox em `dispatch_events`
 │   │   │   ├── ReplanejamentoWorkerService.java # Worker de replanejamento com debounce
+│   │   │   ├── OperacaoPainelService.java # Read model operacional para cards/listas
+│   │   │   ├── OperacaoEventosService.java # Feed operacional de `dispatch_events`
+│   │   │   ├── OperacaoMapaService.java # Read model geografico real para Despacho
 │   │   │   └── PlanejamentoResultado.java # Resultado da execucao de roteirizacao
 │   │   └── solver/
 │   │       ├── SolverClient.java       # HTTP client pro solver Python
@@ -475,15 +572,15 @@ agua-viva/
 │       │   ├── ClienteRepositoryTest.java # 13 testes de integracao
 │       │   └── PedidoRepositoryTest.java  # 12 testes de integracao
 │       ├── service/
-│       │   ├── RotaServiceTest.java    # 12 testes de integracao (inclui lock distribuido e alta disputa)
-│       │   ├── PedidoLifecycleServiceTest.java
-│       │   ├── AtendimentoTelefonicoServiceTest.java
-│       │   ├── ExecucaoEntregaServiceTest.java
-│       │   └── ReplanejamentoWorkerServiceTest.java
+│       │   ├── RotaServiceTest.java    # 24 testes de integracao (inclui lock distribuido e alta disputa)
+│       │   ├── PedidoLifecycleServiceTest.java  # 3 testes
+│       │   ├── AtendimentoTelefonicoServiceTest.java  # 11 testes
+│       │   ├── ExecucaoEntregaServiceTest.java  # 12 testes
+│       │   └── ReplanejamentoWorkerServiceTest.java  # 5 testes
 │       ├── contracts/
 │       │   └── ContractsV1Test.java    # 3 testes de contrato para /contracts/v1
 │       └── solver/
-│           └── SolverClientTest.java   # 12 testes (serializacao/deserializacao + async)
+│           └── SolverClientTest.java   # 14 testes (serializacao/deserializacao + async)
 ├── solver/                             # Solver Python (segregado)
 │   ├── main.py                         # FastAPI — /solve, /solve/async, /cancel/{job_id}, /result/{job_id}
 │   ├── vrp.py                          # OR-Tools CVRPTW
@@ -494,8 +591,21 @@ agua-viva/
 │   ├── Dockerfile
 │   ├── osrm/
 │   │   └── prepare.sh                  # Baixa e processa mapa OSM (rodar 1x)
-│   └── tests/                          # 27 testes pytest
-└── docs/                               # Documentacao interna detalhada
+│   └── tests/                          # 29 testes pytest
+├── produto-ui/
+│   └── prototipo/
+│       ├── index.html                 # Prototipo navegavel
+│       ├── app.js                     # Logica principal do prototipo
+│       ├── styles.css
+│       ├── lib/
+│       │   ├── timeline-flow.js       # Fetch de timeline com fallback
+│       │   ├── timeline-utils.js      # Helpers de path/normalizacao
+│       │   └── operational-e2e.js     # Helpers de payloads E2E
+│       ├── tests/                     # 15 testes JS unit (node:test)
+│       ├── e2e/
+│       │   └── poc-m1-ui.spec.js      # 5 testes Playwright E2E
+│       ├── package.json
+│       └── playwright.config.js
 ```
 
 ---
@@ -521,7 +631,7 @@ agua-viva/
 - Docker + Docker Compose
 - Python 3.12+ (para testes locais do solver)
 
-### Subir banco e aplicar schema completo (001-011)
+### Subir banco e aplicar schema completo (001-015)
 
 ```bash
 docker compose up -d postgres-oop-dev postgres-oop-test
@@ -534,7 +644,7 @@ CONTAINER_NAME=postgres-oop-test POSTGRES_DB=agua_viva_oop_test ./apply-migratio
 ### Compilar e testar (Java)
 
 ```bash
-mvn test           # 184 testes (unitarios + integracao)
+mvn test           # 236 testes (unitarios + integracao)
 mvn clean compile  # compilar sem testes
 ```
 
@@ -563,15 +673,40 @@ Observacao: `target/diagramas/jdeps/classes.dot` e o dump bruto do `jdeps` (mais
 
 ```bash
 # 1. Baixar e processar mapa OSM (rodar uma vez, ~15min)
-cd solver/osrm && ./prepare.sh
+cd solver/osrm
+./prepare.sh
+# ou com recorte custom (menor):
+# PBF_URL=https://seu-servidor/recorte.osm.pbf ./prepare.sh
 
 # 2. Subir OSRM + Nominatim + Solver
+OSRM_DATASET=sudeste-latest \
+NOMINATIM_PBF_URL=https://download.geofabrik.de/south-america/brazil/sudeste-latest.osm.pbf \
 docker compose up -d osrm nominatim solver
 
 # 3. Testar solver localmente (opcional)
 cd solver && python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-pytest tests/ -v   # 27 testes
+pytest tests/ -v   # 29 testes
+```
+
+### Poda de mapa (recomendado para recuperacao mais rapida)
+
+- Objetivo: reduzir tempo de bootstrap e melhorar recovery do stack de navegacao.
+- Iniciativa: tornar dataset configuravel (`OSRM_DATASET` e `NOMINATIM_PBF_URL`) e flexibilizar preprocessamento no `prepare.sh`.
+- Metodologia: mapear hardcodes, parametrizar compose/script, validar sintaxe/startup e manter fallback no solver.
+- O OSRM sobe com o dataset definido em `OSRM_DATASET` (default: `sudeste-latest`).
+- O script `solver/osrm/prepare.sh` aceita `PBF_URL` custom para recortes menores.
+- Para reduzir tempo de bootstrap pos-queda, use o menor recorte que cubra a operacao real.
+
+Exemplo:
+
+```bash
+# gera dataset a partir de um recorte menor
+cd solver/osrm
+PBF_URL=https://seu-storage/operacao-zona-sul.osm.pbf ./prepare.sh
+
+# o script imprime "Dataset gerado: <nome>"
+OSRM_DATASET=operacao-zona-sul docker compose up -d osrm solver
 ```
 
 ### Subir API Java (atendimento/eventos/replanejamento)
@@ -587,6 +722,12 @@ Endpoints:
 - `POST /api/atendimento/pedidos`
 - `POST /api/eventos`
 - `POST /api/replanejamento/run`
+- `GET /api/pedidos/{pedidoId}/timeline`
+- `GET /api/pedidos/{pedidoId}/execucao`
+- `GET /api/entregadores/{entregadorId}/roteiro`
+- `GET /api/operacao/painel`
+- `GET /api/operacao/eventos`
+- `GET /api/operacao/mapa`
 
 ### Contratos compartilhados (A0)
 
@@ -594,7 +735,6 @@ Pacote canonico de handoff A->B em `/contracts/v1`:
 - `openapi.yaml`
 - `events/catalogo-eventos.json`
 - `examples/*.json`
-- `CHANGELOG.md`
 
 ### Variaveis de ambiente
 
@@ -611,10 +751,27 @@ cp .env.example .env
 | POSTGRES_USER     | postgres          | Usuario            |
 | POSTGRES_PASSWORD | postgres          | Senha              |
 | POSTGRES_DB       | agua_viva_oop_dev | Nome do banco dev  |
+| OSRM_DATASET      | sudeste-latest    | Dataset preprocessado do OSRM (sem `.osrm`) |
+| NOMINATIM_PBF_URL | https://download.geofabrik.de/south-america/brazil/sudeste-latest.osm.pbf | URL do `.osm.pbf` importado pelo Nominatim |
 | SOLVER_URL        | http://localhost:8080 | URL do solver Python |
 | API_PORT          | 8081              | Porta da API Java  |
 
 O banco de teste roda na porta **5435** com dados em memoria (tmpfs).
+
+Resolucao de configuracao de banco no runtime:
+
+1. Variavel de ambiente do processo (`POSTGRES_*`)
+2. `.env` local
+3. fallback padrao do codigo
+
+Isso permite subir API para `test` sem editar `.env`, por exemplo:
+
+```bash
+POSTGRES_HOST=localhost POSTGRES_PORT=5435 POSTGRES_DB=agua_viva_oop_test \
+POSTGRES_USER=postgres POSTGRES_PASSWORD=postgres \
+SOLVER_URL=http://localhost:8080 API_PORT=8082 \
+mvn -DskipTests exec:java -Dexec.mainClass=com.aguaviva.App -Dexec.args=api
+```
 
 ---
 
@@ -623,13 +780,13 @@ O banco de teste roda na porta **5435** com dados em memoria (tmpfs).
 - [x] **Fase 1** — Fundacao (pom.xml, Docker, migrations, ConnectionFactory, health check)
 - [x] **Fase 2** — Domain: User + UserPapel + Password (TDD, 45 testes)
 - [x] **Fase 3** — Repository: UserRepository (TDD, 21 testes de integracao)
-- [x] **Fase 4** — Solver Python: OR-Tools CVRPTW + OSRM + Nominatim + fluxo async/cancel (27 testes)
-- [x] **Fase 5** — Integracao Java-Solver: SolverClient + Gson + contrato async/cancel (12 testes)
+- [x] **Fase 4** — Solver Python: OR-Tools CVRPTW + OSRM + Nominatim + fluxo async/cancel (29 testes)
+- [x] **Fase 5** — Integracao Java-Solver: SolverClient + Gson + contrato async/cancel (14 testes)
 - [x] **Fase 6** — Repository: ClienteRepository + PedidoRepository
-- [ ] **Fase 7** — Service: RotaService (em andamento: transacao + idempotencia + reuso local + `plan_version` + worker/outbox)
-- [ ] **Fase 8** — Maquina de estados do Pedido (parcial: transicoes, testes e integracao no service; faltam trilhas completas de auditoria)
-- [ ] **Fase 9** — Vales (debito atomico, saldo, movimentacoes)
-- [ ] **Fase 10** — Frontend: Leaflet.js (mapa com rotas)
+- [ ] **Fase 7** — Service: RotaService (avancada: 24 testes, concorrencia multi-instancia coberta)
+- [ ] **Fase 8** — Maquina de estados do Pedido (parcial: integrada via `PedidoLifecycleService`; faltam trilhas completas de auditoria)
+- [ ] **Fase 9** — Vales (iniciada: MVP checkout/entrega com debito idempotente)
+- [ ] **Fase 10** — Frontend (iniciada: API base pronta, prototipo navegavel, 5 testes E2E Playwright)
 
 ---
 
@@ -638,7 +795,7 @@ O banco de teste roda na porta **5435** com dados em memoria (tmpfs).
 | Aspecto         | Next.js (agua-viva)  | Java (agua-viva-oop)          |
 | --------------- | -------------------- | ----------------------------- |
 | Dominio         | Mesmo                | Mesmo                         |
-| Schema do banco | Mesmo (11 migrations) | Mesmo (11 migrations)          |
+| Schema do banco | Mesmo (11 migrations) | Mesmo (15 migrations)          |
 | Persistencia    | pg (SQL puro)        | JDBC (SQL puro)               |
 | Models          | models/\*.js         | domain/\*/\*.java (OOP pura)  |
 | Testes          | Jest + TDD           | JUnit 5 + TDD                 |

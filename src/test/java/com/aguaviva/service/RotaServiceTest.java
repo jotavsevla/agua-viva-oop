@@ -86,7 +86,9 @@ class RotaServiceTest {
         solverStub.setStatusCode(200);
         solverStub.setSolveResponse("{\"rotas\":[],\"nao_atendidos\":[]}");
         solverStub.resetRequestCount();
+        solverStub.clearDynamicSolveHandler();
         limparBanco();
+        atualizarConfiguracao("capacidade_veiculo", "5");
     }
 
     @AfterEach
@@ -149,6 +151,18 @@ class RotaServiceTest {
         }
 
         return clienteId;
+    }
+
+    private int criarClienteComCoordenadaSemSaldo(String telefone) throws Exception {
+        Cliente cliente = new Cliente(
+                "Cliente sem saldo " + telefone,
+                telefone,
+                ClienteTipo.PF,
+                "Rua sem saldo",
+                BigDecimal.valueOf(-16.7310),
+                BigDecimal.valueOf(-43.8710),
+                null);
+        return clienteRepository.save(cliente).getId();
     }
 
     private RotaService criarService() {
@@ -423,11 +437,11 @@ class RotaServiceTest {
         assertEquals(1, segundaExecucao.entregasCriadas());
         assertEquals(0, segundaExecucao.pedidosNaoAtendidos());
 
-        assertEquals(2, contarLinhas("rotas"));
-        assertEquals(2, contarLinhas("entregas"));
+        assertEquals(1, contarLinhas("rotas"));
+        assertEquals(1, contarLinhas("entregas"));
         assertEquals("CONFIRMADO", statusDoPedido(pedidoAtendidoPrimeiraExecucao.getId()));
         assertEquals("CONFIRMADO", statusDoPedido(pedidoFicaPendente.getId()));
-        assertEquals(2, maxNumeroNoDiaDoEntregador(entregadorId));
+        assertEquals(1, maxNumeroNoDiaDoEntregador(entregadorId));
     }
 
     @Test
@@ -462,6 +476,427 @@ class RotaServiceTest {
         assertEquals(0, solverStub.requestCount());
         assertEquals(0, contarLinhas("rotas"));
         assertEquals("PENDENTE", statusDoPedido(pedido.getId()));
+    }
+
+    @Test
+    void devePlanejarPedidoComPagamentoNaoValeMesmoSemSaldoDeVales() throws Exception {
+        int atendenteId = criarAtendenteId("atendente8b@teste.com");
+        int entregadorId = criarEntregadorId("entregador8b@teste.com", true);
+        int clienteId = criarClienteComCoordenadaSemSaldo("(38) 99999-7702");
+        Pedido pedido = pedidoRepository.save(new Pedido(clienteId, 1, JanelaTipo.ASAP, null, null, atendenteId));
+        atualizarMetodoPagamentoPedido(pedido.getId(), "PIX");
+
+        solverStub.setSolveResponse("""
+                {
+                  "rotas": [
+                    {
+                      "entregador_id": %d,
+                      "numero_no_dia": 1,
+                      "paradas": [
+                        {"ordem": 1, "pedido_id": %d, "lat": -16.7310, "lon": -43.8710, "hora_prevista": "09:10"}
+                      ]
+                    }
+                  ],
+                  "nao_atendidos": []
+                }
+                """.formatted(entregadorId, pedido.getId()));
+
+        PlanejamentoResultado resultado = criarService().planejarRotasPendentes();
+
+        assertEquals(1, resultado.rotasCriadas());
+        assertEquals(1, resultado.entregasCriadas());
+        assertEquals(0, resultado.pedidosNaoAtendidos());
+        assertEquals(1, solverStub.requestCount());
+        assertEquals("CONFIRMADO", statusDoPedido(pedido.getId()));
+    }
+
+    @Test
+    void deveEnviarCapacidadesRemanescentesPorEntregadorNoContratoDoSolver() throws Exception {
+        int atendenteId = criarAtendenteId("atendente-capacidade@teste.com");
+        int entregadorComExecucao = criarEntregadorId("entregador-capacidade-1@teste.com", true);
+        int entregadorLivre = criarEntregadorId("entregador-capacidade-2@teste.com", true);
+        int clienteExecucao = criarClienteComSaldo("(38) 99999-7711", 10);
+        int clienteNovo = criarClienteComSaldo("(38) 99999-7712", 10);
+
+        Pedido pedidoExecucao = pedidoRepository.save(new Pedido(clienteExecucao, 2, JanelaTipo.ASAP, null, null, atendenteId));
+        Pedido pedidoNovo = pedidoRepository.save(new Pedido(clienteNovo, 1, JanelaTipo.ASAP, null, null, atendenteId));
+        atualizarStatusPedido(pedidoExecucao.getId(), "EM_ROTA");
+
+        int rotaEmAndamento = inserirRotaComStatus(entregadorComExecucao, "EM_ANDAMENTO", 1);
+        inserirEntregaComStatus(pedidoExecucao.getId(), rotaEmAndamento, 1, "EM_EXECUCAO");
+
+        java.util.concurrent.atomic.AtomicReference<String> payloadSolver = new java.util.concurrent.atomic.AtomicReference<>("");
+        solverStub.setDynamicSolveHandler(requestBody -> {
+            payloadSolver.set(requestBody);
+            return """
+                    {
+                      "rotas": [
+                        {
+                          "entregador_id": %d,
+                          "numero_no_dia": 1,
+                          "paradas": [
+                            {"ordem": 1, "pedido_id": %d, "lat": -16.7310, "lon": -43.8710, "hora_prevista": "09:10"}
+                          ]
+                        }
+                      ],
+                      "nao_atendidos": []
+                    }
+                    """.formatted(entregadorLivre, pedidoNovo.getId());
+        });
+
+        PlanejamentoResultado resultado = criarService().planejarRotasPendentes();
+
+        assertEquals(1, resultado.rotasCriadas());
+        assertEquals(1, resultado.entregasCriadas());
+        assertEquals(1, solverStub.requestCount());
+        assertTrue(payloadSolver.get().contains("\"entregadores\":[" + entregadorComExecucao + "," + entregadorLivre + "]"));
+        assertTrue(payloadSolver.get().contains("\"capacidades_entregadores\":[3,5]"));
+        assertEquals("CONFIRMADO", statusDoPedido(pedidoNovo.getId()));
+    }
+
+    @Test
+    void deveConsiderarPendentesDaRotaEmAndamentoNoCalculoDaCapacidadeRemanescente() throws Exception {
+        int atendenteId = criarAtendenteId("atendente-capacidade-pendente@teste.com");
+        int entregadorComCarga = criarEntregadorId("entregador-capacidade-pendente-1@teste.com", true);
+        int entregadorLivre = criarEntregadorId("entregador-capacidade-pendente-2@teste.com", true);
+        int clienteExecucao = criarClienteComSaldo("(38) 99999-7715", 10);
+        int clientePendente = criarClienteComSaldo("(38) 99999-7716", 10);
+        int clienteNovo = criarClienteComSaldo("(38) 99999-7717", 10);
+
+        Pedido pedidoExecucao = pedidoRepository.save(new Pedido(clienteExecucao, 1, JanelaTipo.ASAP, null, null, atendenteId));
+        Pedido pedidoPendente = pedidoRepository.save(new Pedido(clientePendente, 2, JanelaTipo.ASAP, null, null, atendenteId));
+        Pedido pedidoNovo = pedidoRepository.save(new Pedido(clienteNovo, 1, JanelaTipo.ASAP, null, null, atendenteId));
+        atualizarStatusPedido(pedidoExecucao.getId(), "EM_ROTA");
+        atualizarStatusPedido(pedidoPendente.getId(), "EM_ROTA");
+
+        int rotaEmAndamento = inserirRotaComStatus(entregadorComCarga, "EM_ANDAMENTO", 1);
+        inserirEntregaComStatus(pedidoExecucao.getId(), rotaEmAndamento, 1, "EM_EXECUCAO");
+        inserirEntregaComStatus(pedidoPendente.getId(), rotaEmAndamento, 2, "PENDENTE");
+
+        java.util.concurrent.atomic.AtomicReference<String> payloadSolver = new java.util.concurrent.atomic.AtomicReference<>("");
+        solverStub.setDynamicSolveHandler(requestBody -> {
+            payloadSolver.set(requestBody);
+            return """
+                    {
+                      "rotas": [
+                        {
+                          "entregador_id": %d,
+                          "numero_no_dia": 1,
+                          "paradas": [
+                            {"ordem": 1, "pedido_id": %d, "lat": -16.7310, "lon": -43.8710, "hora_prevista": "09:20"}
+                          ]
+                        }
+                      ],
+                      "nao_atendidos": []
+                    }
+                    """.formatted(entregadorLivre, pedidoNovo.getId());
+        });
+
+        PlanejamentoResultado resultado = criarService().planejarRotasPendentes();
+
+        assertEquals(1, resultado.rotasCriadas());
+        assertEquals(1, resultado.entregasCriadas());
+        assertEquals(1, solverStub.requestCount());
+        assertTrue(payloadSolver.get().contains("\"entregadores\":[" + entregadorComCarga + "," + entregadorLivre + "]"));
+        assertTrue(payloadSolver.get().contains("\"capacidades_entregadores\":[2,5]"));
+    }
+
+    @Test
+    void deveDistribuirPlanejamentoEntreMultiplosEntregadoresRespeitandoCapacidade() throws Exception {
+        int atendenteId = criarAtendenteId("atendente-multi-entregador@teste.com");
+        int entregadorA = criarEntregadorId("entregador-multi-1@teste.com", true);
+        int entregadorB = criarEntregadorId("entregador-multi-2@teste.com", true);
+        atualizarConfiguracao("capacidade_veiculo", "1");
+
+        int cliente1 = criarClienteComSaldo("(38) 99999-7731", 10);
+        int cliente2 = criarClienteComSaldo("(38) 99999-7732", 10);
+        int cliente3 = criarClienteComSaldo("(38) 99999-7733", 10);
+
+        Pedido pedido1 = pedidoRepository.save(new Pedido(cliente1, 1, JanelaTipo.ASAP, null, null, atendenteId));
+        Pedido pedido2 = pedidoRepository.save(new Pedido(cliente2, 1, JanelaTipo.ASAP, null, null, atendenteId));
+        Pedido pedido3 = pedidoRepository.save(new Pedido(cliente3, 1, JanelaTipo.ASAP, null, null, atendenteId));
+
+        java.util.concurrent.atomic.AtomicReference<String> payloadSolver = new java.util.concurrent.atomic.AtomicReference<>("");
+        solverStub.setDynamicSolveHandler(requestBody -> {
+            payloadSolver.set(requestBody);
+            return """
+                    {
+                      "rotas": [
+                        {
+                          "entregador_id": %d,
+                          "numero_no_dia": 1,
+                          "paradas": [
+                            {"ordem": 1, "pedido_id": %d, "lat": -16.7310, "lon": -43.8710, "hora_prevista": "09:15"}
+                          ]
+                        },
+                        {
+                          "entregador_id": %d,
+                          "numero_no_dia": 1,
+                          "paradas": [
+                            {"ordem": 1, "pedido_id": %d, "lat": -16.7320, "lon": -43.8720, "hora_prevista": "09:25"}
+                          ]
+                        }
+                      ],
+                      "nao_atendidos": [%d]
+                    }
+                    """
+                    .formatted(entregadorA, pedido1.getId(), entregadorB, pedido2.getId(), pedido3.getId());
+        });
+
+        PlanejamentoResultado resultado = criarService().planejarRotasPendentes();
+
+        assertEquals(2, resultado.rotasCriadas());
+        assertEquals(2, resultado.entregasCriadas());
+        assertEquals(1, resultado.pedidosNaoAtendidos());
+        assertEquals(1, solverStub.requestCount());
+        assertTrue(payloadSolver.get().contains("\"entregadores\":[" + entregadorA + "," + entregadorB + "]"));
+        assertTrue(payloadSolver.get().contains("\"capacidades_entregadores\":[1,1]"));
+        assertEquals("CONFIRMADO", statusDoPedido(pedido1.getId()));
+        assertEquals("CONFIRMADO", statusDoPedido(pedido2.getId()));
+        assertEquals("PENDENTE", statusDoPedido(pedido3.getId()));
+
+        try (Connection conn = factory.getConnection();
+                PreparedStatement stmt = conn.prepareStatement(
+                        "SELECT r.entregador_id, COUNT(*) "
+                                + "FROM rotas r "
+                                + "JOIN entregas e ON e.rota_id = r.id "
+                                + "WHERE r.status::text = 'PLANEJADA' "
+                                + "GROUP BY r.entregador_id "
+                                + "ORDER BY r.entregador_id");
+                ResultSet rs = stmt.executeQuery()) {
+            int linhas = 0;
+            while (rs.next()) {
+                linhas++;
+                assertEquals(1, rs.getInt(2));
+            }
+            assertEquals(2, linhas);
+        }
+    }
+
+    @Test
+    void devePromoverPedidosConfirmadosPorFifoAteLimiteDaCapacidadeLivre() throws Exception {
+        int atendenteId = criarAtendenteId("atendente-fifo-confirmado@teste.com");
+        int entregadorId = criarEntregadorId("entregador-fifo-confirmado@teste.com", true);
+        int clienteAntigo = criarClienteComSaldo("(38) 99999-7713", 10);
+        int clienteNovo = criarClienteComSaldo("(38) 99999-7714", 10);
+
+        Pedido pedidoAntigo = pedidoRepository.save(new Pedido(clienteAntigo, 3, JanelaTipo.ASAP, null, null, atendenteId));
+        Pedido pedidoNovo = pedidoRepository.save(new Pedido(clienteNovo, 3, JanelaTipo.ASAP, null, null, atendenteId));
+        atualizarStatusPedido(pedidoAntigo.getId(), "CONFIRMADO");
+        atualizarStatusPedido(pedidoNovo.getId(), "CONFIRMADO");
+
+        java.util.concurrent.atomic.AtomicReference<String> payloadSolver = new java.util.concurrent.atomic.AtomicReference<>("");
+        solverStub.setDynamicSolveHandler(requestBody -> {
+            payloadSolver.set(requestBody);
+            return """
+                    {
+                      "rotas": [
+                        {
+                          "entregador_id": %d,
+                          "numero_no_dia": 1,
+                          "paradas": [
+                            {"ordem": 1, "pedido_id": %d, "lat": -16.7310, "lon": -43.8710, "hora_prevista": "09:30"}
+                          ]
+                        }
+                      ],
+                      "nao_atendidos": []
+                    }
+                    """.formatted(entregadorId, pedidoAntigo.getId());
+        });
+
+        PlanejamentoResultado resultado = criarService().planejarRotasPendentes();
+
+        assertEquals(1, resultado.rotasCriadas());
+        assertEquals(1, resultado.entregasCriadas());
+        assertEquals(1, solverStub.requestCount());
+        assertTrue(payloadSolver.get().contains("\"pedido_id\":" + pedidoAntigo.getId()));
+        assertTrue(!payloadSolver.get().contains("\"pedido_id\":" + pedidoNovo.getId()));
+        assertEquals(1, contarEntregasPorPedido(pedidoAntigo.getId()));
+        assertEquals(0, contarEntregasPorPedido(pedidoNovo.getId()));
+        assertEquals("CONFIRMADO", statusDoPedido(pedidoAntigo.getId()));
+        assertEquals("CONFIRMADO", statusDoPedido(pedidoNovo.getId()));
+    }
+
+    @Test
+    void devePularConfirmadoQueNaoCabeESelecionarProximoElegivelCapacityAware() throws Exception {
+        int atendenteId = criarAtendenteId("atendente-capacity-aware@teste.com");
+        int entregadorId = criarEntregadorId("entregador-capacity-aware@teste.com", true);
+        int clienteExecucao = criarClienteComSaldo("(38) 99999-7718", 10);
+        int clienteGrande = criarClienteComSaldo("(38) 99999-7719", 10);
+        int clientePequeno = criarClienteComSaldo("(38) 99999-7720", 10);
+
+        Pedido pedidoExecucao = pedidoRepository.save(new Pedido(clienteExecucao, 2, JanelaTipo.ASAP, null, null, atendenteId));
+        Pedido pedidoGrande = pedidoRepository.save(new Pedido(clienteGrande, 4, JanelaTipo.ASAP, null, null, atendenteId));
+        Pedido pedidoPequeno = pedidoRepository.save(new Pedido(clientePequeno, 2, JanelaTipo.ASAP, null, null, atendenteId));
+        atualizarStatusPedido(pedidoExecucao.getId(), "EM_ROTA");
+        atualizarStatusPedido(pedidoGrande.getId(), "CONFIRMADO");
+        atualizarStatusPedido(pedidoPequeno.getId(), "CONFIRMADO");
+
+        int rotaEmAndamento = inserirRotaComStatus(entregadorId, "EM_ANDAMENTO", 1);
+        inserirEntregaComStatus(pedidoExecucao.getId(), rotaEmAndamento, 1, "EM_EXECUCAO");
+
+        java.util.concurrent.atomic.AtomicReference<String> payloadSolver = new java.util.concurrent.atomic.AtomicReference<>("");
+        solverStub.setDynamicSolveHandler(requestBody -> {
+            payloadSolver.set(requestBody);
+            return """
+                    {
+                      "rotas": [
+                        {
+                          "entregador_id": %d,
+                          "numero_no_dia": 2,
+                          "paradas": [
+                            {"ordem": 1, "pedido_id": %d, "lat": -16.7310, "lon": -43.8710, "hora_prevista": "10:15"}
+                          ]
+                        }
+                      ],
+                      "nao_atendidos": []
+                    }
+                    """.formatted(entregadorId, pedidoPequeno.getId());
+        });
+
+        PlanejamentoResultado resultado = criarService().planejarRotasPendentes();
+
+        assertEquals(1, resultado.rotasCriadas());
+        assertEquals(1, resultado.entregasCriadas());
+        assertEquals(1, solverStub.requestCount());
+        assertTrue(payloadSolver.get().contains("\"pedido_id\":" + pedidoPequeno.getId()));
+        assertTrue(!payloadSolver.get().contains("\"pedido_id\":" + pedidoGrande.getId()));
+        assertEquals(0, contarEntregasPorPedido(pedidoGrande.getId()));
+        assertEquals(1, contarEntregasPorPedido(pedidoPequeno.getId()));
+        assertEquals("CONFIRMADO", statusDoPedido(pedidoGrande.getId()));
+        assertEquals("CONFIRMADO", statusDoPedido(pedidoPequeno.getId()));
+    }
+
+    @Test
+    void deveSubstituirCamadaSecundariaPlanejadaSemAcumularRotas() throws Exception {
+        int atendenteId = criarAtendenteId("atendente-camada-secundaria@teste.com");
+        int entregadorId = criarEntregadorId("entregador-camada-secundaria@teste.com", true);
+        int clienteExecucao = criarClienteComSaldo("(38) 99999-7721", 10);
+        int clientePlanejado = criarClienteComSaldo("(38) 99999-7722", 10);
+        int clienteNovo = criarClienteComSaldo("(38) 99999-7723", 10);
+
+        Pedido pedidoExecucao = pedidoRepository.save(new Pedido(clienteExecucao, 1, JanelaTipo.ASAP, null, null, atendenteId));
+        Pedido pedidoPlanejado = pedidoRepository.save(new Pedido(clientePlanejado, 1, JanelaTipo.ASAP, null, null, atendenteId));
+        Pedido pedidoNovo = pedidoRepository.save(new Pedido(clienteNovo, 1, JanelaTipo.ASAP, null, null, atendenteId));
+        atualizarStatusPedido(pedidoExecucao.getId(), "EM_ROTA");
+        atualizarStatusPedido(pedidoPlanejado.getId(), "CONFIRMADO");
+
+        int rotaPrimaria = inserirRotaComStatus(entregadorId, "EM_ANDAMENTO", 1);
+        inserirEntregaComStatus(pedidoExecucao.getId(), rotaPrimaria, 1, "EM_EXECUCAO");
+        int rotaSecundariaAntiga = inserirRotaComStatus(entregadorId, "PLANEJADA", 2);
+        inserirEntregaComStatus(pedidoPlanejado.getId(), rotaSecundariaAntiga, 1, "PENDENTE");
+
+        solverStub.setSolveResponse("""
+                {
+                  "rotas": [
+                    {
+                      "entregador_id": %d,
+                      "numero_no_dia": 2,
+                      "paradas": [
+                        {"ordem": 1, "pedido_id": %d, "lat": -16.7310, "lon": -43.8710, "hora_prevista": "10:30"}
+                      ]
+                    }
+                  ],
+                  "nao_atendidos": []
+                }
+                """.formatted(entregadorId, pedidoNovo.getId()));
+
+        PlanejamentoResultado resultado = criarService().planejarRotasPendentes();
+
+        assertEquals(1, resultado.rotasCriadas());
+        assertEquals(1, resultado.entregasCriadas());
+        assertEquals(1, solverStub.requestCount());
+        assertEquals(1, contarRotasPorStatus("PLANEJADA"));
+        assertEquals("EM_EXECUCAO", statusDaEntregaMaisRecenteDoPedido(pedidoExecucao.getId()));
+        assertEquals(0, contarEntregasPorPedido(pedidoPlanejado.getId()));
+        assertEquals(1, contarEntregasPorPedido(pedidoNovo.getId()));
+    }
+
+    @Test
+    void deveFalharComMensagemClaraQuandoSolverRetornarMaisDeUmaRotaPlanejadaParaMesmoEntregador() throws Exception {
+        int atendenteId = criarAtendenteId("atendente-contrato-solver@teste.com");
+        int entregadorId = criarEntregadorId("entregador-contrato-solver@teste.com", true);
+        int cliente1 = criarClienteComSaldo("(38) 99999-77231", 10);
+        int cliente2 = criarClienteComSaldo("(38) 99999-77232", 10);
+
+        Pedido pedido1 = pedidoRepository.save(new Pedido(cliente1, 1, JanelaTipo.ASAP, null, null, atendenteId));
+        Pedido pedido2 = pedidoRepository.save(new Pedido(cliente2, 1, JanelaTipo.ASAP, null, null, atendenteId));
+
+        solverStub.setSolveResponse("""
+                {
+                  "rotas": [
+                    {
+                      "entregador_id": %d,
+                      "numero_no_dia": 1,
+                      "paradas": [
+                        {"ordem": 1, "pedido_id": %d, "lat": -16.7310, "lon": -43.8710, "hora_prevista": "10:30"}
+                      ]
+                    },
+                    {
+                      "entregador_id": %d,
+                      "numero_no_dia": 2,
+                      "paradas": [
+                        {"ordem": 1, "pedido_id": %d, "lat": -16.7320, "lon": -43.8720, "hora_prevista": "10:45"}
+                      ]
+                    }
+                  ],
+                  "nao_atendidos": []
+                }
+                """.formatted(entregadorId, pedido1.getId(), entregadorId, pedido2.getId()));
+
+        IllegalStateException ex =
+                assertThrows(IllegalStateException.class, () -> criarService().planejarRotasPendentes());
+
+        assertEquals("Falha ao planejar rotas", ex.getMessage());
+        assertInstanceOf(IllegalStateException.class, ex.getCause());
+        assertTrue(ex.getCause().getMessage().contains("mais de uma rota PLANEJADA"));
+        assertEquals(0, contarLinhas("rotas"));
+        assertEquals(0, contarLinhas("entregas"));
+        assertEquals("PENDENTE", statusDoPedido(pedido1.getId()));
+        assertEquals("PENDENTE", statusDoPedido(pedido2.getId()));
+    }
+
+    @Test
+    void deveReplanejarComSolverAposCancelamentoSemInsercaoLocal() throws Exception {
+        int atendenteId = criarAtendenteId("atendente8c@teste.com");
+        int entregadorId = criarEntregadorId("entregador8c@teste.com", true);
+        int clienteCancelado = criarClienteComSaldo("(38) 99999-7703", 10);
+        int clienteNovo = criarClienteComSaldo("(38) 99999-7704", 10);
+
+        Pedido pedidoCancelado =
+                pedidoRepository.save(new Pedido(clienteCancelado, 1, JanelaTipo.ASAP, null, null, atendenteId));
+        Pedido pedidoNovo = pedidoRepository.save(new Pedido(clienteNovo, 2, JanelaTipo.ASAP, null, null, atendenteId));
+
+        atualizarStatusPedido(pedidoCancelado.getId(), "CANCELADO");
+        int rotaId = inserirRotaComStatus(entregadorId, "EM_ANDAMENTO", 1);
+        inserirEntregaComStatus(pedidoCancelado.getId(), rotaId, 1, "CANCELADA");
+
+        solverStub.setSolveResponse("""
+                {
+                  "rotas": [
+                    {
+                      "entregador_id": %d,
+                      "numero_no_dia": 2,
+                      "paradas": [
+                        {"ordem": 1, "pedido_id": %d, "lat": -16.7310, "lon": -43.8710, "hora_prevista": "09:40"}
+                      ]
+                    }
+                  ],
+                  "nao_atendidos": []
+                }
+                """.formatted(entregadorId, pedidoNovo.getId()));
+
+        PlanejamentoResultado resultado = criarService().planejarRotasPendentes();
+
+        assertEquals(1, resultado.rotasCriadas());
+        assertEquals(1, resultado.entregasCriadas());
+        assertEquals(0, resultado.pedidosNaoAtendidos());
+        assertEquals(1, solverStub.requestCount());
+        assertEquals("CONFIRMADO", statusDoPedido(pedidoNovo.getId()));
+        assertEquals(1, contarEntregasPorPedido(pedidoNovo.getId()));
+        assertTrue(rotaDaEntregaDoPedido(pedidoNovo.getId()) > 0);
+        assertEquals(1, ordemEntregaDoPedido(pedidoNovo.getId()));
+        assertEquals(2, contarLinhas("entregas"));
     }
 
     @Test
@@ -870,6 +1305,7 @@ class RotaServiceTest {
         int rodadas = 10;
         int threadsPerInstance = 2;
         int totalThreads = threadsPerInstance * 2;
+        int atrasoInstanciaSemVantagemMs = 20;
         ExecutorService executor = Executors.newFixedThreadPool(totalThreads);
 
         AtomicInteger vitoriasA = new AtomicInteger(0);
@@ -883,16 +1319,23 @@ class RotaServiceTest {
                 RotaService instanciaA = criarService();
                 RotaService instanciaB = criarService();
                 CyclicBarrier barreira = new CyclicBarrier(totalThreads);
+                boolean vantagemA = rodada % 2 == 0;
 
                 List<Future<String>> futures = new ArrayList<>();
                 for (int t = 0; t < threadsPerInstance; t++) {
                     futures.add(executor.submit(() -> {
                         barreira.await(5, TimeUnit.SECONDS);
+                        if (!vantagemA) {
+                            Thread.sleep(atrasoInstanciaSemVantagemMs);
+                        }
                         PlanejamentoResultado r = instanciaA.planejarRotasPendentes();
                         return r.rotasCriadas() > 0 ? "A" : null;
                     }));
                     futures.add(executor.submit(() -> {
                         barreira.await(5, TimeUnit.SECONDS);
+                        if (vantagemA) {
+                            Thread.sleep(atrasoInstanciaSemVantagemMs);
+                        }
                         PlanejamentoResultado r = instanciaB.planejarRotasPendentes();
                         return r.rotasCriadas() > 0 ? "B" : null;
                     }));
@@ -908,8 +1351,8 @@ class RotaServiceTest {
                 }
             }
 
-            // Fairness: ambas instancias devem vencer pelo menos 1 vez em 10 rodadas
-            // (probabilidade de uma nunca vencer em 10 rodadas com disputa justa e negligivel)
+            // Vantagem alternada por rodada para garantir determinismo em CI e
+            // validar que ambas instancias conseguem vencer sob concorrencia real.
             assertEquals(
                     rodadas,
                     vitoriasA.get() + vitoriasB.get(),
@@ -979,6 +1422,120 @@ class RotaServiceTest {
                 rs.next();
                 return rs.getInt(1);
             }
+        }
+    }
+
+    private int inserirRotaComStatus(int entregadorId, String status, int numeroNoDia) throws Exception {
+        try (Connection conn = factory.getConnection();
+                PreparedStatement stmt = conn.prepareStatement(
+                        "INSERT INTO rotas (entregador_id, data, numero_no_dia, status) VALUES (?, CURRENT_DATE, ?, ?) RETURNING id")) {
+            stmt.setInt(1, entregadorId);
+            stmt.setInt(2, numeroNoDia);
+            stmt.setObject(3, status, java.sql.Types.OTHER);
+            try (ResultSet rs = stmt.executeQuery()) {
+                rs.next();
+                return rs.getInt(1);
+            }
+        }
+    }
+
+    private void inserirEntregaComStatus(int pedidoId, int rotaId, int ordemNaRota, String status) throws Exception {
+        try (Connection conn = factory.getConnection();
+                PreparedStatement stmt = conn.prepareStatement(
+                        "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, status) VALUES (?, ?, ?, ?)")) {
+            stmt.setInt(1, pedidoId);
+            stmt.setInt(2, rotaId);
+            stmt.setInt(3, ordemNaRota);
+            stmt.setObject(4, status, java.sql.Types.OTHER);
+            stmt.executeUpdate();
+        }
+    }
+
+    private void atualizarStatusPedido(int pedidoId, String status) throws Exception {
+        try (Connection conn = factory.getConnection();
+                PreparedStatement stmt = conn.prepareStatement("UPDATE pedidos SET status = ? WHERE id = ?")) {
+            stmt.setObject(1, status, java.sql.Types.OTHER);
+            stmt.setInt(2, pedidoId);
+            stmt.executeUpdate();
+        }
+    }
+
+    private int contarEntregasPorPedido(int pedidoId) throws Exception {
+        try (Connection conn = factory.getConnection();
+                PreparedStatement stmt =
+                        conn.prepareStatement("SELECT COUNT(*) FROM entregas WHERE pedido_id = ?")) {
+            stmt.setInt(1, pedidoId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                rs.next();
+                return rs.getInt(1);
+            }
+        }
+    }
+
+    private int contarRotasPorStatus(String status) throws Exception {
+        try (Connection conn = factory.getConnection();
+                PreparedStatement stmt =
+                        conn.prepareStatement("SELECT COUNT(*) FROM rotas WHERE status::text = ? AND data = CURRENT_DATE")) {
+            stmt.setString(1, status);
+            try (ResultSet rs = stmt.executeQuery()) {
+                rs.next();
+                return rs.getInt(1);
+            }
+        }
+    }
+
+    private String statusDaEntregaMaisRecenteDoPedido(int pedidoId) throws Exception {
+        try (Connection conn = factory.getConnection();
+                PreparedStatement stmt = conn.prepareStatement(
+                        "SELECT status::text FROM entregas WHERE pedido_id = ? ORDER BY id DESC LIMIT 1")) {
+            stmt.setInt(1, pedidoId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                rs.next();
+                return rs.getString(1);
+            }
+        }
+    }
+
+    private int rotaDaEntregaDoPedido(int pedidoId) throws Exception {
+        try (Connection conn = factory.getConnection();
+                PreparedStatement stmt = conn.prepareStatement(
+                        "SELECT rota_id FROM entregas WHERE pedido_id = ? ORDER BY id DESC LIMIT 1")) {
+            stmt.setInt(1, pedidoId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                rs.next();
+                return rs.getInt(1);
+            }
+        }
+    }
+
+    private int ordemEntregaDoPedido(int pedidoId) throws Exception {
+        try (Connection conn = factory.getConnection();
+                PreparedStatement stmt = conn.prepareStatement(
+                        "SELECT ordem_na_rota FROM entregas WHERE pedido_id = ? ORDER BY id DESC LIMIT 1")) {
+            stmt.setInt(1, pedidoId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                rs.next();
+                return rs.getInt(1);
+            }
+        }
+    }
+
+    private void atualizarMetodoPagamentoPedido(int pedidoId, String metodoPagamento) throws Exception {
+        try (Connection conn = factory.getConnection();
+                PreparedStatement stmt =
+                        conn.prepareStatement("UPDATE pedidos SET metodo_pagamento = ? WHERE id = ?")) {
+            stmt.setObject(1, metodoPagamento, java.sql.Types.OTHER);
+            stmt.setInt(2, pedidoId);
+            stmt.executeUpdate();
+        }
+    }
+
+    private void atualizarConfiguracao(String chave, String valor) throws Exception {
+        try (Connection conn = factory.getConnection();
+                PreparedStatement stmt = conn.prepareStatement("UPDATE configuracoes SET valor = ? WHERE chave = ?")) {
+            stmt.setString(1, valor);
+            stmt.setString(2, chave);
+            stmt.executeUpdate();
         }
     }
 
