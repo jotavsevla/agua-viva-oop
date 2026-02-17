@@ -9,6 +9,7 @@ public final class SolverRequest {
     private final Long planVersion;
     private final Coordenada deposito;
     private final int capacidadeVeiculo;
+    private final List<Integer> capacidadesEntregadores;
     private final String horarioInicio;
     private final String horarioFim;
     private final List<Integer> entregadores;
@@ -19,6 +20,7 @@ public final class SolverRequest {
             Long planVersion,
             Coordenada deposito,
             int capacidadeVeiculo,
+            List<Integer> capacidadesEntregadores,
             String horarioInicio,
             String horarioFim,
             List<Integer> entregadores,
@@ -26,14 +28,34 @@ public final class SolverRequest {
         Objects.requireNonNull(deposito, "Deposito nao pode ser nulo");
         Objects.requireNonNull(entregadores, "Entregadores nao pode ser nulo");
         Objects.requireNonNull(pedidos, "Pedidos nao pode ser nulo");
+        if (capacidadesEntregadores != null && capacidadesEntregadores.size() != entregadores.size()) {
+            throw new IllegalArgumentException("capacidadesEntregadores deve ter mesmo tamanho de entregadores");
+        }
+        if (capacidadesEntregadores != null
+                && capacidadesEntregadores.stream().anyMatch(capacidade -> capacidade == null || capacidade < 0)) {
+            throw new IllegalArgumentException("capacidadesEntregadores nao pode conter valores negativos");
+        }
         this.jobId = normalizeOptional(jobId);
         this.planVersion = planVersion;
         this.deposito = deposito;
         this.capacidadeVeiculo = capacidadeVeiculo;
+        this.capacidadesEntregadores = capacidadesEntregadores == null ? null : List.copyOf(capacidadesEntregadores);
         this.horarioInicio = horarioInicio;
         this.horarioFim = horarioFim;
         this.entregadores = List.copyOf(entregadores);
         this.pedidos = List.copyOf(pedidos);
+    }
+
+    public SolverRequest(
+            String jobId,
+            Long planVersion,
+            Coordenada deposito,
+            int capacidadeVeiculo,
+            String horarioInicio,
+            String horarioFim,
+            List<Integer> entregadores,
+            List<PedidoSolver> pedidos) {
+        this(jobId, planVersion, deposito, capacidadeVeiculo, null, horarioInicio, horarioFim, entregadores, pedidos);
     }
 
     public SolverRequest(
@@ -43,7 +65,7 @@ public final class SolverRequest {
             String horarioFim,
             List<Integer> entregadores,
             List<PedidoSolver> pedidos) {
-        this(null, null, deposito, capacidadeVeiculo, horarioInicio, horarioFim, entregadores, pedidos);
+        this(null, null, deposito, capacidadeVeiculo, null, horarioInicio, horarioFim, entregadores, pedidos);
     }
 
     public String getJobId() {
@@ -60,6 +82,10 @@ public final class SolverRequest {
 
     public int getCapacidadeVeiculo() {
         return capacidadeVeiculo;
+    }
+
+    public List<Integer> getCapacidadesEntregadores() {
+        return capacidadesEntregadores;
     }
 
     public String getHorarioInicio() {

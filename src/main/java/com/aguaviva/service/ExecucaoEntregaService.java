@@ -13,6 +13,9 @@ import java.util.Objects;
 
 public class ExecucaoEntregaService {
 
+    private static final String METODO_PAGAMENTO_VALE = "VALE";
+    private static final String TIPO_MOVIMENTACAO_DEBITO = "DEBITO";
+
     private final ConnectionFactory connectionFactory;
     private final PedidoLifecycleService lifecycleService;
     private final DispatchEventService dispatchEventService;
@@ -32,8 +35,15 @@ public class ExecucaoEntregaService {
     }
 
     public ExecucaoEntregaResultado registrarRotaIniciada(int rotaId) {
+        return registrarRotaIniciada(rotaId, null);
+    }
+
+    public ExecucaoEntregaResultado registrarRotaIniciada(int rotaId, Integer actorEntregadorId) {
         if (rotaId <= 0) {
             throw new IllegalArgumentException("RotaId deve ser maior que zero");
+        }
+        if (actorEntregadorId != null && actorEntregadorId <= 0) {
+            throw new IllegalArgumentException("actorEntregadorId deve ser maior que zero");
         }
 
         try (Connection conn = connectionFactory.getConnection()) {
@@ -41,6 +51,7 @@ public class ExecucaoEntregaService {
             try {
                 assertOperationalSchema(conn);
                 RotaStatus rota = buscarRotaComLock(conn, rotaId);
+                validarActorEntregador(actorEntregadorId, rota.entregadorId());
                 boolean idempotente = "EM_ANDAMENTO".equals(rota.status());
 
                 if ("CONCLUIDA".equals(rota.status())) {
@@ -61,12 +72,15 @@ public class ExecucaoEntregaService {
                     entregaIdReferencia = ref.entregaId();
                 }
 
-                dispatchEventService.publicar(
-                        conn,
-                        DispatchEventTypes.ROTA_INICIADA,
-                        "ROTA",
-                        (long) rotaId,
-                        new RotaIniciadaPayload(rotaId, entregas.size()));
+                // Em chamadas idempotentes sem novas entregas pendentes, evita duplicar evento no outbox.
+                if (!idempotente || !entregas.isEmpty()) {
+                    dispatchEventService.publicar(
+                            conn,
+                            DispatchEventTypes.ROTA_INICIADA,
+                            "ROTA",
+                            (long) rotaId,
+                            new RotaIniciadaPayload(rotaId, entregas.size()));
+                }
 
                 conn.commit();
                 return new ExecucaoEntregaResultado(
@@ -83,25 +97,40 @@ public class ExecucaoEntregaService {
     }
 
     public ExecucaoEntregaResultado registrarPedidoEntregue(int entregaId) {
-        return finalizarEntrega(entregaId, "ENTREGUE", DispatchEventTypes.PEDIDO_ENTREGUE, null, null);
+        return registrarPedidoEntregue(entregaId, null);
+    }
+
+    public ExecucaoEntregaResultado registrarPedidoEntregue(int entregaId, Integer actorEntregadorId) {
+        return finalizarEntrega(entregaId, "ENTREGUE", DispatchEventTypes.PEDIDO_ENTREGUE, null, null, actorEntregadorId);
     }
 
     public ExecucaoEntregaResultado registrarPedidoFalhou(int entregaId, String motivo) {
+        return registrarPedidoFalhou(entregaId, motivo, null);
+    }
+
+    public ExecucaoEntregaResultado registrarPedidoFalhou(int entregaId, String motivo, Integer actorEntregadorId) {
         return finalizarEntrega(
                 entregaId,
                 "FALHOU",
                 DispatchEventTypes.PEDIDO_FALHOU,
                 new PedidoLifecycleService.TransitionContext(motivo, 0),
-                motivo);
+                motivo,
+                actorEntregadorId);
     }
 
     public ExecucaoEntregaResultado registrarPedidoCancelado(int entregaId, String motivo, Integer cobrancaCentavos) {
+        return registrarPedidoCancelado(entregaId, motivo, cobrancaCentavos, null);
+    }
+
+    public ExecucaoEntregaResultado registrarPedidoCancelado(
+            int entregaId, String motivo, Integer cobrancaCentavos, Integer actorEntregadorId) {
         return finalizarEntrega(
                 entregaId,
                 "CANCELADA",
                 DispatchEventTypes.PEDIDO_CANCELADO,
                 new PedidoLifecycleService.TransitionContext(motivo, cobrancaCentavos),
-                motivo);
+                motivo,
+                actorEntregadorId);
     }
 
     private ExecucaoEntregaResultado finalizarEntrega(
@@ -109,9 +138,13 @@ public class ExecucaoEntregaService {
             String entregaStatusDestino,
             String eventType,
             PedidoLifecycleService.TransitionContext transitionContext,
-            String motivo) {
+            String motivo,
+            Integer actorEntregadorId) {
         if (entregaId <= 0) {
             throw new IllegalArgumentException("EntregaId deve ser maior que zero");
+        }
+        if (actorEntregadorId != null && actorEntregadorId <= 0) {
+            throw new IllegalArgumentException("actorEntregadorId deve ser maior que zero");
         }
 
         try (Connection conn = connectionFactory.getConnection()) {
@@ -119,19 +152,29 @@ public class ExecucaoEntregaService {
             try {
                 assertOperationalSchema(conn);
                 EntregaComPedido entrega = buscarEntregaComLock(conn, entregaId);
+                validarActorEntregador(actorEntregadorId, entrega.entregadorId());
 
-                if ("ENTREGUE".equals(entrega.statusEntrega())
-                        || "FALHOU".equals(entrega.statusEntrega())
-                        || "CANCELADA".equals(entrega.statusEntrega())) {
+                if (isTerminalStatus(entrega.statusEntrega())) {
+                    String statusEsperadoParaEvento = statusFinalEsperadoParaEvento(eventType);
+                    if (!statusEsperadoParaEvento.equals(entrega.statusEntrega())) {
+                        throw new IllegalStateException("Entrega ja finalizada com status "
+                                + entrega.statusEntrega()
+                                + " e nao aceita evento "
+                                + eventType);
+                    }
                     conn.commit();
                     return new ExecucaoEntregaResultado(
                             eventType, entrega.rotaId(), entrega.idEntrega(), entrega.pedidoId(), true);
+                }
+                if (!"EM_EXECUCAO".equals(entrega.statusEntrega())) {
+                    throw new IllegalStateException("Evento terminal exige entrega em status EM_EXECUCAO");
                 }
 
                 atualizarStatusEntrega(conn, entregaId, entregaStatusDestino, true);
 
                 if ("ENTREGUE".equals(entregaStatusDestino)) {
                     lifecycleService.transicionar(conn, entrega.pedidoId(), PedidoStatus.ENTREGUE);
+                    debitarValeSeNecessario(conn, entrega);
                 } else {
                     lifecycleService.transicionar(
                             conn,
@@ -171,15 +214,25 @@ public class ExecucaoEntregaService {
     }
 
     private RotaStatus buscarRotaComLock(Connection conn, int rotaId) throws SQLException {
-        String sql = "SELECT id, status::text FROM rotas WHERE id = ? FOR UPDATE";
+        String sql = "SELECT id, status::text, entregador_id FROM rotas WHERE id = ? FOR UPDATE";
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, rotaId);
             try (ResultSet rs = stmt.executeQuery()) {
                 if (!rs.next()) {
                     throw new IllegalArgumentException("Rota nao encontrada com id: " + rotaId);
                 }
-                return new RotaStatus(rs.getInt("id"), rs.getString("status"));
+                return new RotaStatus(rs.getInt("id"), rs.getString("status"), rs.getInt("entregador_id"));
             }
+        }
+    }
+
+    private void validarActorEntregador(Integer actorEntregadorId, int entregadorEsperado) {
+        if (actorEntregadorId == null) {
+            return;
+        }
+        if (actorEntregadorId != entregadorEsperado) {
+            throw new IllegalStateException(
+                    "Evento operacional invalido: actorEntregadorId nao corresponde ao entregador da rota");
         }
     }
 
@@ -208,11 +261,19 @@ public class ExecucaoEntregaService {
     }
 
     private EntregaComPedido buscarEntregaComLock(Connection conn, int entregaId) throws SQLException {
-        String sql = "SELECT e.id AS entrega_id, e.status::text AS entrega_status, e.rota_id, p.id AS pedido_id "
+        String sql = "SELECT e.id AS entrega_id, "
+                + "e.status::text AS entrega_status, "
+                + "e.rota_id, "
+                + "p.id AS pedido_id, "
+                + "p.cliente_id, "
+                + "p.quantidade_galoes, "
+                + "p.metodo_pagamento::text AS metodo_pagamento, "
+                + "r.entregador_id "
                 + "FROM entregas e "
                 + "JOIN pedidos p ON p.id = e.pedido_id "
+                + "JOIN rotas r ON r.id = e.rota_id "
                 + "WHERE e.id = ? "
-                + "FOR UPDATE OF e, p";
+                + "FOR UPDATE OF e, p, r";
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, entregaId);
             try (ResultSet rs = stmt.executeQuery()) {
@@ -223,8 +284,58 @@ public class ExecucaoEntregaService {
                         rs.getInt("entrega_id"),
                         rs.getString("entrega_status"),
                         rs.getInt("rota_id"),
-                        rs.getInt("pedido_id"));
+                        rs.getInt("pedido_id"),
+                        rs.getInt("cliente_id"),
+                        rs.getInt("quantidade_galoes"),
+                        rs.getString("metodo_pagamento"),
+                        rs.getInt("entregador_id"));
             }
+        }
+    }
+
+    private void debitarValeSeNecessario(Connection conn, EntregaComPedido entrega) throws SQLException {
+        if (!METODO_PAGAMENTO_VALE.equals(entrega.metodoPagamento())) {
+            return;
+        }
+
+        if (!registrarDebitoValeSeAusente(conn, entrega)) {
+            return;
+        }
+
+        int saldoAtualizado = debitarSaldoVale(conn, entrega.clienteId(), entrega.quantidadeGaloes());
+        if (saldoAtualizado == 0) {
+            throw new IllegalStateException("cliente nao possui vale suficiente para concluir a entrega");
+        }
+    }
+
+    private boolean registrarDebitoValeSeAusente(Connection conn, EntregaComPedido entrega) throws SQLException {
+        String sql = "INSERT INTO movimentacao_vales "
+                + "(cliente_id, tipo, quantidade, pedido_id, registrado_por, observacao) "
+                + "VALUES (?, ?, ?, ?, ?, ?) "
+                + "ON CONFLICT DO NOTHING "
+                + "RETURNING id";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, entrega.clienteId());
+            stmt.setObject(2, TIPO_MOVIMENTACAO_DEBITO, Types.OTHER);
+            stmt.setInt(3, entrega.quantidadeGaloes());
+            stmt.setInt(4, entrega.pedidoId());
+            stmt.setInt(5, entrega.entregadorId());
+            stmt.setString(6, "Debito automatico na entrega do pedido " + entrega.pedidoId());
+            try (ResultSet rs = stmt.executeQuery()) {
+                return rs.next();
+            }
+        }
+    }
+
+    private int debitarSaldoVale(Connection conn, int clienteId, int quantidade) throws SQLException {
+        String sql = "UPDATE saldo_vales "
+                + "SET quantidade = quantidade - ?, atualizado_em = CURRENT_TIMESTAMP "
+                + "WHERE cliente_id = ? AND quantidade >= ?";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, quantidade);
+            stmt.setInt(2, clienteId);
+            stmt.setInt(3, quantidade);
+            return stmt.executeUpdate();
         }
     }
 
@@ -272,6 +383,21 @@ public class ExecucaoEntregaService {
         }
     }
 
+    private boolean isTerminalStatus(String statusEntrega) {
+        return "ENTREGUE".equals(statusEntrega)
+                || "FALHOU".equals(statusEntrega)
+                || "CANCELADA".equals(statusEntrega);
+    }
+
+    private String statusFinalEsperadoParaEvento(String eventType) {
+        return switch (eventType) {
+            case DispatchEventTypes.PEDIDO_ENTREGUE -> "ENTREGUE";
+            case DispatchEventTypes.PEDIDO_FALHOU -> "FALHOU";
+            case DispatchEventTypes.PEDIDO_CANCELADO -> "CANCELADA";
+            default -> throw new IllegalArgumentException("eventType terminal invalido: " + eventType);
+        };
+    }
+
     private boolean hasEnumValue(Connection conn, String typeName, String enumLabel) throws SQLException {
         String sql = "SELECT 1 "
                 + "FROM pg_type t "
@@ -286,11 +412,19 @@ public class ExecucaoEntregaService {
         }
     }
 
-    private record RotaStatus(int id, String status) {}
+    private record RotaStatus(int id, String status, int entregadorId) {}
 
     private record EntregaPedidoRef(int entregaId, int pedidoId) {}
 
-    private record EntregaComPedido(int idEntrega, String statusEntrega, int rotaId, int pedidoId) {}
+    private record EntregaComPedido(
+            int idEntrega,
+            String statusEntrega,
+            int rotaId,
+            int pedidoId,
+            int clienteId,
+            int quantidadeGaloes,
+            String metodoPagamento,
+            int entregadorId) {}
 
     private record RotaIniciadaPayload(int rotaId, int entregasEmExecucao) {}
 

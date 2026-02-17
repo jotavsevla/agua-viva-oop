@@ -7,12 +7,15 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Types;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 
 public class AtendimentoTelefonicoService {
 
     private static final String ENDERECO_PENDENTE = "Endereco pendente";
+    private static final String METODO_PAGAMENTO_PADRAO = "NAO_INFORMADO";
+    private static final String METODO_PAGAMENTO_VALE = "VALE";
 
     private final ConnectionFactory connectionFactory;
     private final DispatchEventService dispatchEventService;
@@ -29,8 +32,18 @@ public class AtendimentoTelefonicoService {
 
     public AtendimentoTelefonicoResultado registrarPedido(
             String externalCallId, String telefoneInformado, int quantidadeGaloes, int atendenteId) {
+        return registrarPedido(externalCallId, telefoneInformado, quantidadeGaloes, atendenteId, null);
+    }
+
+    public AtendimentoTelefonicoResultado registrarPedido(
+            String externalCallId,
+            String telefoneInformado,
+            int quantidadeGaloes,
+            int atendenteId,
+            String metodoPagamento) {
         String externalCallIdNormalizado = normalizeExternalCallId(externalCallId);
         String telefoneNormalizado = normalizePhone(telefoneInformado);
+        String metodoPagamentoNormalizado = normalizeMetodoPagamento(metodoPagamento);
         validateQuantidade(quantidadeGaloes);
         validateAtendenteId(atendenteId);
 
@@ -50,9 +63,15 @@ public class AtendimentoTelefonicoService {
                 lockPorTelefone(conn, telefoneNormalizado);
 
                 ClienteResolveResult cliente = obterOuCriarClientePorTelefone(conn, telefoneNormalizado);
+                validarElegibilidadeVale(conn, cliente.clienteId(), quantidadeGaloes, metodoPagamentoNormalizado);
 
                 InsertPedidoResult insert = inserirPedidoPendenteIdempotente(
-                        conn, cliente.clienteId(), quantidadeGaloes, atendenteId, externalCallIdNormalizado);
+                        conn,
+                        cliente.clienteId(),
+                        quantidadeGaloes,
+                        atendenteId,
+                        externalCallIdNormalizado,
+                        metodoPagamentoNormalizado);
 
                 if (!insert.idempotente()) {
                     dispatchEventService.publicar(
@@ -77,16 +96,19 @@ public class AtendimentoTelefonicoService {
                 conn.setAutoCommit(true);
             }
         } catch (SQLException e) {
-            if ("23503".equals(e.getSQLState())) {
-                throw new IllegalArgumentException("Atendente informado nao existe", e);
-            }
-            throw new IllegalStateException("Falha ao registrar pedido via atendimento telefonico", e);
+            throw mapearSqlException(e, "Falha ao registrar pedido via atendimento telefonico");
         }
     }
 
     public AtendimentoTelefonicoResultado registrarPedidoManual(
             String telefoneInformado, int quantidadeGaloes, int atendenteId) {
+        return registrarPedidoManual(telefoneInformado, quantidadeGaloes, atendenteId, null);
+    }
+
+    public AtendimentoTelefonicoResultado registrarPedidoManual(
+            String telefoneInformado, int quantidadeGaloes, int atendenteId, String metodoPagamento) {
         String telefoneNormalizado = normalizePhone(telefoneInformado);
+        String metodoPagamentoNormalizado = normalizeMetodoPagamento(metodoPagamento);
         validateQuantidade(quantidadeGaloes);
         validateAtendenteId(atendenteId);
 
@@ -105,8 +127,15 @@ public class AtendimentoTelefonicoService {
                             existente.pedidoId(), existente.clienteId(), telefoneNormalizado, false, true);
                 }
 
+                validarElegibilidadeVale(conn, cliente.clienteId(), quantidadeGaloes, metodoPagamentoNormalizado);
+
                 InsertPedidoResult insert =
-                        inserirPedidoPendente(conn, cliente.clienteId(), quantidadeGaloes, atendenteId);
+                        inserirPedidoPendente(
+                                conn,
+                                cliente.clienteId(),
+                                quantidadeGaloes,
+                                atendenteId,
+                                metodoPagamentoNormalizado);
 
                 dispatchEventService.publicar(
                         conn,
@@ -125,10 +154,7 @@ public class AtendimentoTelefonicoService {
                 conn.setAutoCommit(true);
             }
         } catch (SQLException e) {
-            if ("23503".equals(e.getSQLState())) {
-                throw new IllegalArgumentException("Atendente informado nao existe", e);
-            }
-            throw new IllegalStateException("Falha ao registrar pedido via atendimento manual", e);
+            throw mapearSqlException(e, "Falha ao registrar pedido via atendimento manual");
         }
     }
 
@@ -247,12 +273,43 @@ public class AtendimentoTelefonicoService {
         }
     }
 
+    private void validarElegibilidadeVale(
+            Connection conn, int clienteId, int quantidadeGaloes, String metodoPagamento) throws SQLException {
+        if (!METODO_PAGAMENTO_VALE.equals(metodoPagamento)) {
+            return;
+        }
+
+        int saldoDisponivel = buscarSaldoValeComLock(conn, clienteId);
+        if (saldoDisponivel < quantidadeGaloes) {
+            throw new IllegalArgumentException("cliente nao possui vale suficiente para checkout");
+        }
+    }
+
+    private int buscarSaldoValeComLock(Connection conn, int clienteId) throws SQLException {
+        String sql = "SELECT quantidade FROM saldo_vales WHERE cliente_id = ? FOR UPDATE";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, clienteId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (!rs.next()) {
+                    return 0;
+                }
+                return rs.getInt("quantidade");
+            }
+        }
+    }
+
     private InsertPedidoResult inserirPedidoPendenteIdempotente(
-            Connection conn, int clienteId, int quantidadeGaloes, int atendenteId, String externalCallId)
+            Connection conn,
+            int clienteId,
+            int quantidadeGaloes,
+            int atendenteId,
+            String externalCallId,
+            String metodoPagamento)
             throws SQLException {
         String sql =
-                "INSERT INTO pedidos (cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por, external_call_id) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+                "INSERT INTO pedidos "
+                        + "(cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por, external_call_id, metodo_pagamento) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
                         + "ON CONFLICT (external_call_id) DO NOTHING "
                         + "RETURNING id, cliente_id";
 
@@ -265,6 +322,7 @@ public class AtendimentoTelefonicoService {
             stmt.setObject(6, "PENDENTE", Types.OTHER);
             stmt.setInt(7, atendenteId);
             stmt.setString(8, externalCallId);
+            stmt.setObject(9, metodoPagamento, Types.OTHER);
 
             try (ResultSet rs = stmt.executeQuery()) {
                 if (rs.next()) {
@@ -279,10 +337,12 @@ public class AtendimentoTelefonicoService {
     }
 
     private InsertPedidoResult inserirPedidoPendente(
-            Connection conn, int clienteId, int quantidadeGaloes, int atendenteId) throws SQLException {
+            Connection conn, int clienteId, int quantidadeGaloes, int atendenteId, String metodoPagamento)
+            throws SQLException {
         String sql =
-                "INSERT INTO pedidos (cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?) "
+                "INSERT INTO pedidos "
+                        + "(cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por, metodo_pagamento) "
+                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
                         + "RETURNING id, cliente_id";
 
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -293,6 +353,7 @@ public class AtendimentoTelefonicoService {
             stmt.setNull(5, Types.TIME);
             stmt.setObject(6, "PENDENTE", Types.OTHER);
             stmt.setInt(7, atendenteId);
+            stmt.setObject(8, metodoPagamento, Types.OTHER);
 
             try (ResultSet rs = stmt.executeQuery()) {
                 if (rs.next()) {
@@ -327,6 +388,18 @@ public class AtendimentoTelefonicoService {
         return digits;
     }
 
+    private static String normalizeMetodoPagamento(String value) {
+        if (value == null || value.isBlank()) {
+            return METODO_PAGAMENTO_PADRAO;
+        }
+
+        String normalized = value.trim().toUpperCase(Locale.ROOT);
+        return switch (normalized) {
+            case "NAO_INFORMADO", "DINHEIRO", "PIX", "CARTAO", "VALE" -> normalized;
+            default -> throw new IllegalArgumentException("metodoPagamento invalido");
+        };
+    }
+
     private static void validateQuantidade(int quantidadeGaloes) {
         if (quantidadeGaloes <= 0) {
             throw new IllegalArgumentException("Quantidade de galoes deve ser maior que zero");
@@ -337,6 +410,13 @@ public class AtendimentoTelefonicoService {
         if (atendenteId <= 0) {
             throw new IllegalArgumentException("AtendenteId deve ser maior que zero");
         }
+    }
+
+    private RuntimeException mapearSqlException(SQLException e, String mensagemPadrao) {
+        if ("23503".equals(e.getSQLState())) {
+            return new IllegalArgumentException("Atendente informado nao existe", e);
+        }
+        return new IllegalStateException(mensagemPadrao, e);
     }
 
     private record PedidoExistente(int pedidoId, int clienteId) {}
