@@ -34,6 +34,21 @@ class ContractsV1Test {
                 () -> assertTrue(
                         openApi.contains("/api/replanejamento/run:"), "Contrato deve expor endpoint de replanejamento"),
                 () -> assertTrue(
+                        openApi.contains("/api/pedidos/{pedidoId}/execucao:"),
+                        "Contrato deve expor endpoint de execucao de pedido"),
+                () -> assertTrue(
+                        openApi.contains("/api/operacao/painel:"), "Contrato deve expor endpoint de painel operacional"),
+                () -> assertTrue(
+                        openApi.contains("/api/operacao/eventos:"), "Contrato deve expor endpoint de eventos operacionais"),
+                () -> assertTrue(
+                        openApi.contains("/api/operacao/mapa:"), "Contrato deve expor endpoint de mapa operacional"),
+                () -> assertTrue(
+                        openApi.contains("externalEventId:"),
+                        "Contrato deve mapear chave de idempotencia externalEventId"),
+                () -> assertTrue(
+                        openApi.contains("actorEntregadorId:"),
+                        "Contrato deve mapear actorEntregadorId para ownership operacional"),
+                () -> assertTrue(
                         openApi.contains("enum: [ROTA_INICIADA, PEDIDO_ENTREGUE, PEDIDO_FALHOU, PEDIDO_CANCELADO]"),
                         "Contrato deve listar eventos operacionais aceitos pela API"));
     }
@@ -86,7 +101,12 @@ class ContractsV1Test {
             "evento-operacional.response.json",
             "replanejamento-run.request.json",
             "replanejamento-run.response.json",
-            "pedido-timeline.response.json"
+            "pedido-timeline.response.json",
+            "pedido-execucao.response.json",
+            "entregador-roteiro.response.json",
+            "operacao-painel.response.json",
+            "operacao-eventos.response.json",
+            "operacao-mapa.response.json"
         };
 
         for (String nomeArquivo : exemplosObrigatorios) {
