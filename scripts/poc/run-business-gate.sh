@@ -218,6 +218,26 @@ extract_single_value() {
   awk 'NF > 0 { print; exit }' | tr -d '[:space:]'
 }
 
+wait_for_execucao_with_rota() {
+  local pedido_id="$1"
+  local attempts="${2:-20}"
+  local pause_seconds="${3:-1}"
+  local body rota
+
+  for _ in $(seq 1 "$attempts"); do
+    api_get_capture "/api/pedidos/${pedido_id}/execucao"
+    body="$API_LAST_BODY"
+    rota="$(echo "$body" | jq -r '.rotaId // .rotaPrimariaId // 0')"
+    if [[ "$API_LAST_STATUS" == "200" && "$rota" != "0" && "$rota" != "null" && -n "$rota" ]]; then
+      printf '%s' "$body"
+      return 0
+    fi
+    sleep "$pause_seconds"
+  done
+
+  return 1
+}
+
 is_required_check() {
   local id="$1"
   case "$id" in
@@ -494,13 +514,12 @@ else
     pedido_body="$API_LAST_BODY"
     pedido_id="$(echo "$pedido_body" | jq -r '.pedidoId // 0')"
 
-    rep_req='{"debounceSegundos":0,"limiteEventos":100}'
-    api_post_capture "/api/replanejamento/run" "$rep_req"
-    rep_status_1="$API_LAST_STATUS"
-
-    api_get_capture "/api/pedidos/${pedido_id}/execucao"
-    exec_status_1="$API_LAST_STATUS"
-    exec_body_1="$API_LAST_BODY"
+    if exec_body_1="$(wait_for_execucao_with_rota "$pedido_id" 30 1)"; then
+      exec_status_1="200"
+    else
+      exec_status_1="408"
+      exec_body_1='{}'
+    fi
     rota_id="$(echo "$exec_body_1" | jq -r '.rotaId // .rotaPrimariaId // 0')"
     entrega_id="$(echo "$exec_body_1" | jq -r '.entregaId // 0')"
 
@@ -534,8 +553,7 @@ else
     call_id_2="bg-flow2-$(date +%s)-$RANDOM"
     payload_at2="$(jq -n --arg externalCallId "$call_id_2" --arg telefone "(38) 99990-1006" --argjson quantidadeGaloes 1 --argjson atendenteId "$ATENDENTE_ID" '{externalCallId:$externalCallId,telefone:$telefone,quantidadeGaloes:$quantidadeGaloes,atendenteId:$atendenteId,metodoPagamento:"PIX"}')"
     api_post_capture "/api/atendimento/pedidos" "$payload_at2"
-    api_post_capture "/api/replanejamento/run" "$rep_req"
-    rep_status_2="$API_LAST_STATUS"
+    sleep 1
     api_get_capture "/api/pedidos/${pedido_id}/execucao"
     exec_status_3="$API_LAST_STATUS"
     exec_body_3="$API_LAST_BODY"
@@ -561,10 +579,13 @@ else
     seed_cliente "38999901007" "Cliente BG R05" "10" >/dev/null
     api_post_capture "/api/atendimento/pedidos" "$payload_at3"
     pedido_r05="$(echo "$API_LAST_BODY" | jq -r '.pedidoId // 0')"
-    api_post_capture "/api/replanejamento/run" "$rep_req"
-    api_get_capture "/api/pedidos/${pedido_r05}/execucao"
-    rota_r05="$(echo "$API_LAST_BODY" | jq -r '.rotaId // .rotaPrimariaId // 0')"
-    entrega_r05="$(echo "$API_LAST_BODY" | jq -r '.entregaId // 0')"
+    if exec_body_r05="$(wait_for_execucao_with_rota "$pedido_r05" 30 1)"; then
+      rota_r05="$(echo "$exec_body_r05" | jq -r '.rotaId // .rotaPrimariaId // 0')"
+      entrega_r05="$(echo "$exec_body_r05" | jq -r '.entregaId // 0')"
+    else
+      rota_r05="0"
+      entrega_r05="0"
+    fi
     key_rota_r05="bg-r05-rota-$(date +%s)-$RANDOM"
     ev_rota_r05="$(jq -n --arg externalEventId "$key_rota_r05" --argjson rotaId "$rota_r05" '{eventType:"ROTA_INICIADA",externalEventId:$externalEventId,rotaId:$rotaId}')"
     api_post_capture "/api/eventos" "$ev_rota_r05"
@@ -585,9 +606,11 @@ else
     seed_cliente "38999901008" "Cliente BG R11" "" >/dev/null
     api_post_capture "/api/atendimento/pedidos" "$payload_falha"
     pedido_falha="$(echo "$API_LAST_BODY" | jq -r '.pedidoId // 0')"
-    api_post_capture "/api/replanejamento/run" "$rep_req"
-    api_get_capture "/api/pedidos/${pedido_falha}/execucao"
-    rota_falha="$(echo "$API_LAST_BODY" | jq -r '.rotaId // .rotaPrimariaId // 0')"
+    if exec_body_falha="$(wait_for_execucao_with_rota "$pedido_falha" 30 1)"; then
+      rota_falha="$(echo "$exec_body_falha" | jq -r '.rotaId // .rotaPrimariaId // 0')"
+    else
+      rota_falha="0"
+    fi
     ev_rota_falha="$(jq -n --arg externalEventId "bg-r11-rota-$(date +%s)-$RANDOM" --argjson rotaId "$rota_falha" '{eventType:"ROTA_INICIADA",externalEventId:$externalEventId,rotaId:$rotaId}')"
     api_post_capture "/api/eventos" "$ev_rota_falha"
     api_get_capture "/api/pedidos/${pedido_falha}/execucao"
@@ -602,8 +625,6 @@ else
 
     {
       echo "pedido_status=$pedido_status"
-      echo "rep_status_1=$rep_status_1"
-      echo "rep_status_2=$rep_status_2"
       echo "exec_status_1=$exec_status_1"
       echo "exec_status_2=$exec_status_2"
       echo "exec_status_3=$exec_status_3"
@@ -874,6 +895,8 @@ END;")"
   # R19
   check_dir="$(new_check_dir R19)"
   api_post_capture "/api/replanejamento/run" '{"debounceSegundos":0,"limiteEventos":200}'
+  manual_replanejamento_status="$API_LAST_STATUS"
+  manual_replanejamento_body="$API_LAST_BODY"
   pending_dispatch_stale=""
   processed_dispatch=""
   r19_attempt=1
@@ -881,7 +904,7 @@ END;")"
   while [[ "$r19_attempt" -le "$r19_max_attempts" ]]; do
     pending_dispatch_stale="$(psql_query "SELECT COUNT(*) FROM dispatch_events WHERE status::text = 'PENDENTE' AND available_em <= (CURRENT_TIMESTAMP - INTERVAL '1 hour');" | extract_single_value)"
     processed_dispatch="$(psql_query "SELECT COUNT(*) FROM dispatch_events WHERE status::text = 'PROCESSADO';" | extract_single_value)"
-    if [[ "$API_LAST_STATUS" == "200" && "$pending_dispatch_stale" == "0" ]]; then
+    if [[ "$pending_dispatch_stale" == "0" ]]; then
       break
     fi
     if [[ "$r19_attempt" -lt "$r19_max_attempts" ]]; then
@@ -890,13 +913,13 @@ END;")"
     r19_attempt=$((r19_attempt + 1))
   done
   {
-    echo "replanejamento_status=$API_LAST_STATUS"
-    echo "$API_LAST_BODY" | jq . 2>/dev/null || echo "$API_LAST_BODY"
+    echo "manual_replanejamento_status=$manual_replanejamento_status"
+    echo "$manual_replanejamento_body" | jq . 2>/dev/null || echo "$manual_replanejamento_body"
     echo "pending_dispatch_stale=$pending_dispatch_stale"
     echo "processed_dispatch=$processed_dispatch"
   } > "$check_dir/evidence.txt"
-  if [[ "$API_LAST_STATUS" == "200" && "$pending_dispatch_stale" == "0" && "$processed_dispatch" -ge 0 ]]; then
-    record_check "R19" "dispatch_events pendente/processado coerentes" "PASS" "$check_dir/evidence.txt" "Nao ha pendentes envelhecidos apos worker."
+  if [[ "$manual_replanejamento_status" == "409" && "$pending_dispatch_stale" == "0" && "$processed_dispatch" -ge 0 ]]; then
+    record_check "R19" "dispatch_events pendente/processado coerentes" "PASS" "$check_dir/evidence.txt" "Endpoint manual desativado (409) e outbox sem pendentes envelhecidos."
   else
     record_check "R19" "dispatch_events pendente/processado coerentes" "FAIL" "$check_dir/evidence.txt" "Inconsistencia no estado do outbox dispatch_events."
   fi
@@ -1002,7 +1025,9 @@ END;")"
     '/api/entregadores/{entregadorId}/roteiro:' \
     '/api/operacao/painel:' \
     '/api/operacao/eventos:' \
-    '/api/operacao/mapa:'
+    '/api/operacao/mapa:' \
+    '/api/operacao/rotas/prontas/iniciar:' \
+    '/api/replanejamento/run:'
   do
     if ! contains_fixed_text "$required_path" "$OPENAPI_FILE"; then
       r23_ok=0
@@ -1012,6 +1037,9 @@ END;")"
     r23_ok=0
   fi
   if ! contains_fixed_text 'actorEntregadorId:' "$OPENAPI_FILE"; then
+    r23_ok=0
+  fi
+  if ! contains_fixed_text 'Endpoint desativado para execucao manual' "$OPENAPI_FILE"; then
     r23_ok=0
   fi
   {

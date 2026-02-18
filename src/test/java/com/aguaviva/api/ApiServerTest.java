@@ -1269,81 +1269,121 @@ class ApiServerTest {
     }
 
     @Test
-    void deveExecutarReplanejamentoViaHttpConformeTriggerDosEventosOperacionais() throws Exception {
-        int atendenteId = criarAtendenteId("api-m1-trigger-atendente@teste.com");
-        int entregadorId = criarEntregadorId("api-m1-trigger-entregador@teste.com");
+    void deveDispararWorkerAssincronoQuandoPedidoForCriadoViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-worker-criado-atendente@teste.com");
         AtomicInteger chamadasReplanejamento = new AtomicInteger(0);
-        ReplanejamentoWorkerService replanejamentoM1 = new ReplanejamentoWorkerService(factory, () -> {
+        ReplanejamentoWorkerService replanejamentoAssincrono = new ReplanejamentoWorkerService(factory, () -> {
             chamadasReplanejamento.incrementAndGet();
-            return new PlanejamentoResultado(5, 7, 0);
+            return new PlanejamentoResultado(1, 1, 0);
         });
         HttpClient client = HttpClient.newHttpClient();
 
-        AtendimentoTelefonicoResultado atendimento =
-                atendimentoService.registrarPedidoManual("(38) 99876-9010", 1, atendenteId);
-        int pedidoId = atendimento.pedidoId();
-        atualizarStatusPedido(pedidoId, "CONFIRMADO");
+        try (ApiServer.RunningServer running =
+                ApiServer.startForTests(0, atendimentoService, execucaoService, replanejamentoAssincrono, pedidoTimelineService, eventoOperacionalIdempotenciaService, factory)) {
+            String payload = GSON.toJson(Map.of(
+                    "externalCallId",
+                    "api-worker-criado-evt-001",
+                    "telefone",
+                    "(38) 99876-9221",
+                    "quantidadeGaloes",
+                    1,
+                    "atendenteId",
+                    atendenteId,
+                    "metodoPagamento",
+                    "PIX"));
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            assertEquals(200, resposta.statusCode());
+            aguardarAte(
+                    () -> chamadasReplanejamento.get() >= 1,
+                    3000,
+                    "worker assincrono nao disparou apos PEDIDO_CRIADO");
+            assertTrue(chamadasReplanejamento.get() >= 1);
+        }
+    }
+
+    @Test
+    void deveRetornar409QuandoEndpointManualDeReplanejamentoForChamadoViaHttp() throws Exception {
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0, atendimentoService, execucaoService, replanejamentoService, pedidoTimelineService, eventoOperacionalIdempotenciaService, factory)) {
+            String payload = GSON.toJson(Map.of("debounceSegundos", 0, "limiteEventos", 100));
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/replanejamento/run"))
+                            .header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            JsonObject body = GSON.fromJson(resposta.body(), JsonObject.class);
+
+            assertEquals(409, resposta.statusCode());
+            assertTrue(body.get("erro").getAsString().toLowerCase().contains("desativado"));
+        }
+    }
+
+    @Test
+    void deveIniciarRotaProntaComUmCliqueViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-m1-trigger-atendente@teste.com");
+        int entregadorId = criarEntregadorId("api-m1-trigger-entregador@teste.com");
+        int clienteId = criarClienteId("(38) 99876-9010");
+        HttpClient client = HttpClient.newHttpClient();
+
+        int pedidoId = criarPedidoDireto(clienteId, atendenteId, "CONFIRMADO", 1);
         int rotaId = criarRota(entregadorId, "PLANEJADA");
         int entregaId = criarEntrega(pedidoId, rotaId, "PENDENTE");
 
-        try (ApiServer.RunningServer running =
-                ApiServer.startForTests(0, atendimentoService, execucaoService, replanejamentoM1, pedidoTimelineService, eventoOperacionalIdempotenciaService, factory)) {
-            String rotaIniciadaPayload = GSON.toJson(Map.of("eventType", "ROTA_INICIADA", "rotaId", rotaId));
-            HttpResponse<String> rotaIniciadaResp = client.send(
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0, atendimentoService, execucaoService, replanejamentoService, pedidoTimelineService, eventoOperacionalIdempotenciaService, factory)) {
+            String payload = GSON.toJson(Map.of("entregadorId", entregadorId));
+            HttpResponse<String> resposta = client.send(
                     HttpRequest.newBuilder()
-                            .uri(URI.create("http://localhost:" + running.port() + "/api/eventos"))
+                            .uri(URI.create(
+                                    "http://localhost:" + running.port() + "/api/operacao/rotas/prontas/iniciar"))
                             .header("Content-Type", "application/json")
-                            .POST(HttpRequest.BodyPublishers.ofString(rotaIniciadaPayload))
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
                             .build(),
                     HttpResponse.BodyHandlers.ofString());
-            assertEquals(200, rotaIniciadaResp.statusCode());
+            JsonObject body = GSON.fromJson(resposta.body(), JsonObject.class);
 
-            String replanejamentoPayload = GSON.toJson(Map.of("debounceSegundos", 0, "limiteEventos", 100));
-            HttpResponse<String> primeiraExecucaoResp = client.send(
-                    HttpRequest.newBuilder()
-                            .uri(URI.create("http://localhost:" + running.port() + "/api/replanejamento/run"))
-                            .header("Content-Type", "application/json")
-                            .POST(HttpRequest.BodyPublishers.ofString(replanejamentoPayload))
-                            .build(),
-                    HttpResponse.BodyHandlers.ofString());
-            assertEquals(200, primeiraExecucaoResp.statusCode());
-            JsonObject primeiraExecucao = GSON.fromJson(primeiraExecucaoResp.body(), JsonObject.class);
-            assertEquals(2, primeiraExecucao.get("eventosProcessados").getAsInt());
-            assertTrue(primeiraExecucao.get("replanejou").getAsBoolean());
-            assertEquals(5, primeiraExecucao.get("rotasCriadas").getAsInt());
-            assertEquals(7, primeiraExecucao.get("entregasCriadas").getAsInt());
-            assertEquals(0, primeiraExecucao.get("pedidosNaoAtendidos").getAsInt());
-            assertEquals(1, chamadasReplanejamento.get());
-            assertEquals(2, contarDispatchPorStatus("PROCESSADO"));
-            assertEquals(0, contarDispatchPorStatus("PENDENTE"));
+            assertEquals(200, resposta.statusCode());
+            assertEquals("ROTA_INICIADA", body.get("evento").getAsString());
+            assertEquals(rotaId, body.get("rotaId").getAsInt());
+            assertEquals(entregaId, body.get("entregaId").getAsInt());
+            assertEquals(pedidoId, body.get("pedidoId").getAsInt());
+            assertEquals("EM_ANDAMENTO", statusRota(rotaId));
+            assertEquals("EM_EXECUCAO", statusEntrega(entregaId));
+            assertEquals("EM_ROTA", statusPedido(pedidoId));
+        }
+    }
 
-            String pedidoEntreguePayload = GSON.toJson(Map.of("eventType", "PEDIDO_ENTREGUE", "entregaId", entregaId));
-            HttpResponse<String> pedidoEntregueResp = client.send(
-                    HttpRequest.newBuilder()
-                            .uri(URI.create("http://localhost:" + running.port() + "/api/eventos"))
-                            .header("Content-Type", "application/json")
-                            .POST(HttpRequest.BodyPublishers.ofString(pedidoEntreguePayload))
-                            .build(),
-                    HttpResponse.BodyHandlers.ofString());
-            assertEquals(200, pedidoEntregueResp.statusCode());
+    @Test
+    void deveRetornar409QuandoOneClickNaoEncontrarRotaPlanejadaViaHttp() throws Exception {
+        int entregadorId = criarEntregadorId("api-oneclick-sem-planejada@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
 
-            HttpResponse<String> segundaExecucaoResp = client.send(
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0, atendimentoService, execucaoService, replanejamentoService, pedidoTimelineService, eventoOperacionalIdempotenciaService, factory)) {
+            String payload = GSON.toJson(Map.of("entregadorId", entregadorId));
+            HttpResponse<String> resposta = client.send(
                     HttpRequest.newBuilder()
-                            .uri(URI.create("http://localhost:" + running.port() + "/api/replanejamento/run"))
+                            .uri(URI.create(
+                                    "http://localhost:" + running.port() + "/api/operacao/rotas/prontas/iniciar"))
                             .header("Content-Type", "application/json")
-                            .POST(HttpRequest.BodyPublishers.ofString(replanejamentoPayload))
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
                             .build(),
                     HttpResponse.BodyHandlers.ofString());
-            assertEquals(200, segundaExecucaoResp.statusCode());
-            JsonObject segundaExecucao = GSON.fromJson(segundaExecucaoResp.body(), JsonObject.class);
-            assertEquals(1, segundaExecucao.get("eventosProcessados").getAsInt());
-            assertFalse(segundaExecucao.get("replanejou").getAsBoolean());
-            assertEquals(0, segundaExecucao.get("rotasCriadas").getAsInt());
-            assertEquals(0, segundaExecucao.get("entregasCriadas").getAsInt());
-            assertEquals(0, segundaExecucao.get("pedidosNaoAtendidos").getAsInt());
-            assertEquals(1, chamadasReplanejamento.get());
-            assertEquals(3, contarDispatchPorStatus("PROCESSADO"));
-            assertEquals(0, contarDispatchPorStatus("PENDENTE"));
+            JsonObject body = GSON.fromJson(resposta.body(), JsonObject.class);
+
+            assertEquals(409, resposta.statusCode());
+            assertTrue(body.get("erro").getAsString().contains("PLANEJADA"));
         }
     }
 

@@ -55,6 +55,12 @@ public class RotaService {
     }
 
     public PlanejamentoResultado planejarRotasPendentes() {
+        return planejarRotasPendentes(CapacidadePolicy.REMANESCENTE);
+    }
+
+    public PlanejamentoResultado planejarRotasPendentes(CapacidadePolicy capacidadePolicy) {
+        CapacidadePolicy capacidadeResolvida =
+                Objects.requireNonNull(capacidadePolicy, "capacidadePolicy nao pode ser nulo");
         String currentJobId = null;
 
         try (Connection conn = connectionFactory.getConnection()) {
@@ -81,7 +87,8 @@ public class RotaService {
                 }
 
                 List<Integer> capacidadesEntregadores =
-                        calcularCapacidadesRemanescentesPorEntregador(conn, entregadoresAtivos, cfg.capacidadeVeiculo());
+                        calcularCapacidadesPorPolitica(
+                                conn, entregadoresAtivos, cfg.capacidadeVeiculo(), capacidadeResolvida);
                 int capacidadeLivreTotal = capacidadesEntregadores.stream().mapToInt(Integer::intValue).sum();
 
                 if (!existePedidoSemEntregaAbertaParaPlanejar(conn)) {
@@ -374,6 +381,20 @@ public class RotaService {
             }
             stmt.executeUpdate();
         }
+    }
+
+    private List<Integer> calcularCapacidadesPorPolitica(
+            Connection conn, List<Integer> entregadoresAtivos, int capacidadePadrao, CapacidadePolicy capacidadePolicy)
+            throws SQLException {
+        if (capacidadePolicy == CapacidadePolicy.CHEIA) {
+            List<Integer> capacidades = new ArrayList<>(entregadoresAtivos.size());
+            for (int i = 0; i < entregadoresAtivos.size(); i++) {
+                capacidades.add(Math.max(0, capacidadePadrao));
+            }
+            return capacidades;
+        }
+
+        return calcularCapacidadesRemanescentesPorEntregador(conn, entregadoresAtivos, capacidadePadrao);
     }
 
     private List<Integer> calcularCapacidadesRemanescentesPorEntregador(

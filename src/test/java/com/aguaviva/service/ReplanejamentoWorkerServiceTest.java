@@ -10,6 +10,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -21,14 +22,17 @@ class ReplanejamentoWorkerServiceTest {
     private static ConnectionFactory factory;
     private static ReplanejamentoWorkerService workerService;
     private static AtomicInteger replanejamentoCalls;
+    private static AtomicReference<CapacidadePolicy> lastCapacidadePolicy;
 
     @BeforeAll
     static void setUp() throws Exception {
         factory = new ConnectionFactory("localhost", "5435", "agua_viva_oop_test", "postgres", "postgres");
         garantirSchemaDispatch();
         replanejamentoCalls = new AtomicInteger(0);
-        workerService = new ReplanejamentoWorkerService(factory, () -> {
+        lastCapacidadePolicy = new AtomicReference<>();
+        workerService = new ReplanejamentoWorkerService(factory, capacidadePolicy -> {
             replanejamentoCalls.incrementAndGet();
+            lastCapacidadePolicy.set(capacidadePolicy);
             return new PlanejamentoResultado(2, 3, 1);
         });
     }
@@ -43,6 +47,7 @@ class ReplanejamentoWorkerServiceTest {
     @BeforeEach
     void limparAntes() throws Exception {
         replanejamentoCalls.set(0);
+        lastCapacidadePolicy.set(null);
         limparEventos();
     }
 
@@ -90,10 +95,25 @@ class ReplanejamentoWorkerServiceTest {
         assertTrue(resultado.replanejou());
         assertEquals(3, resultado.eventosProcessados());
         assertEquals(1, replanejamentoCalls.get());
+        assertEquals(CapacidadePolicy.REMANESCENTE, lastCapacidadePolicy.get());
         assertEquals(2, resultado.rotasCriadas());
         assertEquals(3, resultado.entregasCriadas());
         assertEquals(1, resultado.pedidosNaoAtendidos());
         assertEquals(3, contarProcessados());
+    }
+
+    @Test
+    void deveUsarCapacidadeCheiaQuandoLoteForApenasPrimario() throws Exception {
+        inserirEvento(DispatchEventTypes.PEDIDO_CRIADO, 30);
+        inserirEvento(DispatchEventTypes.PEDIDO_ENTREGUE, 30);
+
+        ReplanejamentoWorkerResultado resultado = workerService.processarPendentes(0, 100);
+
+        assertTrue(resultado.replanejou());
+        assertEquals(2, resultado.eventosProcessados());
+        assertEquals(1, replanejamentoCalls.get());
+        assertEquals(CapacidadePolicy.CHEIA, lastCapacidadePolicy.get());
+        assertEquals(2, contarProcessados());
     }
 
     @Test
@@ -106,6 +126,7 @@ class ReplanejamentoWorkerServiceTest {
         assertFalse(resultado.replanejou());
         assertEquals(2, resultado.eventosProcessados());
         assertEquals(0, replanejamentoCalls.get());
+        assertTrue(lastCapacidadePolicy.get() == null);
         assertEquals(2, contarProcessados());
     }
 
@@ -130,6 +151,7 @@ class ReplanejamentoWorkerServiceTest {
         assertTrue(resultado.replanejou());
         assertEquals(1, resultado.eventosProcessados());
         assertEquals(1, replanejamentoCalls.get());
+        assertEquals(CapacidadePolicy.REMANESCENTE, lastCapacidadePolicy.get());
         assertEquals(1, contarProcessados());
     }
 

@@ -190,8 +190,6 @@ async function runGuidedFlow(page, scenario, seed = {}) {
   await page.click('button[data-view="pedidos"]');
   await page.selectOption("#e2eScenario", scenario);
   await page.selectOption("#e2eMetodoPagamento", "PIX");
-  await page.fill("#e2eDebounceSegundos", "0");
-  await page.fill("#e2eLimiteEventos", "100");
   await page.fill("#e2eTelefone", String(seed.telefone || "(38) 99876-9901"));
   await page.fill("#e2eAtendenteId", String(seed.atendenteId || "1"));
   await page.click('#e2e-form button[type="submit"]');

@@ -1,0 +1,7 @@
+{
+  "evento": "ROTA_INICIADA",
+  "rotaId": 903,
+  "entregaId": 55671,
+  "pedidoId": 8421,
+  "idempotente": false
+}
