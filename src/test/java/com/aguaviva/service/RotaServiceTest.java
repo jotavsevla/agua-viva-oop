@@ -1134,6 +1134,11 @@ class RotaServiceTest {
         assertEquals(1, resultado.rotasCriadas());
         assertEquals(1, resultado.entregasCriadas());
         assertEquals(1, contarSolverJobsPorStatus("CONCLUIDO"));
+        String requestPayload = obterPayloadSolverJobMaisRecente("CONCLUIDO", "request_payload");
+        String responsePayload = obterPayloadSolverJobMaisRecente("CONCLUIDO", "response_payload");
+        assertTrue(requestPayload != null && requestPayload.contains("\"job_id\""));
+        assertTrue(requestPayload != null && requestPayload.contains("\"pedidos\""));
+        assertTrue(responsePayload != null && responsePayload.contains("\"rotas\""));
     }
 
     @Test
@@ -1183,6 +1188,10 @@ class RotaServiceTest {
             assertEquals(0, resultado.pedidosNaoAtendidos());
             assertEquals(1, solverStub.cancelCount());
             assertEquals(1, contarSolverJobsPorStatus("CANCELADO"));
+            String requestPayload = obterPayloadSolverJobMaisRecente("CANCELADO", "request_payload");
+            String responsePayload = obterPayloadSolverJobMaisRecente("CANCELADO", "response_payload");
+            assertTrue(requestPayload != null && requestPayload.contains("\"job_id\""));
+            assertTrue(responsePayload == null || responsePayload.isBlank());
             assertEquals(0, contarLinhas("rotas"));
             assertEquals(0, contarLinhas("entregas"));
             assertEquals("PENDENTE", statusDoPedido(pedido.getId()));
@@ -1687,6 +1696,16 @@ class RotaServiceTest {
         }
     }
 
+    private boolean solverJobsColumnExists(Connection conn, String coluna) throws Exception {
+        try (PreparedStatement stmt = conn.prepareStatement(
+                        "SELECT 1 FROM information_schema.columns WHERE table_name = 'solver_jobs' AND column_name = ?")) {
+            stmt.setString(1, coluna);
+            try (ResultSet rs = stmt.executeQuery()) {
+                return rs.next();
+            }
+        }
+    }
+
     private int contarSolverJobsPorStatus(String status) throws Exception {
         try (Connection conn = factory.getConnection()) {
             if (!solverJobsTableExists(conn)) {
@@ -1713,6 +1732,24 @@ class RotaServiceTest {
                 stmt.setString(1, status);
                 try (ResultSet rs = stmt.executeQuery()) {
                     return rs.next();
+                }
+            }
+        }
+    }
+
+    private String obterPayloadSolverJobMaisRecente(String status, String coluna) throws Exception {
+        try (Connection conn = factory.getConnection()) {
+            if (!solverJobsTableExists(conn) || !solverJobsColumnExists(conn, coluna)) {
+                return null;
+            }
+            String sql = "SELECT " + coluna + "::text FROM solver_jobs WHERE status::text = ? ORDER BY solicitado_em DESC LIMIT 1";
+            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                stmt.setString(1, status);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    if (!rs.next()) {
+                        return null;
+                    }
+                    return rs.getString(1);
                 }
             }
         }
