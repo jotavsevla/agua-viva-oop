@@ -30,6 +30,9 @@ class ApiContractDriftTest {
                 () -> assertTrue(openApi.contains("/api/operacao/eventos:"), "OpenAPI deve expor /api/operacao/eventos"),
                 () -> assertTrue(openApi.contains("/api/operacao/mapa:"), "OpenAPI deve expor /api/operacao/mapa"),
                 () -> assertTrue(
+                        openApi.contains("/api/operacao/replanejamento/jobs:"),
+                        "OpenAPI deve expor /api/operacao/replanejamento/jobs"),
+                () -> assertTrue(
                         openApi.contains("/api/operacao/rotas/prontas/iniciar:"),
                         "OpenAPI deve expor /api/operacao/rotas/prontas/iniciar"),
                 () -> assertTrue(openApi.contains("/api/replanejamento/run:"), "OpenAPI deve expor /api/replanejamento/run"),

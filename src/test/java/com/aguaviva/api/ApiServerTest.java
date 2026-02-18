@@ -126,6 +126,22 @@ class ApiServerTest {
                     + "response_json JSONB NOT NULL, "
                     + "status_code INTEGER NOT NULL, "
                     + "created_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)");
+            stmt.execute("DO $$ BEGIN "
+                    + "IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'solver_job_status') "
+                    + "THEN CREATE TYPE solver_job_status AS ENUM ('PENDENTE', 'EM_EXECUCAO', 'CONCLUIDO', 'CANCELADO', 'FALHOU'); "
+                    + "END IF; "
+                    + "END $$;");
+            stmt.execute("CREATE TABLE IF NOT EXISTS solver_jobs ("
+                    + "job_id VARCHAR(64) PRIMARY KEY, "
+                    + "plan_version BIGINT NOT NULL, "
+                    + "status solver_job_status NOT NULL DEFAULT 'PENDENTE', "
+                    + "cancel_requested BOOLEAN NOT NULL DEFAULT FALSE, "
+                    + "solicitado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+                    + "iniciado_em TIMESTAMP, "
+                    + "finalizado_em TIMESTAMP, "
+                    + "erro TEXT, "
+                    + "request_payload JSONB, "
+                    + "response_payload JSONB)");
         }
     }
 
@@ -133,7 +149,7 @@ class ApiServerTest {
         try (Connection conn = factory.getConnection();
                 Statement stmt = conn.createStatement()) {
             stmt.execute(
-                    "TRUNCATE TABLE eventos_operacionais_idempotencia, dispatch_events, sessions, entregas, rotas, movimentacao_vales, saldo_vales, pedidos, clientes, users RESTART IDENTITY CASCADE");
+                    "TRUNCATE TABLE solver_jobs, eventos_operacionais_idempotencia, dispatch_events, sessions, entregas, rotas, movimentacao_vales, saldo_vales, pedidos, clientes, users RESTART IDENTITY CASCADE");
         }
     }
 
@@ -919,6 +935,137 @@ class ApiServerTest {
     }
 
     @Test
+    void deveRetornarJobsDeReplanejamentoComLimiteViaHttp() throws Exception {
+        inserirSolverJob(
+                "job-antigo",
+                10,
+                "CONCLUIDO",
+                false,
+                "{}",
+                "{\"rotas\":[]}",
+                null,
+                LocalDateTime.now().minusMinutes(5));
+        inserirSolverJob(
+                "job-mais-recente",
+                11,
+                "EM_EXECUCAO",
+                true,
+                "{}",
+                null,
+                "cancelamento solicitado",
+                LocalDateTime.now().minusMinutes(1));
+
+        HttpClient client = HttpClient.newHttpClient();
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create(
+                                    "http://localhost:" + running.port() + "/api/operacao/replanejamento/jobs?limite=1"))
+                            .GET()
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            JsonObject payload = GSON.fromJson(resposta.body(), JsonObject.class);
+
+            assertEquals(200, resposta.statusCode());
+            assertEquals("test", payload.get("ambiente").getAsString());
+            assertTrue(payload.get("habilitado").getAsBoolean());
+
+            JsonArray jobs = payload.getAsJsonArray("jobs");
+            assertEquals(1, jobs.size());
+            JsonObject job = jobs.get(0).getAsJsonObject();
+            assertEquals("job-mais-recente", job.get("jobId").getAsString());
+            assertEquals("EM_EXECUCAO", job.get("status").getAsString());
+            assertTrue(job.get("cancelRequested").getAsBoolean());
+            assertTrue(job.get("hasRequestPayload").getAsBoolean());
+            assertFalse(job.get("hasResponsePayload").getAsBoolean());
+        }
+    }
+
+    @Test
+    void deveRetornar400QuandoLimiteDeJobsOperacionaisExcederMaximoViaHttp() throws Exception {
+        HttpClient client = HttpClient.newHttpClient();
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create(
+                                    "http://localhost:" + running.port() + "/api/operacao/replanejamento/jobs?limite=201"))
+                            .GET()
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            JsonObject payload = GSON.fromJson(resposta.body(), JsonObject.class);
+
+            assertEquals(400, resposta.statusCode());
+            assertTrue(payload.get("erro").getAsString().contains("limite maximo permitido"));
+        }
+    }
+
+    @Test
+    void deveRetornar400QuandoLimiteDeJobsOperacionaisForZeroViaHttp() throws Exception {
+        HttpClient client = HttpClient.newHttpClient();
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create(
+                                    "http://localhost:" + running.port() + "/api/operacao/replanejamento/jobs?limite=0"))
+                            .GET()
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            JsonObject payload = GSON.fromJson(resposta.body(), JsonObject.class);
+
+            assertEquals(400, resposta.statusCode());
+            assertTrue(payload.get("erro").getAsString().contains("limite deve ser maior que zero"));
+        }
+    }
+
+    @Test
+    void deveRetornarListaVaziaDeJobsQuandoNaoHaReplanejamentoViaHttp() throws Exception {
+        HttpClient client = HttpClient.newHttpClient();
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create(
+                                    "http://localhost:" + running.port() + "/api/operacao/replanejamento/jobs"))
+                            .GET()
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            JsonObject payload = GSON.fromJson(resposta.body(), JsonObject.class);
+            JsonArray jobs = payload.getAsJsonArray("jobs");
+
+            assertEquals(200, resposta.statusCode());
+            assertEquals(0, jobs.size());
+            assertTrue(payload.get("habilitado").getAsBoolean());
+        }
+    }
+
+    @Test
     void deveRetornarExecucaoAtualDoPedidoViaHttp() throws Exception {
         int atendenteId = criarAtendenteId("api-execucao-atendente@teste.com");
         int entregadorId = criarEntregadorId("api-execucao-entregador@teste.com");
@@ -1573,6 +1720,35 @@ class ApiServerTest {
                 ResultSet rs = stmt.executeQuery()) {
             rs.next();
             return rs.getInt(1);
+        }
+    }
+
+    private void inserirSolverJob(
+            String jobId,
+            long planVersion,
+            String status,
+            boolean cancelRequested,
+            String requestPayloadJson,
+            String responsePayloadJson,
+            String erro,
+            LocalDateTime solicitadoEm) throws Exception {
+        String sql = "INSERT INTO solver_jobs "
+                + "(job_id, plan_version, status, cancel_requested, solicitado_em, iniciado_em, finalizado_em, erro, request_payload, response_payload) "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), CASE WHEN ? IS NULL THEN NULL ELSE CAST(? AS jsonb) END)";
+        try (Connection conn = factory.getConnection();
+                PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, jobId);
+            stmt.setLong(2, planVersion);
+            stmt.setObject(3, status, java.sql.Types.OTHER);
+            stmt.setBoolean(4, cancelRequested);
+            stmt.setTimestamp(5, Timestamp.valueOf(solicitadoEm));
+            stmt.setTimestamp(6, Timestamp.valueOf(solicitadoEm.plusSeconds(1)));
+            stmt.setTimestamp(7, null);
+            stmt.setString(8, erro);
+            stmt.setString(9, requestPayloadJson == null ? "{}" : requestPayloadJson);
+            stmt.setString(10, responsePayloadJson);
+            stmt.setString(11, responsePayloadJson);
+            stmt.executeUpdate();
         }
     }
 

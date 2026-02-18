@@ -47,6 +47,9 @@ class ContractsV1Test {
                 () -> assertTrue(
                         openApi.contains("/api/operacao/mapa:"), "Contrato deve expor endpoint de mapa operacional"),
                 () -> assertTrue(
+                        openApi.contains("/api/operacao/replanejamento/jobs:"),
+                        "Contrato deve expor endpoint de jobs de replanejamento"),
+                () -> assertTrue(
                         openApi.contains("externalEventId:"),
                         "Contrato deve mapear chave de idempotencia externalEventId"),
                 () -> assertTrue(
@@ -122,7 +125,8 @@ class ContractsV1Test {
             "entregador-roteiro.response.json",
             "operacao-painel.response.json",
             "operacao-eventos.response.json",
-            "operacao-mapa.response.json"
+            "operacao-mapa.response.json",
+            "operacao-replanejamento-jobs.response.json"
         };
 
         for (String nomeArquivo : exemplosObrigatorios) {
