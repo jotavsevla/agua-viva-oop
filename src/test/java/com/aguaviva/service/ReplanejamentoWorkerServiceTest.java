@@ -9,6 +9,11 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterAll;
@@ -165,6 +170,53 @@ class ReplanejamentoWorkerServiceTest {
         assertEquals(1, resultado.eventosProcessados());
         assertEquals(0, replanejamentoCalls.get());
         assertEquals(1, contarProcessados());
+    }
+
+    @Test
+    void deveGarantirUmUnicoLiderQuandoWorkersConcorremPeloMesmoLote() throws Exception {
+        inserirEvento(DispatchEventTypes.PEDIDO_CRIADO, 40);
+        inserirEvento(DispatchEventTypes.PEDIDO_CANCELADO, 40);
+
+        AtomicInteger chamadasConcorrentes = new AtomicInteger(0);
+        CountDownLatch executorEntrou = new CountDownLatch(1);
+        CountDownLatch liberarExecutor = new CountDownLatch(1);
+        ReplanejamentoWorkerService workerConcorrente = new ReplanejamentoWorkerService(factory, capacidadePolicy -> {
+            chamadasConcorrentes.incrementAndGet();
+            executorEntrou.countDown();
+            try {
+                liberarExecutor.await(5, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException("thread interrompida no teste de concorrencia", e);
+            }
+            return new PlanejamentoResultado(1, 1, 0);
+        });
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<ReplanejamentoWorkerResultado> futureA =
+                    executor.submit(() -> workerConcorrente.processarPendentes(0, 100));
+            assertTrue(executorEntrou.await(5, TimeUnit.SECONDS), "executor primario nao iniciou a tempo");
+            Future<ReplanejamentoWorkerResultado> futureB =
+                    executor.submit(() -> workerConcorrente.processarPendentes(0, 100));
+
+            liberarExecutor.countDown();
+
+            ReplanejamentoWorkerResultado resultadoA = futureA.get(10, TimeUnit.SECONDS);
+            ReplanejamentoWorkerResultado resultadoB = futureB.get(10, TimeUnit.SECONDS);
+
+            int totalEventosProcessados = resultadoA.eventosProcessados() + resultadoB.eventosProcessados();
+            int totalReplanejamentos = (resultadoA.replanejou() ? 1 : 0) + (resultadoB.replanejou() ? 1 : 0);
+
+            assertEquals(2, totalEventosProcessados);
+            assertEquals(1, totalReplanejamentos);
+            assertEquals(1, chamadasConcorrentes.get());
+            assertEquals(2, contarProcessados());
+            assertEquals(0, contarPendentes());
+        } finally {
+            liberarExecutor.countDown();
+            executor.shutdownNow();
+        }
     }
 
     private void inserirEvento(String eventType, int secondsAgo) throws Exception {
