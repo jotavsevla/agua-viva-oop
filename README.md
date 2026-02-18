@@ -730,6 +730,7 @@ Endpoints:
 - `GET /api/operacao/eventos`
 - `GET /api/operacao/mapa`
 - `GET /api/operacao/replanejamento/jobs`
+- `GET /api/operacao/replanejamento/jobs/{jobId}`
 
 ### Contratos compartilhados (A0)
 
