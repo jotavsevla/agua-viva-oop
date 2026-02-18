@@ -76,23 +76,37 @@ paths:
 
   /api/replanejamento/run:
     post:
-      summary: Processar lote de eventos pendentes para replanejamento
+      summary: Endpoint de replanejamento manual (desativado operacionalmente)
       tags: [operacao]
-      requestBody:
-        required: false
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/ReplanejamentoRequest'
       responses:
-        '200':
-          description: Worker executado
+        '409':
+          description: Endpoint desativado para execucao manual
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/ReplanejamentoResponse'
+                $ref: '#/components/schemas/ErrorResponse'
+
+  /api/operacao/rotas/prontas/iniciar:
+    post:
+      summary: Iniciar proxima rota pronta de um entregador (one-click operacional)
+      tags: [operacao]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/IniciarRotaProntaRequest'
+      responses:
+        '200':
+          description: Rota pronta iniciada com sucesso
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventoResponse'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '409':
+          $ref: '#/components/responses/Conflict'
         '500':
           $ref: '#/components/responses/InternalError'
 
@@ -445,6 +459,14 @@ components:
           type: integer
       required:
         [eventosProcessados, replanejou, rotasCriadas, entregasCriadas, pedidosNaoAtendidos]
+
+    IniciarRotaProntaRequest:
+      type: object
+      properties:
+        entregadorId:
+          type: integer
+          minimum: 1
+      required: [entregadorId]
 
     TimelineEvent:
       type: object

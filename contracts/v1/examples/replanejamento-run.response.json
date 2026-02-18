@@ -1,7 +1,3 @@
 {
-  "eventosProcessados": 3,
-  "replanejou": true,
-  "rotasCriadas": 2,
-  "entregasCriadas": 3,
-  "pedidosNaoAtendidos": 1
+  "erro": "Endpoint desativado: replanejamento manual nao e permitido. Use o fluxo orientado a eventos."
 }

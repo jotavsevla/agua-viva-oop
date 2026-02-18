@@ -6,6 +6,8 @@
       "aggregate_type": "PEDIDO",
       "publicado_por": "AtendimentoTelefonicoService",
       "trigger_replanejamento": true,
+      "trigger_kind": "PRIMARIO",
+      "capacidade_policy": "CHEIA",
       "descricao": "Pedido criado no fluxo de atendimento"
     },
     {
@@ -13,6 +15,8 @@
       "aggregate_type": "ROTA",
       "publicado_por": "ExecucaoEntregaService",
       "trigger_replanejamento": false,
+      "trigger_kind": "NONE",
+      "capacidade_policy": "REMANESCENTE",
       "descricao": "Entregador iniciou a rota"
     },
     {
@@ -20,6 +24,8 @@
       "aggregate_type": "PEDIDO",
       "publicado_por": "ExecucaoEntregaService",
       "trigger_replanejamento": false,
+      "trigger_kind": "NONE",
+      "capacidade_policy": "REMANESCENTE",
       "descricao": "Entrega finalizada com sucesso"
     },
     {
@@ -27,6 +33,8 @@
       "aggregate_type": "PEDIDO",
       "publicado_por": "ExecucaoEntregaService",
       "trigger_replanejamento": true,
+      "trigger_kind": "SECUNDARIO",
+      "capacidade_policy": "REMANESCENTE",
       "descricao": "Falha operacional de entrega"
     },
     {
@@ -34,6 +42,8 @@
       "aggregate_type": "PEDIDO",
       "publicado_por": "ExecucaoEntregaService",
       "trigger_replanejamento": true,
+      "trigger_kind": "SECUNDARIO",
+      "capacidade_policy": "REMANESCENTE",
       "descricao": "Pedido cancelado durante execucao"
     }
   ]
