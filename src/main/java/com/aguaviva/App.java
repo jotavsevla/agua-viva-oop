@@ -12,6 +12,11 @@ public class App {
         if (args.length > 0 && "api".equalsIgnoreCase(args[0])) {
             try {
                 ApiServer.startFromEnv();
+                // Mantem o processo vivo em modo servidor.
+                Thread.currentThread().join();
+                return;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
                 return;
             } catch (Exception e) {
                 System.err.println("Falha ao iniciar API: " + e.getMessage());

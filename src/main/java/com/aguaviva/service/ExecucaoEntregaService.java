@@ -50,41 +50,9 @@ public class ExecucaoEntregaService {
             conn.setAutoCommit(false);
             try {
                 assertOperationalSchema(conn);
-                RotaStatus rota = buscarRotaComLock(conn, rotaId);
-                validarActorEntregador(actorEntregadorId, rota.entregadorId());
-                boolean idempotente = "EM_ANDAMENTO".equals(rota.status());
-
-                if ("CONCLUIDA".equals(rota.status())) {
-                    throw new IllegalStateException("Rota ja concluida e nao pode ser reiniciada");
-                }
-
-                if (!idempotente) {
-                    atualizarRotaParaEmAndamento(conn, rotaId);
-                }
-
-                List<EntregaPedidoRef> entregas = buscarEntregasPendentesDaRota(conn, rotaId);
-                int pedidoIdReferencia = 0;
-                int entregaIdReferencia = 0;
-                for (EntregaPedidoRef ref : entregas) {
-                    atualizarStatusEntrega(conn, ref.entregaId(), "EM_EXECUCAO", false);
-                    lifecycleService.transicionar(conn, ref.pedidoId(), PedidoStatus.EM_ROTA);
-                    pedidoIdReferencia = ref.pedidoId();
-                    entregaIdReferencia = ref.entregaId();
-                }
-
-                // Em chamadas idempotentes sem novas entregas pendentes, evita duplicar evento no outbox.
-                if (!idempotente || !entregas.isEmpty()) {
-                    dispatchEventService.publicar(
-                            conn,
-                            DispatchEventTypes.ROTA_INICIADA,
-                            "ROTA",
-                            (long) rotaId,
-                            new RotaIniciadaPayload(rotaId, entregas.size()));
-                }
-
+                ExecucaoEntregaResultado resultado = iniciarRotaInterno(conn, rotaId, actorEntregadorId);
                 conn.commit();
-                return new ExecucaoEntregaResultado(
-                        DispatchEventTypes.ROTA_INICIADA, rotaId, entregaIdReferencia, pedidoIdReferencia, idempotente);
+                return resultado;
             } catch (Exception e) {
                 conn.rollback();
                 throw e;
@@ -93,6 +61,38 @@ public class ExecucaoEntregaService {
             }
         } catch (SQLException e) {
             throw new IllegalStateException("Falha ao registrar inicio da rota", e);
+        }
+    }
+
+    public ExecucaoEntregaResultado iniciarProximaRotaPronta(int entregadorId) {
+        if (entregadorId <= 0) {
+            throw new IllegalArgumentException("entregadorId deve ser maior que zero");
+        }
+
+        try (Connection conn = connectionFactory.getConnection()) {
+            conn.setAutoCommit(false);
+            try {
+                assertOperationalSchema(conn);
+                if (existeRotaEmAndamento(conn, entregadorId)) {
+                    throw new IllegalStateException("Entregador ja possui rota EM_ANDAMENTO");
+                }
+
+                Integer rotaId = buscarProximaRotaPlanejada(conn, entregadorId);
+                if (rotaId == null) {
+                    throw new IllegalStateException("Entregador nao possui rota PLANEJADA pronta para iniciar");
+                }
+
+                ExecucaoEntregaResultado resultado = iniciarRotaInterno(conn, rotaId, entregadorId);
+                conn.commit();
+                return resultado;
+            } catch (Exception e) {
+                conn.rollback();
+                throw e;
+            } finally {
+                conn.setAutoCommit(true);
+            }
+        } catch (SQLException e) {
+            throw new IllegalStateException("Falha ao iniciar proxima rota pronta", e);
         }
     }
 
@@ -222,6 +222,76 @@ public class ExecucaoEntregaService {
                     throw new IllegalArgumentException("Rota nao encontrada com id: " + rotaId);
                 }
                 return new RotaStatus(rs.getInt("id"), rs.getString("status"), rs.getInt("entregador_id"));
+            }
+        }
+    }
+
+    private ExecucaoEntregaResultado iniciarRotaInterno(Connection conn, int rotaId, Integer actorEntregadorId)
+            throws SQLException {
+        RotaStatus rota = buscarRotaComLock(conn, rotaId);
+        validarActorEntregador(actorEntregadorId, rota.entregadorId());
+        boolean idempotente = "EM_ANDAMENTO".equals(rota.status());
+
+        if ("CONCLUIDA".equals(rota.status())) {
+            throw new IllegalStateException("Rota ja concluida e nao pode ser reiniciada");
+        }
+
+        if (!idempotente) {
+            atualizarRotaParaEmAndamento(conn, rotaId);
+        }
+
+        List<EntregaPedidoRef> entregas = buscarEntregasPendentesDaRota(conn, rotaId);
+        int pedidoIdReferencia = 0;
+        int entregaIdReferencia = 0;
+        for (EntregaPedidoRef ref : entregas) {
+            atualizarStatusEntrega(conn, ref.entregaId(), "EM_EXECUCAO", false);
+            lifecycleService.transicionar(conn, ref.pedidoId(), PedidoStatus.EM_ROTA);
+            pedidoIdReferencia = ref.pedidoId();
+            entregaIdReferencia = ref.entregaId();
+        }
+
+        // Em chamadas idempotentes sem novas entregas pendentes, evita duplicar evento no outbox.
+        if (!idempotente || !entregas.isEmpty()) {
+            dispatchEventService.publicar(
+                    conn,
+                    DispatchEventTypes.ROTA_INICIADA,
+                    "ROTA",
+                    (long) rotaId,
+                    new RotaIniciadaPayload(rotaId, entregas.size()));
+        }
+
+        return new ExecucaoEntregaResultado(
+                DispatchEventTypes.ROTA_INICIADA, rotaId, entregaIdReferencia, pedidoIdReferencia, idempotente);
+    }
+
+    private boolean existeRotaEmAndamento(Connection conn, int entregadorId) throws SQLException {
+        String sql = "SELECT 1 FROM rotas "
+                + "WHERE entregador_id = ? "
+                + "AND data = CURRENT_DATE "
+                + "AND status::text = 'EM_ANDAMENTO' "
+                + "LIMIT 1 FOR UPDATE";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, entregadorId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                return rs.next();
+            }
+        }
+    }
+
+    private Integer buscarProximaRotaPlanejada(Connection conn, int entregadorId) throws SQLException {
+        String sql = "SELECT id FROM rotas "
+                + "WHERE entregador_id = ? "
+                + "AND data = CURRENT_DATE "
+                + "AND status::text = 'PLANEJADA' "
+                + "ORDER BY numero_no_dia, id "
+                + "LIMIT 1 FOR UPDATE SKIP LOCKED";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, entregadorId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (!rs.next()) {
+                    return null;
+                }
+                return rs.getInt("id");
             }
         }
     }

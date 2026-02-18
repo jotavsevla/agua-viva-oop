@@ -12,7 +12,6 @@ import com.aguaviva.service.OperacaoMapaService;
 import com.aguaviva.service.OperacaoPainelService;
 import com.aguaviva.service.PedidoExecucaoService;
 import com.aguaviva.service.PedidoTimelineService;
-import com.aguaviva.service.ReplanejamentoWorkerResultado;
 import com.aguaviva.service.ReplanejamentoWorkerService;
 import com.aguaviva.service.RotaService;
 import com.aguaviva.service.RoteiroEntregadorService;
@@ -88,8 +87,8 @@ public final class ApiServer {
         ExecucaoEntregaService execucaoEntregaService = new ExecucaoEntregaService(connectionFactory);
         EventoOperacionalIdempotenciaService eventoOperacionalIdempotenciaService =
                 new EventoOperacionalIdempotenciaService(connectionFactory);
-        ReplanejamentoWorkerService workerService =
-                new ReplanejamentoWorkerService(connectionFactory, rotaService::planejarRotasPendentes);
+        ReplanejamentoWorkerService workerService = new ReplanejamentoWorkerService(
+                connectionFactory, capacidadePolicy -> rotaService.planejarRotasPendentes(capacidadePolicy));
         PedidoTimelineService pedidoTimelineService = new PedidoTimelineService(connectionFactory);
         PedidoExecucaoService pedidoExecucaoService = new PedidoExecucaoService(connectionFactory);
         RoteiroEntregadorService roteiroEntregadorService = new RoteiroEntregadorService(connectionFactory);
@@ -120,6 +119,7 @@ public final class ApiServer {
         server.createContext("/api/pedidos", new PedidoOperacionalHandler());
         server.createContext("/api/entregadores", new EntregadorRoteiroHandler());
         server.createContext("/api/operacao", new OperacaoReadOnlyHandler());
+        server.createContext("/api/operacao/rotas/prontas/iniciar", new IniciarRotaProntaHandler());
         server.setExecutor(null);
         server.start();
 
@@ -129,7 +129,8 @@ public final class ApiServer {
                 "Endpoints: /health, /api/atendimento/pedidos, /api/eventos, /api/replanejamento/run, "
                         + "/api/pedidos/{pedidoId}/timeline, /api/pedidos/{pedidoId}/execucao, "
                         + "/api/entregadores/{entregadorId}/roteiro, "
-                        + "/api/operacao/painel, /api/operacao/eventos, /api/operacao/mapa");
+                        + "/api/operacao/painel, /api/operacao/eventos, /api/operacao/mapa, "
+                        + "/api/operacao/rotas/prontas/iniciar");
         return new RunningServer(server, resolvedPort);
     }
 
@@ -174,6 +175,7 @@ public final class ApiServer {
                             req.externalCallId(), telefone, quantidadeGaloes, atendenteId, metodoPagamento);
                 }
                 writeJson(exchange, 200, resultado);
+                dispararReplanejamentoAssincronoSeNecessario(DispatchEventTypes.PEDIDO_CRIADO, resultado.idempotente());
             } catch (IllegalArgumentException e) {
                 writeJson(exchange, 400, Map.of("erro", e.getMessage()));
             } catch (Exception e) {
@@ -247,21 +249,40 @@ public final class ApiServer {
                 return;
             }
 
-            try {
-                ReplanejamentoRequest req = parseBody(exchange, ReplanejamentoRequest.class);
-                int debounce = req.debounceSegundos() == null ? 20 : req.debounceSegundos();
-                int limite = req.limiteEventos() == null ? 100 : req.limiteEventos();
+            writeJson(
+                    exchange,
+                    409,
+                    Map.of(
+                            "erro",
+                            "Endpoint desativado: replanejamento manual nao e permitido. Use o fluxo orientado a eventos."));
+        }
+    }
 
-                ReplanejamentoWorkerResultado resultado =
-                        replanejamentoWorkerService.processarPendentes(debounce, limite);
+    private final class IniciarRotaProntaHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if (handleCorsPreflight(exchange)) {
+                return;
+            }
+            if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                writeJson(exchange, 405, Map.of("erro", "Metodo nao permitido"));
+                return;
+            }
+
+            try {
+                IniciarRotaProntaRequest req = parseBody(exchange, IniciarRotaProntaRequest.class);
+                int entregadorId = requireInt(req.entregadorId(), "entregadorId");
+                ExecucaoEntregaResultado resultado = execucaoEntregaService.iniciarProximaRotaPronta(entregadorId);
                 writeJson(exchange, 200, resultado);
             } catch (IllegalArgumentException e) {
                 writeJson(exchange, 400, Map.of("erro", e.getMessage()));
+            } catch (IllegalStateException e) {
+                writeJson(exchange, 409, Map.of("erro", e.getMessage()));
             } catch (Exception e) {
                 writeJson(
                         exchange,
                         500,
-                        Map.of("erro", "Falha ao executar worker de replanejamento", "detalhe", e.getMessage()));
+                        Map.of("erro", "Falha ao iniciar rota pronta", "detalhe", e.getMessage()));
             }
         }
     }
@@ -581,10 +602,17 @@ public final class ApiServer {
     }
 
     private void dispararReplanejamentoAssincronoSeNecessario(String eventType, ExecucaoEntregaResultado resultado) {
-        if (resultado == null || resultado.idempotente()) {
+        if (resultado == null) {
             return;
         }
-        if (!DispatchEventTypes.exigeReplanejamentoImediato(eventType)) {
+        dispararReplanejamentoAssincronoSeNecessario(eventType, resultado.idempotente());
+    }
+
+    private void dispararReplanejamentoAssincronoSeNecessario(String eventType, boolean idempotente) {
+        if (idempotente) {
+            return;
+        }
+        if (!DispatchEventTypes.policyForEvent(eventType).replaneja()) {
             return;
         }
 
@@ -652,5 +680,6 @@ public final class ApiServer {
 
     private record ScopeRef(String scopeType, int scopeId) {}
 
-    private record ReplanejamentoRequest(Integer debounceSegundos, Integer limiteEventos) {}
+    private record IniciarRotaProntaRequest(Integer entregadorId) {}
+
 }
