@@ -28,8 +28,6 @@ Variaveis opcionais:
   MOTIVO_FALHA=cliente ausente
   MOTIVO_CANCELAMENTO=cliente cancelou
   COBRANCA_CANCELAMENTO_CENTAVOS=2500
-  DEBOUNCE_SEGUNDOS=0
-  LIMITE_EVENTOS=100
   EXTERNAL_EVENT_PREFIX=poc-evento
 USAGE
 }
@@ -113,6 +111,25 @@ extract_single_value() {
   awk 'NF > 0 { print; exit }' | tr -d '[:space:]'
 }
 
+wait_for_execucao_com_rota() {
+  local pedido_id="$1"
+  local max_attempts="${2:-20}"
+  local wait_seconds="${3:-1}"
+  local tentativa response rota
+
+  for tentativa in $(seq 1 "$max_attempts"); do
+    response="$(api_request GET "/api/pedidos/${pedido_id}/execucao")"
+    rota="$(echo "$response" | jq -r '.rotaId // .rotaPrimariaId // 0')"
+    if [[ "$rota" != "0" && "$rota" != "null" && -n "$rota" ]]; then
+      printf '%s' "$response"
+      return 0
+    fi
+    sleep "$wait_seconds"
+  done
+
+  return 1
+}
+
 SCENARIO="${1:-}"
 if [[ -z "$SCENARIO" ]]; then
   usage
@@ -152,8 +169,6 @@ VALE_SALDO="${VALE_SALDO:-10}"
 MOTIVO_FALHA="${MOTIVO_FALHA:-cliente ausente}"
 MOTIVO_CANCELAMENTO="${MOTIVO_CANCELAMENTO:-cliente cancelou}"
 COBRANCA_CANCELAMENTO_CENTAVOS="${COBRANCA_CANCELAMENTO_CENTAVOS:-2500}"
-DEBOUNCE_SEGUNDOS="${DEBOUNCE_SEGUNDOS:-0}"
-LIMITE_EVENTOS="${LIMITE_EVENTOS:-100}"
 EXTERNAL_EVENT_PREFIX="${EXTERNAL_EVENT_PREFIX:-poc-evento}"
 
 # Evita colisao de idempotencia entre execucoes proximas no mesmo segundo.
@@ -248,23 +263,18 @@ print_step "Timeline inicial do pedido"
 timeline_inicial="$(api_request GET "/api/pedidos/${pedido_id}/timeline")"
 print_json "GET /api/pedidos/{pedidoId}/timeline (inicial)" "$timeline_inicial"
 
-print_step "Replanejamento inicial para criar rota/entrega"
-replanejamento_payload="$(jq -n \
-  --argjson debounceSegundos "$DEBOUNCE_SEGUNDOS" \
-  --argjson limiteEventos "$LIMITE_EVENTOS" \
-  '{ debounceSegundos: $debounceSegundos, limiteEventos: $limiteEventos }')"
-
-replanejamento_inicial="$(api_request POST "/api/replanejamento/run" "$replanejamento_payload")"
-print_json "POST /api/replanejamento/run (inicial)" "$replanejamento_inicial"
-
-execucao_inicial="$(api_request GET "/api/pedidos/${pedido_id}/execucao")"
+print_step "Aguardar roteirizacao automatica por evento (PEDIDO_CRIADO)"
+if ! execucao_inicial="$(wait_for_execucao_com_rota "$pedido_id" 25 1)"; then
+  echo "Execucao nao retornou rota para pedido ${pedido_id} no tempo esperado." >&2
+  exit 1
+fi
 print_json "GET /api/pedidos/{pedidoId}/execucao (inicial)" "$execucao_inicial"
 
 rota_id="$(echo "$execucao_inicial" | jq -r '.rotaId // .rotaPrimariaId // empty')"
 entrega_id="$(echo "$execucao_inicial" | jq -r '.entregaId // empty')"
 
 if [[ -z "$rota_id" || "$rota_id" == "null" ]]; then
-  echo "Execucao nao retornou rota para pedido ${pedido_id}. Verifique solver/replanejamento." >&2
+  echo "Execucao nao retornou rota para pedido ${pedido_id}. Verifique solver/worker orientado a eventos." >&2
   exit 1
 fi
 
@@ -323,9 +333,7 @@ esac
 evento_terminal_response="$(api_request POST "/api/eventos" "$evento_terminal_payload")"
 print_json "POST /api/eventos (terminal)" "$evento_terminal_response"
 
-print_step "Replanejamento apos evento"
-replanejamento_final="$(api_request POST "/api/replanejamento/run" "$replanejamento_payload")"
-print_json "POST /api/replanejamento/run (final)" "$replanejamento_final"
+sleep 1
 
 print_step "Timeline final"
 timeline_final="$(api_request GET "/api/pedidos/${pedido_id}/timeline")"

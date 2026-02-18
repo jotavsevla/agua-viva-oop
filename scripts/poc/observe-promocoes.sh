@@ -28,7 +28,24 @@ api_post() {
   local payload="$2"
   curl -sS -X POST "$API_BASE$path" \
     -H 'Content-Type: application/json' \
-    --data "$payload"
+  --data "$payload"
+}
+
+wait_for_sql_truth() {
+  local sql="$1"
+  local expected="${2:-1}"
+  local attempts="${3:-20}"
+  local pause="${4:-1}"
+  local value
+
+  for _ in $(seq 1 "$attempts"); do
+    value="$(docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -q -Atc "$sql" | tr -d '[:space:]')"
+    if [[ "$value" == "$expected" ]]; then
+      return 0
+    fi
+    sleep "$pause"
+  done
+  return 1
 }
 
 snapshot_sql() {
@@ -113,8 +130,18 @@ SQL
   sleep 0.2
 done
 
-echo "[observe-promocoes] Replanejamento inicial"
-api_post "/api/replanejamento/run" '{"debounceSegundos":0,"limiteEventos":100}' | jq .
+echo "[observe-promocoes] Aguardando roteirizacao automatica por PEDIDO_CRIADO"
+if ! wait_for_sql_truth "SELECT CASE WHEN EXISTS (
+  SELECT 1
+  FROM pedidos p
+  JOIN entregas e ON e.pedido_id = p.id
+  JOIN rotas r ON r.id = e.rota_id
+  WHERE p.status::text = 'CONFIRMADO'
+    AND r.status::text = 'PLANEJADA'
+) THEN 1 ELSE 0 END;" "1" 30 1; then
+  echo "Falha: nenhuma rota PLANEJADA encontrada apos atendimento." >&2
+  exit 1
+fi
 
 echo "[observe-promocoes] Snapshot antes"
 docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -Atc "$(snapshot_sql)" > "$WORK_DIR/antes.txt"
@@ -147,14 +174,28 @@ docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP
 UPDATE configuracoes SET valor = '2' WHERE chave = 'capacidade_veiculo';
 SQL
 
-echo "[observe-promocoes] Inserindo evento de disparo para forcar rodada de replanejamento"
-docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 <<'SQL' >/dev/null
-INSERT INTO dispatch_events (event_type, aggregate_type, aggregate_id, payload, status, available_em)
-VALUES ('PEDIDO_FALHOU', 'PEDIDO', NULL, '{}'::jsonb, 'PENDENTE', CURRENT_TIMESTAMP - INTERVAL '1 day');
-SQL
+echo "[observe-promocoes] Disparando rodada por evento real (PEDIDO_CRIADO)"
+CALL_ID_GATILHO="promocao-gatilho-$(date +%s)-$RANDOM"
+api_post "/api/atendimento/pedidos" "$(jq -n \
+  --arg externalCallId "$CALL_ID_GATILHO" \
+  --arg telefone "38998769201" \
+  --argjson quantidadeGaloes 1 \
+  --argjson atendenteId "$ATENDENTE_ID" \
+  '{externalCallId:$externalCallId,telefone:$telefone,quantidadeGaloes:$quantidadeGaloes,atendenteId:$atendenteId,metodoPagamento:"PIX"}')" >/dev/null
 
-echo "[observe-promocoes] Replanejamento apos evento"
-api_post "/api/replanejamento/run" '{"debounceSegundos":0,"limiteEventos":100}' | jq .
+echo "[observe-promocoes] Aguardando promocao de pendentes para CONFIRMADO"
+if ! wait_for_sql_truth "SELECT CASE WHEN EXISTS (
+  SELECT 1
+  FROM pedidos p
+  JOIN entregas e ON e.pedido_id = p.id
+  JOIN rotas r ON r.id = e.rota_id
+  WHERE p.status::text = 'CONFIRMADO'
+    AND r.status::text = 'PLANEJADA'
+    AND e.status::text = 'PENDENTE'
+) THEN 1 ELSE 0 END;" "1" 30 1; then
+  echo "Falha: nenhuma promocao para CONFIRMADO/PLANEJADA observada apos gatilho por PEDIDO_CRIADO." >&2
+  exit 1
+fi
 
 echo "[observe-promocoes] Snapshot depois"
 docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -Atc "$(snapshot_sql)" > "$WORK_DIR/depois.txt"

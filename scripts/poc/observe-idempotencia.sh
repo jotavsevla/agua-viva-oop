@@ -33,6 +33,23 @@ api_post_status() {
     --data "$payload"
 }
 
+wait_for_rota_do_pedido() {
+  local pedido_id="$1"
+  local attempts="${2:-20}"
+  local pause="${3:-1}"
+  local rota
+
+  for _ in $(seq 1 "$attempts"); do
+    rota="$(curl -sS "$API_BASE/api/pedidos/$pedido_id/execucao" | jq -r '.rotaId // .rotaPrimariaId // 0')"
+    if [[ "$rota" != "0" && "$rota" != "null" && -n "$rota" ]]; then
+      echo "$rota"
+      return 0
+    fi
+    sleep "$pause"
+  done
+  return 1
+}
+
 if ! curl -fsS "$API_BASE/health" >/dev/null 2>&1; then
   echo "API offline em $API_BASE" >&2
   exit 1
@@ -73,10 +90,7 @@ ATENDIMENTO_RESP="$(api_post "/api/atendimento/pedidos" "$ATENDIMENTO_PAYLOAD")"
 PEDIDO_ID="$(echo "$ATENDIMENTO_RESP" | jq -r '.pedidoId')"
 
 echo "[observe-idempotencia] Pedido criado: $PEDIDO_ID"
-api_post "/api/replanejamento/run" '{"debounceSegundos":0,"limiteEventos":100}' >/dev/null
-
-ROTA_ID="$(curl -sS "$API_BASE/api/pedidos/$PEDIDO_ID/execucao" | jq -r '.rotaId // .rotaPrimariaId // 0')"
-if [[ "$ROTA_ID" == "0" ]]; then
+if ! ROTA_ID="$(wait_for_rota_do_pedido "$PEDIDO_ID" 25 1)"; then
   echo "Nao foi possivel resolver rota do pedido $PEDIDO_ID" >&2
   exit 1
 fi
