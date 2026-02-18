@@ -158,6 +158,18 @@ if [[ "${#PEDIDOS_CONFIRMADOS[@]}" -lt 1 ]]; then
   exit 1
 fi
 
+PEDIDOS_PENDENTES_ANTES=()
+while IFS= read -r pedido_id; do
+  if [[ -n "$pedido_id" ]]; then
+    PEDIDOS_PENDENTES_ANTES+=("$pedido_id")
+  fi
+done < <(awk -F'|' '$2 == "PENDENTE" {print $1}' "$WORK_DIR/antes.txt")
+if [[ "${#PEDIDOS_PENDENTES_ANTES[@]}" -lt 1 ]]; then
+  echo "Falha: cenario sem pedido PENDENTE para observar promocao." >&2
+  exit 1
+fi
+PENDENTES_ANTES_CSV="$(IFS=,; echo "${PEDIDOS_PENDENTES_ANTES[*]}")"
+
 PEDIDO_MANTER_EM_ROTA="${PEDIDOS_CONFIRMADOS[0]}"
 
 EXECUCAO_MANTER="$(curl -sS "$API_BASE/api/pedidos/$PEDIDO_MANTER_EM_ROTA/execucao")"
@@ -171,29 +183,37 @@ api_post "/api/eventos" "$(jq -n --argjson rotaId "$ROTA_MANTER" '{eventType:"RO
 
 echo "[observe-promocoes] Aumentando capacidade para permitir promocao de pendente"
 docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 <<'SQL' >/dev/null
-UPDATE configuracoes SET valor = '2' WHERE chave = 'capacidade_veiculo';
+UPDATE configuracoes SET valor = '3' WHERE chave = 'capacidade_veiculo';
 SQL
 
-echo "[observe-promocoes] Disparando rodada por evento real (PEDIDO_CRIADO)"
-CALL_ID_GATILHO="promocao-gatilho-$(date +%s)-$RANDOM"
-api_post "/api/atendimento/pedidos" "$(jq -n \
-  --arg externalCallId "$CALL_ID_GATILHO" \
-  --arg telefone "38998769201" \
-  --argjson quantidadeGaloes 1 \
-  --argjson atendenteId "$ATENDENTE_ID" \
-  '{externalCallId:$externalCallId,telefone:$telefone,quantidadeGaloes:$quantidadeGaloes,atendenteId:$atendenteId,metodoPagamento:"PIX"}')" >/dev/null
+echo "[observe-promocoes] Disparando rodada por evento real (PEDIDO_CRIADO) ate promover pendente conhecido"
+PROMOCAO_OK=0
+for tentativa in $(seq 1 5); do
+  CALL_ID_GATILHO="promocao-gatilho-${tentativa}-$(date +%s)-$RANDOM"
+  api_post "/api/atendimento/pedidos" "$(jq -n \
+    --arg externalCallId "$CALL_ID_GATILHO" \
+    --arg telefone "38998769201" \
+    --argjson quantidadeGaloes 1 \
+    --argjson atendenteId "$ATENDENTE_ID" \
+    '{externalCallId:$externalCallId,telefone:$telefone,quantidadeGaloes:$quantidadeGaloes,atendenteId:$atendenteId,metodoPagamento:"PIX"}')" >/dev/null
 
-echo "[observe-promocoes] Aguardando promocao de pendentes para CONFIRMADO"
-if ! wait_for_sql_truth "SELECT CASE WHEN EXISTS (
-  SELECT 1
-  FROM pedidos p
-  JOIN entregas e ON e.pedido_id = p.id
-  JOIN rotas r ON r.id = e.rota_id
-  WHERE p.status::text = 'CONFIRMADO'
-    AND r.status::text = 'PLANEJADA'
-    AND e.status::text = 'PENDENTE'
-) THEN 1 ELSE 0 END;" "1" 30 1; then
-  echo "Falha: nenhuma promocao para CONFIRMADO/PLANEJADA observada apos gatilho por PEDIDO_CRIADO." >&2
+  if wait_for_sql_truth "SELECT CASE WHEN EXISTS (
+    SELECT 1
+    FROM pedidos p
+    JOIN entregas e ON e.pedido_id = p.id
+    JOIN rotas r ON r.id = e.rota_id
+    WHERE p.id IN (${PENDENTES_ANTES_CSV})
+      AND p.status::text = 'CONFIRMADO'
+      AND r.status::text = 'PLANEJADA'
+      AND e.status::text = 'PENDENTE'
+  ) THEN 1 ELSE 0 END;" "1" 8 1; then
+    PROMOCAO_OK=1
+    break
+  fi
+done
+
+if [[ "$PROMOCAO_OK" -ne 1 ]]; then
+  echo "Falha: nenhum pedido pendente conhecido foi promovido para CONFIRMADO/PLANEJADA apos gatilhos de PEDIDO_CRIADO." >&2
   exit 1
 fi
 
