@@ -11,6 +11,7 @@ API_HEALTH_TIMEOUT_SECONDS="${API_HEALTH_TIMEOUT_SECONDS:-240}"
 COMPOSE_FILE="${COMPOSE_FILE:-compose.yml}"
 DB_CONTAINER="${DB_CONTAINER:-postgres-oop-test}"
 SOLVER_REBUILD="${SOLVER_REBUILD:-1}"
+FORCE_API_RESTART="${FORCE_API_RESTART:-0}"
 POSTGRES_HOST="${POSTGRES_HOST:-localhost}"
 POSTGRES_PORT="${POSTGRES_PORT:-5435}"
 POSTGRES_DB="${POSTGRES_DB:-agua_viva_oop_test}"
@@ -68,6 +69,12 @@ wait_http "$SOLVER_URL/health" "solver" 180
 echo "[start-test-env] Aplicando migrations"
 CONTAINER_NAME="$DB_CONTAINER" POSTGRES_USER="$POSTGRES_USER" POSTGRES_DB="$POSTGRES_DB" \
   ./apply-migrations.sh > "$LOG_DIR/migrations.log" 2>&1
+
+if [[ "$FORCE_API_RESTART" -eq 1 ]]; then
+  echo "[start-test-env] Reinicio forcado da API habilitado (FORCE_API_RESTART=1)"
+  pkill -f "com.aguaviva.App -Dexec.args=api" >/dev/null 2>&1 || true
+  sleep 1
+fi
 
 if curl -fsS "$API_BASE/health" >/dev/null 2>&1; then
   echo "[start-test-env] API ja online em $API_BASE"
