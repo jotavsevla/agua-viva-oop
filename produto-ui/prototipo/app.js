@@ -133,7 +133,7 @@ const appState = {
     atendimento: null,
     timeline: null,
     evento: null,
-    replanejamento: null
+    iniciarRotaPronta: null
   },
   examples: {
     atendimentoRequest: {
@@ -152,10 +152,6 @@ const appState = {
       motivo: "",
       cobrancaCancelamentoCentavos: ""
     },
-    replanejamentoRequest: {
-      debounceSegundos: 0,
-      limiteEventos: 100
-    },
     timelineRequest: {
       pedidoId: 1
     }
@@ -168,8 +164,6 @@ const appState = {
       quantidadeGaloes: 1,
       atendenteId: 1,
       metodoPagamento: "PIX",
-      debounceSegundos: 0,
-      limiteEventos: 100,
       motivoFalha: "cliente ausente",
       motivoCancelamento: "cliente cancelou",
       cobrancaCancelamentoCentavos: 2500
@@ -865,7 +859,7 @@ function renderPedidos() {
         </div>
         <p>
           Roda o ciclo operacional no backend real:
-          atendimento -> replanejamento -> rota iniciada -> evento terminal -> replanejamento -> timeline.
+          atendimento -> roteirizacao por evento -> rota iniciada -> evento terminal -> timeline.
         </p>
         <form id="e2e-form" class="form-grid">
           <div class="form-row two">
@@ -916,30 +910,6 @@ function renderPedidos() {
               required
             />
           </div>
-          <div class="form-row two">
-            <div class="form-row">
-              <label for="e2eDebounceSegundos">Debounce (s)</label>
-              <input
-                id="e2eDebounceSegundos"
-                name="debounceSegundos"
-                type="number"
-                min="0"
-                value="${escapeAttr(appState.e2e.form.debounceSegundos)}"
-                required
-              />
-            </div>
-            <div class="form-row">
-              <label for="e2eLimiteEventos">Limite de eventos</label>
-              <input
-                id="e2eLimiteEventos"
-                name="limiteEventos"
-                type="number"
-                min="1"
-                value="${escapeAttr(appState.e2e.form.limiteEventos)}"
-                required
-              />
-            </div>
-          </div>
           <div class="form-row">
             <label for="e2eMotivoFalha">Motivo para falha (cenario falha)</label>
             <input id="e2eMotivoFalha" name="motivoFalha" value="${escapeAttr(appState.e2e.form.motivoFalha)}" />
@@ -976,7 +946,14 @@ function renderPedidos() {
 
 function renderDespacho() {
   const eventoExample = appState.examples.eventoRequest;
-  const replanejamentoExample = appState.examples.replanejamentoRequest;
+  const painel = painelOrDefault();
+  const entregadoresComRotaPronta = [
+    ...new Set(
+      (Array.isArray(painel.rotas?.planejadas) ? painel.rotas.planejadas : [])
+        .map((rota) => Number(rota?.entregadorId))
+        .filter((entregadorId) => Number.isInteger(entregadorId) && entregadorId > 0)
+    )
+  ];
 
   const eventos = appState.eventosOperacionais
     .map((event) => {
@@ -1013,14 +990,14 @@ function renderDespacho() {
         ${renderMapaOperacional()}
         <div class="result-box" style="margin-top: 0.75rem;">
           <p><strong>Resumo de camadas (painel)</strong></p>
-          <pre class="mono">${escapeHtml(JSON.stringify(painelOrDefault().rotas || {}, null, 2))}</pre>
+          <pre class="mono">${escapeHtml(JSON.stringify(painel.rotas || {}, null, 2))}</pre>
         </div>
       </section>
     </div>
     <section class="panel" style="margin-top: 1rem;">
       <div class="panel-header">
         <h3>Acoes operacionais (API real)</h3>
-        <span class="pill info">/api/eventos + /api/replanejamento/run</span>
+        <span class="pill info">/api/eventos + /api/operacao/rotas/prontas/iniciar</span>
       </div>
       <div class="panel-grid">
         <div>
@@ -1082,34 +1059,25 @@ function renderDespacho() {
           ${renderResultBox("Resposta evento", appState.apiResults.evento)}
         </div>
         <div>
-          <form id="replanejamento-form" class="form-grid">
-            <div class="form-row two">
-              <div class="form-row">
-                <label for="debounceSegundos">Debounce (s)</label>
-                <input
-                  id="debounceSegundos"
-                  name="debounceSegundos"
-                  type="number"
-                  min="0"
-                  value="${replanejamentoExample.debounceSegundos}"
-                  required
-                />
-              </div>
-              <div class="form-row">
-                <label for="limiteEventos">Limite eventos</label>
-                <input
-                  id="limiteEventos"
-                  name="limiteEventos"
-                  type="number"
-                  min="1"
-                  value="${replanejamentoExample.limiteEventos}"
-                  required
-                />
-              </div>
-            </div>
-            <button class="btn" type="submit">Executar replanejamento</button>
-          </form>
-          ${renderResultBox("Resposta replanejamento", appState.apiResults.replanejamento)}
+          <p class="mono">Fluxo da atendente: um clique por entregador para iniciar rota pronta.</p>
+          <div class="form-grid">
+            ${entregadoresComRotaPronta.length === 0
+              ? "<p>Nenhuma rota PLANEJADA disponivel no momento.</p>"
+              : entregadoresComRotaPronta
+                  .map(
+                    (entregadorId) => `
+                      <button
+                        class="btn"
+                        type="button"
+                        data-action="iniciar-rota-pronta"
+                        data-entregador-id="${entregadorId}"
+                      >
+                        Iniciar rota pronta · Entregador ${entregadorId}
+                      </button>`
+                  )
+                  .join("")}
+          </div>
+          ${renderResultBox("Resposta iniciar rota pronta", appState.apiResults.iniciarRotaPronta)}
         </div>
       </div>
     </section>
@@ -1145,6 +1113,28 @@ async function syncTimelineForPedido(pedidoId) {
     payload: timeline
   };
   appState.examples.timelineRequest = { pedidoId: timeline.pedidoId };
+}
+
+function wait(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+async function esperarExecucaoComRota(pedidoId, attempts = 20, pauseMs = 500) {
+  let lastPayload = null;
+  for (let tentativa = 1; tentativa <= attempts; tentativa += 1) {
+    const execucao = await requestApi(buildExecucaoPath(pedidoId), { method: "GET" });
+    lastPayload = execucao.payload;
+    const rotaId = Number(execucao.payload?.rotaId || execucao.payload?.rotaPrimariaId || 0);
+    if (Number.isInteger(rotaId) && rotaId > 0) {
+      return execucao.payload;
+    }
+    if (tentativa < attempts) {
+      await wait(pauseMs);
+    }
+  }
+  throw new Error(
+    `Execucao do pedido ${pedidoId} nao retornou rota no tempo esperado. Ultimo payload: ${JSON.stringify(lastPayload || {})}`
+  );
 }
 
 async function handleAtendimentoSubmit(event) {
@@ -1220,8 +1210,6 @@ function readE2EFormFromFormData(formData) {
     quantidadeGaloes: toFiniteNumberOr(formData.get("quantidadeGaloes"), current.quantidadeGaloes),
     atendenteId: toFiniteNumberOr(formData.get("atendenteId"), current.atendenteId),
     metodoPagamento: String(formData.get("metodoPagamento") || current.metodoPagamento || "PIX").trim() || "PIX",
-    debounceSegundos: toFiniteNumberOr(formData.get("debounceSegundos"), current.debounceSegundos),
-    limiteEventos: toFiniteNumberOr(formData.get("limiteEventos"), current.limiteEventos),
     motivoFalha: String(formData.get("motivoFalha") || current.motivoFalha || "").trim(),
     motivoCancelamento: String(formData.get("motivoCancelamento") || current.motivoCancelamento || "").trim(),
     cobrancaCancelamentoCentavos: toFiniteNumberOr(
@@ -1272,26 +1260,16 @@ async function handleE2EFlowSubmit(event) {
       throw new Error("API nao retornou pedidoId para o atendimento");
     }
 
-    const replanejamentoPayload = {
-      debounceSegundos: appState.e2e.form.debounceSegundos,
-      limiteEventos: appState.e2e.form.limiteEventos
-    };
-    const replanejamentoInicial = await requestApi("/api/replanejamento/run", {
-      method: "POST",
-      body: replanejamentoPayload
-    });
-    appState.apiResults.replanejamento = { source: "api real", payload: replanejamentoInicial.payload };
+    const execucaoComRota = await esperarExecucaoComRota(pedidoId, 24, 500);
     pushRunStep(
       steps,
-      "Replanejamento inicial",
+      "Roteirizacao por evento",
       true,
-      `eventos=${replanejamentoInicial.payload?.eventosProcessados ?? "-"} · replanejou=${Boolean(
-        replanejamentoInicial.payload?.replanejou
-      )}`,
-      replanejamentoInicial.payload
+      `rotaId=${execucaoComRota?.rotaId || execucaoComRota?.rotaPrimariaId || "-"}`,
+      execucaoComRota
     );
 
-    const execucaoAntesRota = await requestApi(buildExecucaoPath(pedidoId), { method: "GET" });
+    const execucaoAntesRota = { payload: execucaoComRota };
     const rotaId = Number(execucaoAntesRota.payload?.rotaId || execucaoAntesRota.payload?.rotaPrimariaId || 0);
     pushRunStep(
       steps,
@@ -1380,21 +1358,6 @@ async function handleE2EFlowSubmit(event) {
       true,
       `${eventoTerminalPayload.eventType} aplicado`,
       eventoTerminal.payload
-    );
-
-    const replanejamentoFinal = await requestApi("/api/replanejamento/run", {
-      method: "POST",
-      body: replanejamentoPayload
-    });
-    appState.apiResults.replanejamento = { source: "api real", payload: replanejamentoFinal.payload };
-    pushRunStep(
-      steps,
-      "Replanejamento final",
-      true,
-      `eventos=${replanejamentoFinal.payload?.eventosProcessados ?? "-"} · replanejou=${Boolean(
-        replanejamentoFinal.payload?.replanejou
-      )}`,
-      replanejamentoFinal.payload
     );
 
     await syncTimelineForPedido(pedidoId);
@@ -1494,25 +1457,31 @@ async function handleEventoSubmit(event) {
   }
 }
 
-async function handleReplanejamentoSubmit(event) {
-  event.preventDefault();
-  const formData = new FormData(event.currentTarget);
-  const payload = {
-    debounceSegundos: Number(formData.get("debounceSegundos")),
-    limiteEventos: Number(formData.get("limiteEventos"))
-  };
+async function handleIniciarRotaProntaClick(event) {
+  const entregadorId = Number(event.currentTarget?.dataset?.entregadorId || 0);
+  if (!Number.isInteger(entregadorId) || entregadorId <= 0) {
+    appState.apiResults.iniciarRotaPronta = {
+      source: "api real",
+      payload: { erro: "entregadorId invalido para iniciar rota pronta" }
+    };
+    render();
+    return;
+  }
 
   try {
-    const result = await requestApi("/api/replanejamento/run", { method: "POST", body: payload });
-    appState.apiResults.replanejamento = {
+    const result = await requestApi("/api/operacao/rotas/prontas/iniciar", {
+      method: "POST",
+      body: { entregadorId }
+    });
+    appState.apiResults.iniciarRotaPronta = {
       source: "api real",
       payload: result.payload
     };
     await refreshOperationalReadModels();
   } catch (error) {
-    appState.apiResults.replanejamento = {
+    appState.apiResults.iniciarRotaPronta = {
       source: "api real",
-      payload: { erro: error?.message || "Falha ao executar replanejamento" }
+      payload: { erro: error?.message || "Falha ao iniciar rota pronta" }
     };
   } finally {
     render();
@@ -1559,10 +1528,9 @@ function bindViewEvents() {
     eventoForm.addEventListener("submit", handleEventoSubmit);
   }
 
-  const replanejamentoForm = viewRoot.querySelector("#replanejamento-form");
-  if (replanejamentoForm) {
-    replanejamentoForm.addEventListener("submit", handleReplanejamentoSubmit);
-  }
+  viewRoot.querySelectorAll('[data-action="iniciar-rota-pronta"]').forEach((button) => {
+    button.addEventListener("click", handleIniciarRotaProntaClick);
+  });
 }
 
 function render() {
