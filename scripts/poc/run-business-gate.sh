@@ -241,7 +241,7 @@ wait_for_execucao_with_rota() {
 is_required_check() {
   local id="$1"
   case "$id" in
-    R01|R02|R03|R04|R05|R06|R07|R08|R09|R10|R11|R12|R13|R14|R15|R16|R17|R18|R19|R23|R24|R25)
+    R01|R02|R03|R04|R05|R06|R07|R08|R09|R10|R11|R12|R13|R14|R15|R16|R17|R18|R19|R23|R24|R25|R26)
       echo "true"
       ;;
     *)
@@ -403,6 +403,7 @@ if [[ "$START_EXIT" -ne 0 ]]; then
   record_check "R23" "OpenAPI cobre endpoints operacionais efetivos" "SKIPPED" "$START_LOG" "Bootstrap falhou"
   record_check "R24" "Testes de contrato bloqueiam drift" "SKIPPED" "$START_LOG" "Bootstrap falhou"
   record_check "R25" "Nenhum pedido com mais de uma entrega aberta" "SKIPPED" "$START_LOG" "Bootstrap falhou"
+  record_check "R26" "Feed de jobs de replanejamento consistente e limitado" "SKIPPED" "$START_LOG" "Bootstrap falhou"
 
   log "Bootstrap do ambiente falhou (exit=$START_EXIT). Evidencia completa em: $START_LOG"
   if [[ -s "$START_LOG" ]]; then
@@ -1027,6 +1028,7 @@ END;")"
     '/api/operacao/painel:' \
     '/api/operacao/eventos:' \
     '/api/operacao/mapa:' \
+    '/api/operacao/replanejamento/jobs:' \
     '/api/operacao/rotas/prontas/iniciar:' \
     '/api/replanejamento/run:'
   do
@@ -1084,6 +1086,29 @@ END;")"
     record_check "R25" "Nenhum pedido com mais de uma entrega aberta" "PASS" "$check_dir/evidence.txt" "Invariante de entrega aberta por pedido preservada."
   else
     record_check "R25" "Nenhum pedido com mais de uma entrega aberta" "FAIL" "$check_dir/evidence.txt" "Detectados pedidos com entregas abertas duplicadas."
+  fi
+
+  # R26
+  check_dir="$(new_check_dir R26)"
+  api_get_capture "/api/operacao/replanejamento/jobs?limite=3"
+  jobs_status="$API_LAST_STATUS"
+  jobs_body="$API_LAST_BODY"
+  jobs_ok=0
+  if [[ "$jobs_status" == "200" ]]; then
+    if echo "$jobs_body" | jq -e '.jobs | length <= 3' >/dev/null 2>&1 \
+      && echo "$jobs_body" | jq -e '.jobs as $j | (($j | length) < 2 or (reduce range(1; ($j | length)) as $i (true; . and ($j[$i-1].solicitadoEm >= $j[$i].solicitadoEm))))' >/dev/null 2>&1 \
+      && echo "$jobs_body" | jq -e 'all(.jobs[]?; has("jobId") and has("status") and has("cancelRequested") and has("hasRequestPayload") and has("hasResponsePayload"))' >/dev/null 2>&1; then
+      jobs_ok=1
+    fi
+  fi
+  {
+    echo "jobs_status=$jobs_status"
+    echo "$jobs_body" | jq . 2>/dev/null || echo "$jobs_body"
+  } > "$check_dir/evidence.txt"
+  if [[ "$jobs_ok" -eq 1 ]]; then
+    record_check "R26" "Feed de jobs de replanejamento consistente e limitado" "PASS" "$check_dir/evidence.txt" "Endpoint operacional retornou limite/ordenacao/campos obrigatorios dos jobs."
+  else
+    record_check "R26" "Feed de jobs de replanejamento consistente e limitado" "FAIL" "$check_dir/evidence.txt" "Endpoint de jobs nao respeitou limite, ordenacao ou campos esperados."
   fi
 fi
 
