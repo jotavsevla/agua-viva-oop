@@ -10,6 +10,7 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Test;
@@ -33,6 +34,9 @@ class ContractsV1Test {
                 () -> assertTrue(openApi.contains("/api/eventos:"), "Contrato deve expor endpoint de eventos"),
                 () -> assertTrue(
                         openApi.contains("/api/replanejamento/run:"), "Contrato deve expor endpoint de replanejamento"),
+                () -> assertTrue(
+                        openApi.contains("/api/operacao/rotas/prontas/iniciar:"),
+                        "Contrato deve expor endpoint one-click de iniciar rota pronta"),
                 () -> assertTrue(
                         openApi.contains("/api/pedidos/{pedidoId}/execucao:"),
                         "Contrato deve expor endpoint de execucao de pedido"),
@@ -87,6 +91,16 @@ class ContractsV1Test {
                         DispatchEventTypes.PEDIDO_CANCELADO),
                 triggersReplanejamento,
                 "Catalogo deve refletir eventos que disparam replanejamento");
+
+        Map<String, String> triggerKindPorEvento = eventos.asList().stream()
+                .map(element -> element.getAsJsonObject())
+                .collect(Collectors.toMap(
+                        evento -> evento.get("event_type").getAsString(),
+                        evento -> evento.get("trigger_kind").getAsString()));
+        assertEquals("PRIMARIO", triggerKindPorEvento.get(DispatchEventTypes.PEDIDO_CRIADO));
+        assertEquals("SECUNDARIO", triggerKindPorEvento.get(DispatchEventTypes.PEDIDO_FALHOU));
+        assertEquals("SECUNDARIO", triggerKindPorEvento.get(DispatchEventTypes.PEDIDO_CANCELADO));
+        assertEquals("NONE", triggerKindPorEvento.get(DispatchEventTypes.PEDIDO_ENTREGUE));
     }
 
     @Test
@@ -101,6 +115,8 @@ class ContractsV1Test {
             "evento-operacional.response.json",
             "replanejamento-run.request.json",
             "replanejamento-run.response.json",
+            "operacao-iniciar-rota-pronta.request.json",
+            "operacao-iniciar-rota-pronta.response.json",
             "pedido-timeline.response.json",
             "pedido-execucao.response.json",
             "entregador-roteiro.response.json",
