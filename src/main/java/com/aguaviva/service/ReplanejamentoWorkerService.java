@@ -9,6 +9,7 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.Function;
 import java.util.function.Supplier;
 
 public class ReplanejamentoWorkerService {
@@ -16,17 +17,27 @@ public class ReplanejamentoWorkerService {
     private static final long ADVISORY_LOCK_KEY = 114_011L;
 
     private final ConnectionFactory connectionFactory;
-    private final Supplier<PlanejamentoResultado> replanejamentoExecutor;
+    private final Function<CapacidadePolicy, PlanejamentoResultado> replanejamentoExecutor;
     private final DispatchEventService dispatchEventService;
 
     public ReplanejamentoWorkerService(
             ConnectionFactory connectionFactory, Supplier<PlanejamentoResultado> replanejamentoExecutor) {
+        this(
+                connectionFactory,
+                capacidadePolicy -> Objects.requireNonNull(replanejamentoExecutor, "ReplanejamentoExecutor nao pode ser nulo")
+                        .get(),
+                new DispatchEventService());
+    }
+
+    public ReplanejamentoWorkerService(
+            ConnectionFactory connectionFactory,
+            Function<CapacidadePolicy, PlanejamentoResultado> replanejamentoExecutor) {
         this(connectionFactory, replanejamentoExecutor, new DispatchEventService());
     }
 
     ReplanejamentoWorkerService(
             ConnectionFactory connectionFactory,
-            Supplier<PlanejamentoResultado> replanejamentoExecutor,
+            Function<CapacidadePolicy, PlanejamentoResultado> replanejamentoExecutor,
             DispatchEventService dispatchEventService) {
         this.connectionFactory = Objects.requireNonNull(connectionFactory, "ConnectionFactory nao pode ser nulo");
         this.replanejamentoExecutor =
@@ -60,13 +71,13 @@ public class ReplanejamentoWorkerService {
                     return new ReplanejamentoWorkerResultado(0, false, 0, 0, 0);
                 }
 
-                boolean deveReplanejar = eventos.stream()
-                        .map(DispatchEventRef::eventType)
-                        .anyMatch(DispatchEventTypes::exigeReplanejamento);
+                ReplanejamentoPolicyMatrix.ReplanejamentoEventPolicy politicaLote = ReplanejamentoPolicyMatrix.consolidate(
+                        eventos.stream().map(DispatchEventRef::eventType).toList());
+                boolean deveReplanejar = politicaLote.replaneja();
 
                 PlanejamentoResultado planejamento = new PlanejamentoResultado(0, 0, 0);
                 if (deveReplanejar) {
-                    planejamento = replanejamentoExecutor.get();
+                    planejamento = replanejamentoExecutor.apply(politicaLote.capacidadePolicy());
                 }
 
                 marcarEventosProcessados(conn, eventos);
