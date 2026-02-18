@@ -1066,6 +1066,97 @@ class ApiServerTest {
     }
 
     @Test
+    void deveRetornarDetalheDeJobComRotasEPedidosImpactadosViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-replanejamento-detalhe-atendente@teste.com");
+        int entregadorId = criarEntregadorId("api-replanejamento-detalhe-entregador@teste.com");
+        int clienteId = criarClienteId("(38) 99876-9661");
+        int pedidoId = criarPedidoDireto(clienteId, atendenteId, "CONFIRMADO", 1);
+        long planVersion = 91L;
+        String jobId = "job-detalhe-91";
+        int rotaId = criarRotaComPlanVersion(entregadorId, "PLANEJADA", planVersion, 1);
+        int entregaId = criarEntregaComPlanVersion(pedidoId, rotaId, 1, "PENDENTE", planVersion);
+        inserirSolverJob(
+                jobId,
+                planVersion,
+                "CONCLUIDO",
+                false,
+                "{}",
+                "{\"rotas\":[]}",
+                null,
+                LocalDateTime.now().minusMinutes(1));
+
+        HttpClient client = HttpClient.newHttpClient();
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create(
+                                    "http://localhost:" + running.port() + "/api/operacao/replanejamento/jobs/" + jobId))
+                            .GET()
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            JsonObject payload = GSON.fromJson(resposta.body(), JsonObject.class);
+            JsonObject job = payload.getAsJsonObject("job");
+
+            assertEquals(200, resposta.statusCode());
+            assertEquals("test", payload.get("ambiente").getAsString());
+            assertTrue(payload.get("habilitado").getAsBoolean());
+            assertEquals(jobId, job.get("jobId").getAsString());
+            assertEquals(planVersion, job.get("planVersion").getAsLong());
+            assertEquals("CONCLUIDO", job.get("status").getAsString());
+
+            JsonArray rotas = job.getAsJsonArray("rotasImpactadas");
+            assertEquals(1, rotas.size());
+            JsonObject rota = rotas.get(0).getAsJsonObject();
+            assertEquals(rotaId, rota.get("rotaId").getAsInt());
+            assertEquals(entregadorId, rota.get("entregadorId").getAsInt());
+            assertEquals("PLANEJADA", rota.get("statusRota").getAsString());
+            assertEquals("SECUNDARIA", rota.get("camada").getAsString());
+            assertEquals(1, rota.get("totalEntregas").getAsInt());
+
+            JsonArray pedidos = job.getAsJsonArray("pedidosImpactados");
+            assertEquals(1, pedidos.size());
+            JsonObject pedido = pedidos.get(0).getAsJsonObject();
+            assertEquals(pedidoId, pedido.get("pedidoId").getAsInt());
+            assertEquals(entregaId, pedido.get("entregaId").getAsInt());
+            assertEquals(rotaId, pedido.get("rotaId").getAsInt());
+            assertEquals("CONFIRMADO", pedido.get("statusPedido").getAsString());
+            assertEquals("PENDENTE", pedido.get("statusEntrega").getAsString());
+        }
+    }
+
+    @Test
+    void deveRetornar400QuandoDetalheDeJobNaoExistirViaHttp() throws Exception {
+        HttpClient client = HttpClient.newHttpClient();
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create(
+                                    "http://localhost:" + running.port() + "/api/operacao/replanejamento/jobs/job-inexistente"))
+                            .GET()
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            JsonObject payload = GSON.fromJson(resposta.body(), JsonObject.class);
+
+            assertEquals(400, resposta.statusCode());
+            assertTrue(payload.get("erro").getAsString().contains("jobId nao encontrado"));
+        }
+    }
+
+    @Test
     void deveRetornarExecucaoAtualDoPedidoViaHttp() throws Exception {
         int atendenteId = criarAtendenteId("api-execucao-atendente@teste.com");
         int entregadorId = criarEntregadorId("api-execucao-entregador@teste.com");
@@ -1692,6 +1783,21 @@ class ApiServerTest {
         }
     }
 
+    private int criarRotaComPlanVersion(int entregadorId, String status, long planVersion, int numeroNoDia) throws Exception {
+        try (Connection conn = factory.getConnection();
+                PreparedStatement stmt = conn.prepareStatement(
+                        "INSERT INTO rotas (entregador_id, data, numero_no_dia, status, plan_version) VALUES (?, CURRENT_DATE, ?, ?, ?) RETURNING id")) {
+            stmt.setInt(1, entregadorId);
+            stmt.setInt(2, numeroNoDia);
+            stmt.setObject(3, status, java.sql.Types.OTHER);
+            stmt.setLong(4, planVersion);
+            try (ResultSet rs = stmt.executeQuery()) {
+                rs.next();
+                return rs.getInt(1);
+            }
+        }
+    }
+
     private int criarEntrega(int pedidoId, int rotaId, String status) throws Exception {
         try (Connection conn = factory.getConnection();
                 PreparedStatement stmt = conn.prepareStatement(
@@ -1699,6 +1805,23 @@ class ApiServerTest {
             stmt.setInt(1, pedidoId);
             stmt.setInt(2, rotaId);
             stmt.setObject(3, status, java.sql.Types.OTHER);
+            try (ResultSet rs = stmt.executeQuery()) {
+                rs.next();
+                return rs.getInt(1);
+            }
+        }
+    }
+
+    private int criarEntregaComPlanVersion(int pedidoId, int rotaId, int ordemNaRota, String status, long planVersion)
+            throws Exception {
+        try (Connection conn = factory.getConnection();
+                PreparedStatement stmt = conn.prepareStatement(
+                        "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, status, plan_version) VALUES (?, ?, ?, ?, ?) RETURNING id")) {
+            stmt.setInt(1, pedidoId);
+            stmt.setInt(2, rotaId);
+            stmt.setInt(3, ordemNaRota);
+            stmt.setObject(4, status, java.sql.Types.OTHER);
+            stmt.setLong(5, planVersion);
             try (ResultSet rs = stmt.executeQuery()) {
                 rs.next();
                 return rs.getInt(1);
