@@ -234,6 +234,30 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /api/operacao/replanejamento/jobs:
+    get:
+      summary: Feed operacional de jobs de replanejamento do solver
+      tags: [operacao]
+      parameters:
+        - name: limite
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+      responses:
+        '200':
+          description: Jobs de replanejamento retornados
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperacaoReplanejamentoResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /api/financeiro/clientes/{clienteId}/saldo:
     get:
       summary: Consultar saldo de vales
@@ -787,6 +811,54 @@ components:
           items:
             $ref: '#/components/schemas/OperacaoMapaRota'
       required: [atualizadoEm, ambiente, deposito, rotas]
+
+    OperacaoReplanejamentoJob:
+      type: object
+      properties:
+        jobId:
+          type: string
+        planVersion:
+          type: integer
+        status:
+          type: string
+        cancelRequested:
+          type: boolean
+        solicitadoEm:
+          type: string
+          format: date-time
+        iniciadoEm:
+          type: string
+          format: date-time
+          nullable: true
+        finalizadoEm:
+          type: string
+          format: date-time
+          nullable: true
+        erro:
+          type: string
+          nullable: true
+        hasRequestPayload:
+          type: boolean
+        hasResponsePayload:
+          type: boolean
+      required:
+        [jobId, planVersion, status, cancelRequested, solicitadoEm, iniciadoEm, finalizadoEm, erro, hasRequestPayload, hasResponsePayload]
+
+    OperacaoReplanejamentoResponse:
+      type: object
+      properties:
+        atualizadoEm:
+          type: string
+          format: date-time
+        ambiente:
+          type: string
+        habilitado:
+          type: boolean
+        jobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/OperacaoReplanejamentoJob'
+      required: [atualizadoEm, ambiente, habilitado, jobs]
 
     SaldoResponse:
       type: object
