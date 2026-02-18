@@ -139,7 +139,8 @@ public final class ApiServer {
                         + "/api/pedidos/{pedidoId}/timeline, /api/pedidos/{pedidoId}/execucao, "
                         + "/api/entregadores/{entregadorId}/roteiro, "
                         + "/api/operacao/painel, /api/operacao/eventos, /api/operacao/mapa, "
-                        + "/api/operacao/replanejamento/jobs, /api/operacao/rotas/prontas/iniciar");
+                        + "/api/operacao/replanejamento/jobs, /api/operacao/replanejamento/jobs/{jobId}, "
+                        + "/api/operacao/rotas/prontas/iniciar");
         return new RunningServer(server, resolvedPort);
     }
 
@@ -396,6 +397,11 @@ public final class ApiServer {
                     writeJson(exchange, 200, operacaoReplanejamentoService.listarJobs(limite));
                     return;
                 }
+                if (path != null && path.startsWith("/api/operacao/replanejamento/jobs/")) {
+                    String jobId = parseJobIdReplanejamento(path);
+                    writeJson(exchange, 200, operacaoReplanejamentoService.detalharJob(jobId));
+                    return;
+                }
                 writeJson(exchange, 400, Map.of("erro", "Path invalido para operacao"));
             } catch (IllegalArgumentException e) {
                 writeJson(exchange, 400, Map.of("erro", e.getMessage()));
@@ -530,6 +536,18 @@ public final class ApiServer {
             }
         }
         return null;
+    }
+
+    private static String parseJobIdReplanejamento(String path) {
+        String prefix = "/api/operacao/replanejamento/jobs/";
+        if (path == null || !path.startsWith(prefix)) {
+            throw new IllegalArgumentException("Path invalido para detalhe de replanejamento");
+        }
+        String jobId = path.substring(prefix.length());
+        if (jobId.isBlank() || jobId.contains("/")) {
+            throw new IllegalArgumentException("jobId invalido");
+        }
+        return jobId;
     }
 
     private static boolean isPedidoNotFound(IllegalArgumentException e) {
