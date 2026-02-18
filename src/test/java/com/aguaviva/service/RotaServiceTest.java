@@ -86,6 +86,7 @@ class RotaServiceTest {
         solverStub.setStatusCode(200);
         solverStub.setSolveResponse("{\"rotas\":[],\"nao_atendidos\":[]}");
         solverStub.resetRequestCount();
+        solverStub.resetCancelCount();
         solverStub.clearDynamicSolveHandler();
         limparBanco();
         atualizarConfiguracao("capacidade_veiculo", "5");
@@ -101,6 +102,16 @@ class RotaServiceTest {
                 Statement stmt = conn.createStatement()) {
             stmt.execute(
                     "TRUNCATE TABLE sessions, entregas, rotas, movimentacao_vales, saldo_vales, pedidos, clientes, users RESTART IDENTITY CASCADE");
+            limparSolverJobsSeExistir(conn);
+        }
+    }
+
+    private void limparSolverJobsSeExistir(Connection conn) throws Exception {
+        if (!solverJobsTableExists(conn)) {
+            return;
+        }
+        try (Statement stmt = conn.createStatement()) {
+            stmt.execute("TRUNCATE TABLE solver_jobs");
         }
     }
 
@@ -1097,6 +1108,91 @@ class RotaServiceTest {
     }
 
     @Test
+    void deveRegistrarSolverJobComoConcluidoQuandoPlanejamentoFinalizaComSucesso() throws Exception {
+        int atendenteId = criarAtendenteId("atendente-solver-job-ok@teste.com");
+        int entregadorId = criarEntregadorId("entregador-solver-job-ok@teste.com", true);
+        int clienteId = criarClienteComSaldo("(38) 99999-7902", 10);
+        Pedido pedido = pedidoRepository.save(new Pedido(clienteId, 1, JanelaTipo.ASAP, null, null, atendenteId));
+
+        solverStub.setSolveResponse("""
+                {
+                  "rotas": [
+                    {
+                      "entregador_id": %d,
+                      "numero_no_dia": 1,
+                      "paradas": [
+                        {"ordem": 1, "pedido_id": %d, "lat": -16.7210, "lon": -43.8610, "hora_prevista": "08:30"}
+                      ]
+                    }
+                  ],
+                  "nao_atendidos": []
+                }
+                """.formatted(entregadorId, pedido.getId()));
+
+        PlanejamentoResultado resultado = criarService().planejarRotasPendentes();
+
+        assertEquals(1, resultado.rotasCriadas());
+        assertEquals(1, resultado.entregasCriadas());
+        assertEquals(1, contarSolverJobsPorStatus("CONCLUIDO"));
+    }
+
+    @Test
+    void devePermitirPreempcaoDistribuidaViaSolverJobsEntreInstancias() throws Exception {
+        int atendenteId = criarAtendenteId("atendente-solver-job-preempt@teste.com");
+        int entregadorId = criarEntregadorId("entregador-solver-job-preempt@teste.com", true);
+        int clienteId = criarClienteComSaldo("(38) 99999-7903", 10);
+        Pedido pedido = pedidoRepository.save(new Pedido(clienteId, 1, JanelaTipo.ASAP, null, null, atendenteId));
+
+        solverStub.setSolveDelayMillis(350);
+        solverStub.setSolveResponse("""
+                {
+                  "rotas": [
+                    {
+                      "entregador_id": %d,
+                      "numero_no_dia": 1,
+                      "paradas": [
+                        {"ordem": 1, "pedido_id": %d, "lat": -16.7210, "lon": -43.8610, "hora_prevista": "08:35"}
+                      ]
+                    }
+                  ],
+                  "nao_atendidos": []
+                }
+                """.formatted(entregadorId, pedido.getId()));
+
+        RotaService instanciaA = criarService();
+        RotaService instanciaB = criarService();
+        ExecutorService executor = Executors.newSingleThreadExecutor();
+        try {
+            Future<PlanejamentoResultado> planejamento = executor.submit(() -> instanciaA.planejarRotasPendentes());
+            aguardarAte(
+                    () -> {
+                        try {
+                            return existeSolverJobComStatus("EM_EXECUCAO");
+                        } catch (Exception e) {
+                            throw new IllegalStateException(e);
+                        }
+                    },
+                    3000,
+                    "solver job nao entrou em execucao");
+
+            instanciaB.cancelarPlanejamentosAtivosBestEffort();
+
+            PlanejamentoResultado resultado = planejamento.get(5, TimeUnit.SECONDS);
+            assertEquals(0, resultado.rotasCriadas());
+            assertEquals(0, resultado.entregasCriadas());
+            assertEquals(0, resultado.pedidosNaoAtendidos());
+            assertEquals(1, solverStub.cancelCount());
+            assertEquals(1, contarSolverJobsPorStatus("CANCELADO"));
+            assertEquals(0, contarLinhas("rotas"));
+            assertEquals(0, contarLinhas("entregas"));
+            assertEquals("PENDENTE", statusDoPedido(pedido.getId()));
+        } finally {
+            solverStub.setSolveDelayMillis(0);
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
     void deveEvitarDuplicidadeQuandoMultiplasInstanciasPlanejamAoMesmoTempo() throws Exception {
         int atendenteId = criarAtendenteId("atendente11@teste.com");
         int entregadorId = criarEntregadorId("entregador11@teste.com", true);
@@ -1580,6 +1676,45 @@ class RotaServiceTest {
             stmt.setString(1, valor);
             stmt.setString(2, chave);
             stmt.executeUpdate();
+        }
+    }
+
+    private boolean solverJobsTableExists(Connection conn) throws Exception {
+        try (PreparedStatement stmt = conn.prepareStatement(
+                        "SELECT 1 FROM information_schema.tables WHERE table_name = 'solver_jobs'");
+                ResultSet rs = stmt.executeQuery()) {
+            return rs.next();
+        }
+    }
+
+    private int contarSolverJobsPorStatus(String status) throws Exception {
+        try (Connection conn = factory.getConnection()) {
+            if (!solverJobsTableExists(conn)) {
+                return 0;
+            }
+            try (PreparedStatement stmt =
+                    conn.prepareStatement("SELECT COUNT(*) FROM solver_jobs WHERE status::text = ?")) {
+                stmt.setString(1, status);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    rs.next();
+                    return rs.getInt(1);
+                }
+            }
+        }
+    }
+
+    private boolean existeSolverJobComStatus(String status) throws Exception {
+        try (Connection conn = factory.getConnection()) {
+            if (!solverJobsTableExists(conn)) {
+                return false;
+            }
+            try (PreparedStatement stmt = conn.prepareStatement(
+                            "SELECT 1 FROM solver_jobs WHERE status::text = ? LIMIT 1")) {
+                stmt.setString(1, status);
+                try (ResultSet rs = stmt.executeQuery()) {
+                    return rs.next();
+                }
+            }
         }
     }
 
