@@ -10,6 +10,7 @@ import com.aguaviva.service.EventoOperacionalIdempotenciaService;
 import com.aguaviva.service.OperacaoEventosService;
 import com.aguaviva.service.OperacaoMapaService;
 import com.aguaviva.service.OperacaoPainelService;
+import com.aguaviva.service.OperacaoReplanejamentoService;
 import com.aguaviva.service.PedidoExecucaoService;
 import com.aguaviva.service.PedidoTimelineService;
 import com.aguaviva.service.ReplanejamentoWorkerService;
@@ -51,6 +52,7 @@ public final class ApiServer {
     private final OperacaoPainelService operacaoPainelService;
     private final OperacaoEventosService operacaoEventosService;
     private final OperacaoMapaService operacaoMapaService;
+    private final OperacaoReplanejamentoService operacaoReplanejamentoService;
 
     private ApiServer(
             AtendimentoTelefonicoService atendimentoTelefonicoService,
@@ -62,7 +64,8 @@ public final class ApiServer {
             RoteiroEntregadorService roteiroEntregadorService,
             OperacaoPainelService operacaoPainelService,
             OperacaoEventosService operacaoEventosService,
-            OperacaoMapaService operacaoMapaService) {
+            OperacaoMapaService operacaoMapaService,
+            OperacaoReplanejamentoService operacaoReplanejamentoService) {
         this.atendimentoTelefonicoService = Objects.requireNonNull(atendimentoTelefonicoService);
         this.execucaoEntregaService = Objects.requireNonNull(execucaoEntregaService);
         this.eventoOperacionalIdempotenciaService = Objects.requireNonNull(eventoOperacionalIdempotenciaService);
@@ -73,6 +76,7 @@ public final class ApiServer {
         this.operacaoPainelService = Objects.requireNonNull(operacaoPainelService);
         this.operacaoEventosService = Objects.requireNonNull(operacaoEventosService);
         this.operacaoMapaService = Objects.requireNonNull(operacaoMapaService);
+        this.operacaoReplanejamentoService = Objects.requireNonNull(operacaoReplanejamentoService);
     }
 
     public static void startFromEnv() throws IOException {
@@ -97,6 +101,8 @@ public final class ApiServer {
         OperacaoPainelService operacaoPainelService = new OperacaoPainelService(connectionFactory);
         OperacaoEventosService operacaoEventosService = new OperacaoEventosService(connectionFactory);
         OperacaoMapaService operacaoMapaService = new OperacaoMapaService(connectionFactory);
+        OperacaoReplanejamentoService operacaoReplanejamentoService =
+                new OperacaoReplanejamentoService(connectionFactory);
 
         ApiServer app = new ApiServer(
                 atendimentoTelefonicoService,
@@ -108,7 +114,8 @@ public final class ApiServer {
                 roteiroEntregadorService,
                 operacaoPainelService,
                 operacaoEventosService,
-                operacaoMapaService);
+                operacaoMapaService,
+                operacaoReplanejamentoService);
         app.start(port);
     }
 
@@ -132,7 +139,7 @@ public final class ApiServer {
                         + "/api/pedidos/{pedidoId}/timeline, /api/pedidos/{pedidoId}/execucao, "
                         + "/api/entregadores/{entregadorId}/roteiro, "
                         + "/api/operacao/painel, /api/operacao/eventos, /api/operacao/mapa, "
-                        + "/api/operacao/rotas/prontas/iniciar");
+                        + "/api/operacao/replanejamento/jobs, /api/operacao/rotas/prontas/iniciar");
         return new RunningServer(server, resolvedPort);
     }
 
@@ -384,6 +391,11 @@ public final class ApiServer {
                     writeJson(exchange, 200, operacaoMapaService.consultarMapa());
                     return;
                 }
+                if ("/api/operacao/replanejamento/jobs".equals(path)) {
+                    Integer limite = parseLimiteQuery(exchange.getRequestURI().getQuery());
+                    writeJson(exchange, 200, operacaoReplanejamentoService.listarJobs(limite));
+                    return;
+                }
                 writeJson(exchange, 400, Map.of("erro", "Path invalido para operacao"));
             } catch (IllegalArgumentException e) {
                 writeJson(exchange, 400, Map.of("erro", e.getMessage()));
@@ -543,6 +555,8 @@ public final class ApiServer {
         OperacaoPainelService operacaoPainelService = new OperacaoPainelService(connectionFactory);
         OperacaoEventosService operacaoEventosService = new OperacaoEventosService(connectionFactory);
         OperacaoMapaService operacaoMapaService = new OperacaoMapaService(connectionFactory);
+        OperacaoReplanejamentoService operacaoReplanejamentoService =
+                new OperacaoReplanejamentoService(connectionFactory);
         ApiServer app = new ApiServer(
                 atendimentoTelefonicoService,
                 execucaoEntregaService,
@@ -553,7 +567,8 @@ public final class ApiServer {
                 roteiroEntregadorService,
                 operacaoPainelService,
                 operacaoEventosService,
-                operacaoMapaService);
+                operacaoMapaService,
+                operacaoReplanejamentoService);
         return app.start(port);
     }
 
