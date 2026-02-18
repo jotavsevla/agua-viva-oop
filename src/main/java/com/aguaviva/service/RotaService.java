@@ -9,6 +9,9 @@ import com.aguaviva.solver.RotaSolver;
 import com.aguaviva.solver.SolverClient;
 import com.aguaviva.solver.SolverRequest;
 import com.aguaviva.solver.SolverResponse;
+import com.google.gson.FieldNamingPolicy;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -42,6 +45,10 @@ public class RotaService {
     private final SolverClient solverClient;
     private final ConnectionFactory connectionFactory;
     private final PedidoLifecycleService pedidoLifecycleService;
+    private final Gson gson = new GsonBuilder()
+            .setFieldNamingPolicy(FieldNamingPolicy.LOWER_CASE_WITH_UNDERSCORES)
+            .serializeNulls()
+            .create();
 
     public RotaService(SolverClient solverClient, ConnectionFactory connectionFactory) {
         this(solverClient, connectionFactory, new PedidoLifecycleService());
@@ -148,7 +155,7 @@ public class RotaService {
                         pedidosParaSolver);
 
                 if (solverJobsEnabled) {
-                    registrarSolverJobEmExecucao(currentJobId, planVersion);
+                    registrarSolverJobEmExecucao(currentJobId, planVersion, request);
                 }
 
                 SolverResponse solverResponse = solverClient.solve(request);
@@ -172,7 +179,7 @@ public class RotaService {
 
                 conn.commit();
                 if (solverJobsEnabled) {
-                    finalizarSolverJob(currentJobId, "CONCLUIDO", null);
+                    finalizarSolverJob(currentJobId, "CONCLUIDO", null, solverResponse);
                 }
                 return new PlanejamentoResultado(
                         rotasCriadas,
@@ -181,20 +188,20 @@ public class RotaService {
             } catch (PlanejamentoPreemptadoException e) {
                 conn.rollback();
                 if (solverJobsEnabled && currentJobId != null) {
-                    finalizarSolverJob(currentJobId, "CANCELADO", "Job preemptado por solicitacao mais recente");
+                    finalizarSolverJob(currentJobId, "CANCELADO", "Job preemptado por solicitacao mais recente", null);
                 }
                 return new PlanejamentoResultado(0, 0, 0);
             } catch (InterruptedException e) {
                 conn.rollback();
                 if (solverJobsEnabled && currentJobId != null) {
-                    finalizarSolverJob(currentJobId, "FALHOU", "Thread interrompida ao chamar solver");
+                    finalizarSolverJob(currentJobId, "FALHOU", "Thread interrompida ao chamar solver", null);
                 }
                 Thread.currentThread().interrupt();
                 throw new IllegalStateException("Thread interrompida ao chamar solver", e);
             } catch (Exception e) {
                 conn.rollback();
                 if (solverJobsEnabled && currentJobId != null) {
-                    finalizarSolverJob(currentJobId, "FALHOU", e.getMessage());
+                    finalizarSolverJob(currentJobId, "FALHOU", e.getMessage(), null);
                 }
                 throw new IllegalStateException("Falha ao planejar rotas", e);
             } finally {
@@ -668,11 +675,13 @@ public class RotaService {
         return jobIds;
     }
 
-    private void registrarSolverJobEmExecucao(String jobId, long planVersion) throws SQLException {
+    private void registrarSolverJobEmExecucao(String jobId, long planVersion, SolverRequest request) throws SQLException {
         try (Connection conn = connectionFactory.getConnection()) {
             if (!hasSolverJobsSchema(conn)) {
                 return;
             }
+            boolean hasRequestPayload = hasColumn(conn, "solver_jobs", "request_payload");
+            String requestPayload = gson.toJson(request);
             String sql = "INSERT INTO solver_jobs (job_id, plan_version, status, cancel_requested, solicitado_em, iniciado_em, finalizado_em, erro) "
                     + "VALUES (?, ?, ?, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, NULL) "
                     + "ON CONFLICT (job_id) DO UPDATE SET "
@@ -683,29 +692,60 @@ public class RotaService {
                     + "iniciado_em = CURRENT_TIMESTAMP, "
                     + "finalizado_em = NULL, "
                     + "erro = NULL";
+            if (hasRequestPayload) {
+                sql = "INSERT INTO solver_jobs (job_id, plan_version, status, cancel_requested, solicitado_em, iniciado_em, finalizado_em, erro, request_payload) "
+                        + "VALUES (?, ?, ?, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, NULL, CAST(? AS jsonb)) "
+                        + "ON CONFLICT (job_id) DO UPDATE SET "
+                        + "plan_version = EXCLUDED.plan_version, "
+                        + "status = EXCLUDED.status, "
+                        + "cancel_requested = false, "
+                        + "solicitado_em = CURRENT_TIMESTAMP, "
+                        + "iniciado_em = CURRENT_TIMESTAMP, "
+                        + "finalizado_em = NULL, "
+                        + "erro = NULL, "
+                        + "request_payload = EXCLUDED.request_payload";
+            }
             try (PreparedStatement stmt = conn.prepareStatement(sql)) {
                 stmt.setString(1, jobId);
                 stmt.setLong(2, planVersion);
                 stmt.setObject(3, "EM_EXECUCAO", Types.OTHER);
+                if (hasRequestPayload) {
+                    stmt.setString(4, requestPayload);
+                }
                 stmt.executeUpdate();
             }
         }
     }
 
-    private void finalizarSolverJob(String jobId, String status, String erro) {
+    private void finalizarSolverJob(String jobId, String status, String erro, SolverResponse response) {
         try (Connection conn = connectionFactory.getConnection()) {
             if (!hasSolverJobsSchema(conn)) {
                 return;
             }
+            boolean hasResponsePayload = hasColumn(conn, "solver_jobs", "response_payload");
+            String responsePayload = response == null ? null : gson.toJson(response);
             String sql = "UPDATE solver_jobs "
                     + "SET status = ?, finalizado_em = CURRENT_TIMESTAMP, erro = ?, "
                     + "cancel_requested = CASE WHEN ? = 'CANCELADO' THEN true ELSE cancel_requested END "
                     + "WHERE job_id = ?";
+            if (hasResponsePayload) {
+                sql = "UPDATE solver_jobs "
+                        + "SET status = ?, finalizado_em = CURRENT_TIMESTAMP, erro = ?, "
+                        + "cancel_requested = CASE WHEN ? = 'CANCELADO' THEN true ELSE cancel_requested END, "
+                        + "response_payload = CASE WHEN ? IS NULL THEN NULL ELSE CAST(? AS jsonb) END "
+                        + "WHERE job_id = ?";
+            }
             try (PreparedStatement stmt = conn.prepareStatement(sql)) {
                 stmt.setObject(1, status, Types.OTHER);
                 stmt.setString(2, erro);
                 stmt.setString(3, status);
-                stmt.setString(4, jobId);
+                if (hasResponsePayload) {
+                    stmt.setString(4, responsePayload);
+                    stmt.setString(5, responsePayload);
+                    stmt.setString(6, jobId);
+                } else {
+                    stmt.setString(4, jobId);
+                }
                 stmt.executeUpdate();
             }
         } catch (Exception ignored) {
