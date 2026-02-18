@@ -21,9 +21,11 @@ import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -32,6 +34,7 @@ public class RotaService {
 
     private static final DateTimeFormatter HH_MM = DateTimeFormatter.ofPattern("HH:mm");
     static final long PLANEJAMENTO_LOCK_KEY = 61001L;
+    private static final int MAX_SOLVER_JOBS_CANCELAMENTO = 8;
 
     private final AtomicLong lastRequestedPlanVersion = new AtomicLong(0);
     private final AtomicReference<String> activeJobId = new AtomicReference<>();
@@ -54,6 +57,27 @@ public class RotaService {
                 Objects.requireNonNull(pedidoLifecycleService, "PedidoLifecycleService nao pode ser nulo");
     }
 
+    public void cancelarPlanejamentosAtivosBestEffort() {
+        Set<String> jobIds = new LinkedHashSet<>();
+
+        String jobAtivoLocal = activeJobId.getAndSet(null);
+        if (jobAtivoLocal != null && !jobAtivoLocal.isBlank()) {
+            jobIds.add(jobAtivoLocal);
+        }
+
+        try (Connection conn = connectionFactory.getConnection()) {
+            if (hasSolverJobsSchema(conn)) {
+                jobIds.addAll(marcarCancelamentoSolicitadoEmJobsAtivos(conn, MAX_SOLVER_JOBS_CANCELAMENTO));
+            }
+        } catch (Exception ignored) {
+            // Melhor esforco: cancelamento remoto nao deve interromper o fluxo principal.
+        }
+
+        for (String jobId : jobIds) {
+            solverClient.cancelBestEffort(jobId);
+        }
+    }
+
     public PlanejamentoResultado planejarRotasPendentes() {
         return planejarRotasPendentes(CapacidadePolicy.REMANESCENTE);
     }
@@ -62,6 +86,7 @@ public class RotaService {
         CapacidadePolicy capacidadeResolvida =
                 Objects.requireNonNull(capacidadePolicy, "capacidadePolicy nao pode ser nulo");
         String currentJobId = null;
+        boolean solverJobsEnabled = false;
 
         try (Connection conn = connectionFactory.getConnection()) {
             conn.setAutoCommit(false);
@@ -78,6 +103,7 @@ public class RotaService {
                     solverClient.cancelBestEffort(previousJobId);
                 }
 
+                solverJobsEnabled = hasSolverJobsSchema(conn);
                 boolean planVersionEnabled = hasPlanVersionColumns(conn);
                 ConfiguracaoRoteirizacao cfg = carregarConfiguracao(conn);
                 List<Integer> entregadoresAtivos = buscarEntregadoresAtivos(conn);
@@ -121,7 +147,14 @@ public class RotaService {
                         entregadoresAtivos,
                         pedidosParaSolver);
 
+                if (solverJobsEnabled) {
+                    registrarSolverJobEmExecucao(currentJobId, planVersion);
+                }
+
                 SolverResponse solverResponse = solverClient.solve(request);
+                if (isPlanejamentoPreemptado(conn, currentJobId, solverJobsEnabled)) {
+                    throw new PlanejamentoPreemptadoException();
+                }
                 validarPoliticaTemporariaCamadaSecundaria(solverResponse);
                 Map<Integer, PedidoPlanejavel> pedidosPorId = indexarPedidosPorId(pedidosPlanejaveis);
 
@@ -138,16 +171,31 @@ public class RotaService {
                 }
 
                 conn.commit();
+                if (solverJobsEnabled) {
+                    finalizarSolverJob(currentJobId, "CONCLUIDO", null);
+                }
                 return new PlanejamentoResultado(
                         rotasCriadas,
                         entregasCriadas,
                         solverResponse.getNaoAtendidos().size());
+            } catch (PlanejamentoPreemptadoException e) {
+                conn.rollback();
+                if (solverJobsEnabled && currentJobId != null) {
+                    finalizarSolverJob(currentJobId, "CANCELADO", "Job preemptado por solicitacao mais recente");
+                }
+                return new PlanejamentoResultado(0, 0, 0);
             } catch (InterruptedException e) {
                 conn.rollback();
+                if (solverJobsEnabled && currentJobId != null) {
+                    finalizarSolverJob(currentJobId, "FALHOU", "Thread interrompida ao chamar solver");
+                }
                 Thread.currentThread().interrupt();
                 throw new IllegalStateException("Thread interrompida ao chamar solver", e);
             } catch (Exception e) {
                 conn.rollback();
+                if (solverJobsEnabled && currentJobId != null) {
+                    finalizarSolverJob(currentJobId, "FALHOU", e.getMessage());
+                }
                 throw new IllegalStateException("Falha ao planejar rotas", e);
             } finally {
                 if (currentJobId != null) {
@@ -508,6 +556,13 @@ public class RotaService {
         return hasColumn(conn, "rotas", "plan_version") && hasColumn(conn, "entregas", "plan_version");
     }
 
+    private boolean hasSolverJobsSchema(Connection conn) throws SQLException {
+        return hasTable(conn, "solver_jobs")
+                && hasColumn(conn, "solver_jobs", "job_id")
+                && hasColumn(conn, "solver_jobs", "status")
+                && hasColumn(conn, "solver_jobs", "cancel_requested");
+    }
+
     private boolean tentarAdquirirLockPlanejamento(Connection conn) throws SQLException {
         try (PreparedStatement stmt = conn.prepareStatement("SELECT pg_try_advisory_xact_lock(?)")) {
             stmt.setLong(1, PLANEJAMENTO_LOCK_KEY);
@@ -516,6 +571,16 @@ public class RotaService {
                     return false;
                 }
                 return rs.getBoolean(1);
+            }
+        }
+    }
+
+    private boolean hasTable(Connection conn, String tabela) throws SQLException {
+        String sql = "SELECT 1 FROM information_schema.tables WHERE table_name = ?";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, tabela);
+            try (ResultSet rs = stmt.executeQuery()) {
+                return rs.next();
             }
         }
     }
@@ -535,8 +600,125 @@ public class RotaService {
         return "job-plan-" + planVersion + "-" + UUID.randomUUID();
     }
 
+    private boolean isPlanejamentoPreemptado(Connection conn, String jobId, boolean solverJobsEnabled) throws SQLException {
+        if (!isCurrentJobActive(jobId)) {
+            return true;
+        }
+        if (!solverJobsEnabled) {
+            return false;
+        }
+        return isCancelamentoSolicitadoNoBanco(conn, jobId);
+    }
+
+    private boolean isCurrentJobActive(String jobId) {
+        if (jobId == null || jobId.isBlank()) {
+            return false;
+        }
+        return jobId.equals(activeJobId.get());
+    }
+
+    private boolean isCancelamentoSolicitadoNoBanco(Connection conn, String jobId) throws SQLException {
+        String sql = "SELECT cancel_requested, status::text FROM solver_jobs WHERE job_id = ?";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, jobId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (!rs.next()) {
+                    return false;
+                }
+                boolean cancelRequested = rs.getBoolean("cancel_requested");
+                String status = rs.getString("status");
+                return cancelRequested || "CANCELADO".equals(status);
+            }
+        }
+    }
+
+    private List<String> marcarCancelamentoSolicitadoEmJobsAtivos(Connection conn, int limite) throws SQLException {
+        String selectSql = "SELECT job_id FROM solver_jobs "
+                + "WHERE status::text IN ('PENDENTE', 'EM_EXECUCAO') "
+                + "AND cancel_requested = false "
+                + "ORDER BY solicitado_em DESC "
+                + "LIMIT ?";
+
+        List<String> jobIds = new ArrayList<>();
+        try (PreparedStatement stmt = conn.prepareStatement(selectSql)) {
+            stmt.setInt(1, Math.max(1, limite));
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    jobIds.add(rs.getString("job_id"));
+                }
+            }
+        }
+
+        if (jobIds.isEmpty()) {
+            return jobIds;
+        }
+
+        String updateSql = "UPDATE solver_jobs "
+                + "SET cancel_requested = true, status = ?, finalizado_em = CURRENT_TIMESTAMP "
+                + "WHERE job_id = ?";
+        try (PreparedStatement stmt = conn.prepareStatement(updateSql)) {
+            for (String jobId : jobIds) {
+                stmt.setObject(1, "CANCELADO", Types.OTHER);
+                stmt.setString(2, jobId);
+                stmt.addBatch();
+            }
+            stmt.executeBatch();
+        }
+
+        return jobIds;
+    }
+
+    private void registrarSolverJobEmExecucao(String jobId, long planVersion) throws SQLException {
+        try (Connection conn = connectionFactory.getConnection()) {
+            if (!hasSolverJobsSchema(conn)) {
+                return;
+            }
+            String sql = "INSERT INTO solver_jobs (job_id, plan_version, status, cancel_requested, solicitado_em, iniciado_em, finalizado_em, erro) "
+                    + "VALUES (?, ?, ?, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, NULL) "
+                    + "ON CONFLICT (job_id) DO UPDATE SET "
+                    + "plan_version = EXCLUDED.plan_version, "
+                    + "status = EXCLUDED.status, "
+                    + "cancel_requested = false, "
+                    + "solicitado_em = CURRENT_TIMESTAMP, "
+                    + "iniciado_em = CURRENT_TIMESTAMP, "
+                    + "finalizado_em = NULL, "
+                    + "erro = NULL";
+            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                stmt.setString(1, jobId);
+                stmt.setLong(2, planVersion);
+                stmt.setObject(3, "EM_EXECUCAO", Types.OTHER);
+                stmt.executeUpdate();
+            }
+        }
+    }
+
+    private void finalizarSolverJob(String jobId, String status, String erro) {
+        try (Connection conn = connectionFactory.getConnection()) {
+            if (!hasSolverJobsSchema(conn)) {
+                return;
+            }
+            String sql = "UPDATE solver_jobs "
+                    + "SET status = ?, finalizado_em = CURRENT_TIMESTAMP, erro = ?, "
+                    + "cancel_requested = CASE WHEN ? = 'CANCELADO' THEN true ELSE cancel_requested END "
+                    + "WHERE job_id = ?";
+            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                stmt.setObject(1, status, Types.OTHER);
+                stmt.setString(2, erro);
+                stmt.setString(3, status);
+                stmt.setString(4, jobId);
+                stmt.executeUpdate();
+            }
+        } catch (Exception ignored) {
+            // Melhor esforco para trilha operacional de jobs.
+        }
+    }
+
     private void clearActiveJob(String currentJobId) {
         activeJobId.compareAndSet(currentJobId, null);
+    }
+
+    private static final class PlanejamentoPreemptadoException extends RuntimeException {
+        private static final long serialVersionUID = 1L;
     }
 
     private record ConfiguracaoRoteirizacao(

@@ -88,7 +88,9 @@ public final class ApiServer {
         EventoOperacionalIdempotenciaService eventoOperacionalIdempotenciaService =
                 new EventoOperacionalIdempotenciaService(connectionFactory);
         ReplanejamentoWorkerService workerService = new ReplanejamentoWorkerService(
-                connectionFactory, capacidadePolicy -> rotaService.planejarRotasPendentes(capacidadePolicy));
+                connectionFactory,
+                capacidadePolicy -> rotaService.planejarRotasPendentes(capacidadePolicy),
+                rotaService::cancelarPlanejamentosAtivosBestEffort);
         PedidoTimelineService pedidoTimelineService = new PedidoTimelineService(connectionFactory);
         PedidoExecucaoService pedidoExecucaoService = new PedidoExecucaoService(connectionFactory);
         RoteiroEntregadorService roteiroEntregadorService = new RoteiroEntregadorService(connectionFactory);
