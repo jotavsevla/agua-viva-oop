@@ -117,11 +117,16 @@ class ExecucaoEntregaServiceTest {
     }
 
     private int criarRota(int entregadorId, String status) throws Exception {
+        return criarRota(entregadorId, status, 1);
+    }
+
+    private int criarRota(int entregadorId, String status, int numeroNoDia) throws Exception {
         try (Connection conn = factory.getConnection();
                 PreparedStatement stmt = conn.prepareStatement(
-                        "INSERT INTO rotas (entregador_id, data, numero_no_dia, status) VALUES (?, CURRENT_DATE, 1, ?) RETURNING id")) {
+                        "INSERT INTO rotas (entregador_id, data, numero_no_dia, status) VALUES (?, CURRENT_DATE, ?, ?) RETURNING id")) {
             stmt.setInt(1, entregadorId);
-            stmt.setObject(2, status, java.sql.Types.OTHER);
+            stmt.setInt(2, numeroNoDia);
+            stmt.setObject(3, status, java.sql.Types.OTHER);
             try (ResultSet rs = stmt.executeQuery()) {
                 rs.next();
                 return rs.getInt(1);
@@ -386,6 +391,50 @@ class ExecucaoEntregaServiceTest {
         assertEquals("EM_EXECUCAO", statusEntrega(entregaId));
         assertEquals("EM_ROTA", statusPedido(pedidoId));
         assertEquals(0, contarEventos(DispatchEventTypes.PEDIDO_ENTREGUE));
+    }
+
+    @Test
+    void deveIniciarProximaRotaProntaDoEntregadorComUmClique() throws Exception {
+        int atendenteId = criarAtendenteId("exec9@teste.com");
+        int entregadorId = criarEntregadorId("ent9@teste.com");
+        int clienteId1 = criarClienteId("(38) 99999-9114");
+        int pedido1 = criarPedido(clienteId1, atendenteId, PedidoStatus.CONFIRMADO);
+        int rotaPlanejada1 = criarRota(entregadorId, "PLANEJADA", 1);
+        int entrega1 = criarEntrega(pedido1, rotaPlanejada1, "PENDENTE");
+
+        ExecucaoEntregaResultado resultado = execucaoService.iniciarProximaRotaPronta(entregadorId);
+
+        assertFalse(resultado.idempotente());
+        assertEquals(rotaPlanejada1, resultado.rotaId());
+        assertEquals("EM_ANDAMENTO", statusRota(rotaPlanejada1));
+        assertEquals("EM_EXECUCAO", statusEntrega(entrega1));
+        assertEquals("EM_ROTA", statusPedido(pedido1));
+    }
+
+    @Test
+    void deveBloquearIniciarProximaRotaProntaQuandoJaExisteEmAndamento() throws Exception {
+        int atendenteId = criarAtendenteId("exec10@teste.com");
+        int entregadorId = criarEntregadorId("ent10@teste.com");
+        int clienteId = criarClienteId("(38) 99999-9116");
+        int pedidoId = criarPedido(clienteId, atendenteId, PedidoStatus.EM_ROTA);
+        int rotaEmAndamento = criarRota(entregadorId, "EM_ANDAMENTO", 1);
+        criarEntrega(pedidoId, rotaEmAndamento, "EM_EXECUCAO");
+
+        IllegalStateException ex =
+                assertThrows(IllegalStateException.class, () -> execucaoService.iniciarProximaRotaPronta(entregadorId));
+
+        assertTrue(ex.getMessage().contains("EM_ANDAMENTO"));
+        assertEquals("EM_ANDAMENTO", statusRota(rotaEmAndamento));
+    }
+
+    @Test
+    void deveBloquearIniciarProximaRotaProntaQuandoNaoExistePlanejada() throws Exception {
+        int entregadorId = criarEntregadorId("ent11@teste.com");
+
+        IllegalStateException ex =
+                assertThrows(IllegalStateException.class, () -> execucaoService.iniciarProximaRotaPronta(entregadorId));
+
+        assertTrue(ex.getMessage().contains("PLANEJADA"));
     }
 
     private boolean hasColumn(String tabela, String coluna) throws Exception {

@@ -555,6 +555,49 @@ class RotaServiceTest {
     }
 
     @Test
+    void deveEnviarCapacidadeCheiaQuandoPoliticaForPrimaria() throws Exception {
+        int atendenteId = criarAtendenteId("atendente-capacidade-cheia@teste.com");
+        int entregadorComExecucao = criarEntregadorId("entregador-capacidade-cheia-1@teste.com", true);
+        int entregadorLivre = criarEntregadorId("entregador-capacidade-cheia-2@teste.com", true);
+        int clienteExecucao = criarClienteComSaldo("(38) 99999-77120", 10);
+        int clienteNovo = criarClienteComSaldo("(38) 99999-77121", 10);
+
+        Pedido pedidoExecucao = pedidoRepository.save(new Pedido(clienteExecucao, 2, JanelaTipo.ASAP, null, null, atendenteId));
+        Pedido pedidoNovo = pedidoRepository.save(new Pedido(clienteNovo, 1, JanelaTipo.ASAP, null, null, atendenteId));
+        atualizarStatusPedido(pedidoExecucao.getId(), "EM_ROTA");
+
+        int rotaEmAndamento = inserirRotaComStatus(entregadorComExecucao, "EM_ANDAMENTO", 1);
+        inserirEntregaComStatus(pedidoExecucao.getId(), rotaEmAndamento, 1, "EM_EXECUCAO");
+
+        java.util.concurrent.atomic.AtomicReference<String> payloadSolver = new java.util.concurrent.atomic.AtomicReference<>("");
+        solverStub.setDynamicSolveHandler(requestBody -> {
+            payloadSolver.set(requestBody);
+            return """
+                    {
+                      "rotas": [
+                        {
+                          "entregador_id": %d,
+                          "numero_no_dia": 1,
+                          "paradas": [
+                            {"ordem": 1, "pedido_id": %d, "lat": -16.7310, "lon": -43.8710, "hora_prevista": "09:15"}
+                          ]
+                        }
+                      ],
+                      "nao_atendidos": []
+                    }
+                    """.formatted(entregadorLivre, pedidoNovo.getId());
+        });
+
+        PlanejamentoResultado resultado = criarService().planejarRotasPendentes(CapacidadePolicy.CHEIA);
+
+        assertEquals(1, resultado.rotasCriadas());
+        assertEquals(1, resultado.entregasCriadas());
+        assertEquals(1, solverStub.requestCount());
+        assertTrue(payloadSolver.get().contains("\"entregadores\":[" + entregadorComExecucao + "," + entregadorLivre + "]"));
+        assertTrue(payloadSolver.get().contains("\"capacidades_entregadores\":[5,5]"));
+    }
+
+    @Test
     void deveConsiderarPendentesDaRotaEmAndamentoNoCalculoDaCapacidadeRemanescente() throws Exception {
         int atendenteId = criarAtendenteId("atendente-capacidade-pendente@teste.com");
         int entregadorComCarga = criarEntregadorId("entregador-capacidade-pendente-1@teste.com", true);
@@ -1027,9 +1070,9 @@ class RotaServiceTest {
         RotaService service = criarService();
         ExecutorService executor = Executors.newFixedThreadPool(2);
         try {
-            Future<PlanejamentoResultado> primeira = executor.submit(service::planejarRotasPendentes);
+            Future<PlanejamentoResultado> primeira = executor.submit(() -> service.planejarRotasPendentes());
             aguardarAte(() -> solverStub.requestCount() == 1, 3000, "Primeira chamada nao iniciou o solver");
-            Future<PlanejamentoResultado> segunda = executor.submit(service::planejarRotasPendentes);
+            Future<PlanejamentoResultado> segunda = executor.submit(() -> service.planejarRotasPendentes());
 
             PlanejamentoResultado resultadoPrimeira = primeira.get(5, TimeUnit.SECONDS);
             PlanejamentoResultado resultadoSegunda = segunda.get(5, TimeUnit.SECONDS);
@@ -1086,7 +1129,7 @@ class RotaServiceTest {
         try {
             for (int i = 0; i < concorrencia; i++) {
                 RotaService alvo = (i % 2 == 0) ? instanciaA : instanciaB;
-                futures.add(executor.submit(alvo::planejarRotasPendentes));
+                futures.add(executor.submit(() -> alvo.planejarRotasPendentes()));
             }
 
             int resultadosComPlanejamento = 0;
@@ -1230,7 +1273,7 @@ class RotaServiceTest {
             List<Future<PlanejamentoResultado>> bloqueados = new ArrayList<>();
             for (int t = 0; t < threads; t++) {
                 RotaService service = criarService();
-                bloqueados.add(executor.submit(service::planejarRotasPendentes));
+                bloqueados.add(executor.submit(() -> service.planejarRotasPendentes()));
             }
 
             for (Future<PlanejamentoResultado> f : bloqueados) {
