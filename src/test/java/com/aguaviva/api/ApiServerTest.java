@@ -29,12 +29,19 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.sql.Connection;
-import java.sql.Timestamp;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.sql.Timestamp;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 import org.junit.jupiter.api.AfterAll;
@@ -1387,6 +1394,67 @@ class ApiServerTest {
         }
     }
 
+    @Test
+    void devePermitirApenasUmaInicializacaoConcorrenteNoOneClickViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-oneclick-concorrente-atendente@teste.com");
+        int entregadorId = criarEntregadorId("api-oneclick-concorrente-entregador@teste.com");
+        int clienteId = criarClienteId("(38) 99876-9550");
+        int pedidoId = criarPedidoDireto(clienteId, atendenteId, "CONFIRMADO", 1);
+        int rotaId = criarRota(entregadorId, "PLANEJADA");
+        int entregaId = criarEntrega(pedidoId, rotaId, "PENDENTE");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0, atendimentoService, execucaoService, replanejamentoService, pedidoTimelineService, eventoOperacionalIdempotenciaService, factory)) {
+            String payload = GSON.toJson(Map.of("entregadorId", entregadorId));
+            URI oneClickUri =
+                    URI.create("http://localhost:" + running.port() + "/api/operacao/rotas/prontas/iniciar");
+
+            ExecutorService executor = Executors.newFixedThreadPool(2);
+            CountDownLatch disparo = new CountDownLatch(1);
+
+            try {
+                List<Future<HttpResponse<String>>> futures = new ArrayList<>();
+                for (int i = 0; i < 2; i++) {
+                    futures.add(executor.submit(() -> {
+                        disparo.await(5, TimeUnit.SECONDS);
+                        return client.send(
+                                HttpRequest.newBuilder()
+                                        .uri(oneClickUri)
+                                        .header("Content-Type", "application/json")
+                                        .POST(HttpRequest.BodyPublishers.ofString(payload))
+                                        .build(),
+                                HttpResponse.BodyHandlers.ofString());
+                    }));
+                }
+
+                disparo.countDown();
+
+                int status200 = 0;
+                int status409 = 0;
+                for (Future<HttpResponse<String>> future : futures) {
+                    HttpResponse<String> resposta = future.get(10, TimeUnit.SECONDS);
+                    if (resposta.statusCode() == 200) {
+                        status200++;
+                    } else if (resposta.statusCode() == 409) {
+                        status409++;
+                    }
+                }
+
+                assertEquals(1, status200);
+                assertEquals(1, status409);
+            } finally {
+                executor.shutdownNow();
+            }
+
+            assertEquals("EM_ANDAMENTO", statusRota(rotaId));
+            assertEquals("EM_EXECUCAO", statusEntrega(entregaId));
+            assertEquals("EM_ROTA", statusPedido(pedidoId));
+            assertEquals(1, contarEventosPorTipo("ROTA_INICIADA"));
+            assertEquals(0, contarPedidosComMaisDeUmaEntregaAberta());
+        }
+    }
+
     private int contarLinhas(String tabela) throws Exception {
         try (Connection conn = factory.getConnection();
                 Statement stmt = conn.createStatement();
@@ -1488,6 +1556,23 @@ class ApiServerTest {
                 rs.next();
                 return rs.getInt(1);
             }
+        }
+    }
+
+    private int contarPedidosComMaisDeUmaEntregaAberta() throws Exception {
+        String sql = "SELECT COUNT(*) "
+                + "FROM ("
+                + "  SELECT e.pedido_id "
+                + "  FROM entregas e "
+                + "  WHERE e.status::text IN ('PENDENTE', 'EM_EXECUCAO') "
+                + "  GROUP BY e.pedido_id "
+                + "  HAVING COUNT(*) > 1"
+                + ") duplicados";
+        try (Connection conn = factory.getConnection();
+                PreparedStatement stmt = conn.prepareStatement(sql);
+                ResultSet rs = stmt.executeQuery()) {
+            rs.next();
+            return rs.getInt(1);
         }
     }
 
