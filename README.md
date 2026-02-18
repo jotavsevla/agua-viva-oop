@@ -22,7 +22,7 @@ Contexto consolidado desta rodada (M1/M2), com foco em robustez operacional e vi
 1. Evento terminal (`PEDIDO_ENTREGUE`, `PEDIDO_FALHOU`, `PEDIDO_CANCELADO`) so entra quando a entrega esta em `EM_EXECUCAO`; fora disso retorna `409` (bloqueio de transicao invalida).
 2. Repeticao de evento operacional com mesma chave (`externalEventId`) e mesmo payload nao duplica efeito; resposta volta `200` com marcacao idempotente.
 3. Reuso da mesma chave com payload diferente e bloqueado com `409`, impedindo divergencia logica para o mesmo evento externo.
-4. Fluxo operacional no prototipo roda sem fallback silencioso para mock em eventos/replanejamento; o estado visivel vem do banco real de teste.
+4. Fluxo operacional no prototipo roda sem fallback silencioso para mock; o estado visivel vem do banco real de teste.
 5. Leitura operacional para despacho consolidada com endpoints reais (`/api/operacao/painel`, `/api/operacao/eventos`, `/api/operacao/mapa`) para evidenciar fila `PENDENTE/CONFIRMADO/EM_ROTA` e rotas de trabalho.
 
 ### Questoes tecnicas sanadas que afetavam a regra
@@ -435,7 +435,7 @@ Testam interacao com PostgreSQL real (porta 5435, tmpfs, dados em memoria).
 | AtendimentoTelefonicoServiceTest | 11 | Entrada telefonica/manual idempotente por `external_call_id`, regra de vale, reaproveitamento de pedido ativo |
 | ExecucaoEntregaServiceTest | 12 | Eventos operacionais + debito de vale + idempotencia de eventos terminais + bloqueio de estado invalido |
 | ReplanejamentoWorkerServiceTest | 5 | Coalescencia por debounce + lock distribuido + trigger seletivo por tipo de evento |
-| ApiServerTest | 28 | Contrato HTTP completo (atendimento, eventos com idempotencia/409, CORS, vale, replanejamento, timeline, execucao, roteiro, painel, feed e mapa operacional) |
+| ApiServerTest | 28 | Contrato HTTP completo (atendimento, eventos com idempotencia/409, endpoint manual desativado, one-click de rota pronta, CORS, vale, timeline, execucao, roteiro, painel, feed e mapa operacional) |
 
 ### Testes JS unit (15)
 
@@ -454,8 +454,8 @@ Loop operacional ponta-a-ponta: UI → API HTTP → service → banco real.
 | Teste | Caminho exercitado | Status esperado |
 | ----- | ------------------ | --------------- |
 | cenario feliz | atendimento → rota → entrega → timeline | ENTREGUE |
-| cenario falha | atendimento → rota → falha → replanejamento → timeline | CANCELADO |
-| cenario cancelamento | atendimento → rota → cancelamento → replanejamento → timeline | CANCELADO |
+| cenario falha | atendimento → roteirizacao por evento → rota → falha → timeline | CANCELADO |
+| cenario cancelamento | atendimento → roteirizacao por evento → rota → cancelamento → timeline | CANCELADO |
 | vale com saldo | POST atendimento VALE + saldo suficiente | HTTP 200 |
 | vale sem saldo | POST atendimento VALE + saldo zero | HTTP 400 |
 
@@ -514,7 +514,7 @@ agua-viva/
 │   ├── main/java/com/aguaviva/
 │   │   ├── App.java                    # Entry point (health check)
 │   │   ├── api/
-│   │   │   └── ApiServer.java          # API HTTP nativa (atendimento/eventos/replanejamento)
+│   │   │   └── ApiServer.java          # API HTTP nativa (atendimento/eventos + operacao one-click)
 │   │   ├── domain/
 │   │   │   ├── user/
 │   │   │   │   ├── Password.java       # Value Object — hash, compare, validate
@@ -709,7 +709,7 @@ PBF_URL=https://seu-storage/operacao-zona-sul.osm.pbf ./prepare.sh
 OSRM_DATASET=operacao-zona-sul docker compose up -d osrm solver
 ```
 
-### Subir API Java (atendimento/eventos/replanejamento)
+### Subir API Java (atendimento/eventos + operacao one-click)
 
 ```bash
 # com solver ja disponivel em http://localhost:8080
@@ -721,7 +721,8 @@ Endpoints:
 - `GET /health`
 - `POST /api/atendimento/pedidos`
 - `POST /api/eventos`
-- `POST /api/replanejamento/run`
+- `POST /api/replanejamento/run` (desativado, retorna `409`)
+- `POST /api/operacao/rotas/prontas/iniciar`
 - `GET /api/pedidos/{pedidoId}/timeline`
 - `GET /api/pedidos/{pedidoId}/execucao`
 - `GET /api/entregadores/{entregadorId}/roteiro`
