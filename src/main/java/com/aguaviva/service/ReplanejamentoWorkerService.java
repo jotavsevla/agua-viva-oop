@@ -27,7 +27,8 @@ public class ReplanejamentoWorkerService {
             ConnectionFactory connectionFactory, Supplier<PlanejamentoResultado> replanejamentoExecutor) {
         this(
                 connectionFactory,
-                capacidadePolicy -> Objects.requireNonNull(replanejamentoExecutor, "ReplanejamentoExecutor nao pode ser nulo")
+                capacidadePolicy -> Objects.requireNonNull(
+                                replanejamentoExecutor, "ReplanejamentoExecutor nao pode ser nulo")
                         .get(),
                 new DispatchEventService(),
                 () -> {});
@@ -116,8 +117,10 @@ public class ReplanejamentoWorkerService {
                     return WorkerAttempt.withResult(new ReplanejamentoWorkerResultado(0, false, 0, 0, 0));
                 }
 
-                ReplanejamentoPolicyMatrix.ReplanejamentoEventPolicy politicaLote = ReplanejamentoPolicyMatrix.consolidate(
-                        eventos.stream().map(DispatchEventRef::eventType).toList());
+                ReplanejamentoPolicyMatrix.ReplanejamentoEventPolicy politicaLote =
+                        ReplanejamentoPolicyMatrix.consolidate(eventos.stream()
+                                .map(DispatchEventRef::eventType)
+                                .toList());
                 boolean deveReplanejar = politicaLote.replaneja();
 
                 PlanejamentoResultado planejamento = new PlanejamentoResultado(0, 0, 0);

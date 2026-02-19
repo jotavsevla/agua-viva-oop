@@ -26,7 +26,8 @@ public final class SolverClient {
         this.solverUrl = solverUrl;
         // FastAPI/Uvicorn em HTTP claro pode rejeitar corpo quando o client tenta upgrade h2c.
         // Forcamos HTTP/1.1 para evitar perda de body e garantir compatibilidade.
-        this.httpClient = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build();
+        this.httpClient =
+                HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1).build();
         this.gson = new GsonBuilder()
                 .setFieldNamingPolicy(FieldNamingPolicy.LOWER_CASE_WITH_UNDERSCORES)
                 .create();

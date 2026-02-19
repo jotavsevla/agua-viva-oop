@@ -1,8 +1,8 @@
 package com.aguaviva.repository;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.junit.jupiter.api.Assertions.assertEquals;
 
 import java.sql.Connection;
 import java.sql.ResultSet;
@@ -76,16 +76,14 @@ class ConnectionFactoryTest {
 
     @Test
     void deveUsarDotEnvQuandoRuntimeNaoEstiverDefinido() {
-        ConnectionFactory.DatabaseConfig config = ConnectionFactory.resolveConfig(
-                Map.of(),
-                key -> switch (key) {
-                    case "POSTGRES_HOST" -> "dotenv-host";
-                    case "POSTGRES_PORT" -> "5555";
-                    case "POSTGRES_DB" -> "dotenv_db";
-                    case "POSTGRES_USER" -> "dotenv_user";
-                    case "POSTGRES_PASSWORD" -> "dotenv_pwd";
-                    default -> null;
-                });
+        ConnectionFactory.DatabaseConfig config = ConnectionFactory.resolveConfig(Map.of(), key -> switch (key) {
+            case "POSTGRES_HOST" -> "dotenv-host";
+            case "POSTGRES_PORT" -> "5555";
+            case "POSTGRES_DB" -> "dotenv_db";
+            case "POSTGRES_USER" -> "dotenv_user";
+            case "POSTGRES_PASSWORD" -> "dotenv_pwd";
+            default -> null;
+        });
 
         assertEquals("dotenv-host", config.host());
         assertEquals("5555", config.port());

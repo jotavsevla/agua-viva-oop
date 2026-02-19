@@ -2,10 +2,10 @@ package com.aguaviva.solver;
 
 import static org.junit.jupiter.api.Assertions.*;
 
-import com.sun.net.httpserver.HttpServer;
 import com.google.gson.FieldNamingPolicy;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.sun.net.httpserver.HttpServer;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
@@ -296,14 +296,12 @@ class SolverClientTest {
                 status = 422;
                 responseBody = """
                         {"detail":[{"type":"missing","loc":["body"],"msg":"Field required","input":null}]}
-                        """
-                        .getBytes(StandardCharsets.UTF_8);
+                        """.getBytes(StandardCharsets.UTF_8);
             } else {
                 status = 200;
                 responseBody = """
                         {"rotas":[],"nao_atendidos":[]}
-                        """
-                        .getBytes(StandardCharsets.UTF_8);
+                        """.getBytes(StandardCharsets.UTF_8);
             }
             exchange.getResponseHeaders().add("Content-Type", "application/json");
             exchange.sendResponseHeaders(status, responseBody.length);

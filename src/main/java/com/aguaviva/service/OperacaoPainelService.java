@@ -24,20 +24,14 @@ public class OperacaoPainelService {
         try (Connection conn = connectionFactory.getConnection()) {
             String ambiente = resolverAmbiente(conn);
             PedidosPorStatus pedidosPorStatus = consultarPedidosPorStatus(conn);
-            RotasResumo rotas = new RotasResumo(
-                    consultarRotasEmAndamento(conn),
-                    consultarRotasPlanejadas(conn));
+            RotasResumo rotas = new RotasResumo(consultarRotasEmAndamento(conn), consultarRotasPlanejadas(conn));
             FilasResumo filas = new FilasResumo(
                     consultarPendentesElegiveis(conn),
                     consultarConfirmadosSecundaria(conn),
                     consultarEmRotaPrimaria(conn));
 
             return new OperacaoPainelResultado(
-                    LocalDateTime.now().toString(),
-                    ambiente,
-                    pedidosPorStatus,
-                    rotas,
-                    filas);
+                    LocalDateTime.now().toString(), ambiente, pedidosPorStatus, rotas, filas);
         } catch (SQLException e) {
             throw new IllegalStateException("Falha ao consultar painel operacional", e);
         }
@@ -119,9 +113,7 @@ public class OperacaoPainelService {
                 ResultSet rs = stmt.executeQuery()) {
             while (rs.next()) {
                 result.add(new RotaPlanejadaResumo(
-                        rs.getInt("rota_id"),
-                        rs.getInt("entregador_id"),
-                        rs.getInt("pendentes")));
+                        rs.getInt("rota_id"), rs.getInt("entregador_id"), rs.getInt("pendentes")));
             }
         }
         return result;

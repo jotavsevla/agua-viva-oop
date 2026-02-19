@@ -119,10 +119,11 @@ public class RotaService {
                     return new PlanejamentoResultado(0, 0, 0);
                 }
 
-                List<Integer> capacidadesEntregadores =
-                        calcularCapacidadesPorPolitica(
-                                conn, entregadoresAtivos, cfg.capacidadeVeiculo(), capacidadeResolvida);
-                int capacidadeLivreTotal = capacidadesEntregadores.stream().mapToInt(Integer::intValue).sum();
+                List<Integer> capacidadesEntregadores = calcularCapacidadesPorPolitica(
+                        conn, entregadoresAtivos, cfg.capacidadeVeiculo(), capacidadeResolvida);
+                int capacidadeLivreTotal = capacidadesEntregadores.stream()
+                        .mapToInt(Integer::intValue)
+                        .sum();
 
                 if (!existePedidoSemEntregaAbertaParaPlanejar(conn)) {
                     conn.commit();
@@ -253,7 +254,8 @@ public class RotaService {
         return ids;
     }
 
-    private List<PedidoPlanejavel> buscarPedidosParaSolver(Connection conn, int capacidadeLivreTotal) throws SQLException {
+    private List<PedidoPlanejavel> buscarPedidosParaSolver(Connection conn, int capacidadeLivreTotal)
+            throws SQLException {
         // FIFO global (criado_em, id): PENDENTE elegivel + CONFIRMADO sem entrega aberta.
         String sql = "SELECT "
                 + "p.id AS pedido_id, "
@@ -607,7 +609,8 @@ public class RotaService {
         return "job-plan-" + planVersion + "-" + UUID.randomUUID();
     }
 
-    private boolean isPlanejamentoPreemptado(Connection conn, String jobId, boolean solverJobsEnabled) throws SQLException {
+    private boolean isPlanejamentoPreemptado(Connection conn, String jobId, boolean solverJobsEnabled)
+            throws SQLException {
         if (!isCurrentJobActive(jobId)) {
             return true;
         }
@@ -675,35 +678,38 @@ public class RotaService {
         return jobIds;
     }
 
-    private void registrarSolverJobEmExecucao(String jobId, long planVersion, SolverRequest request) throws SQLException {
+    private void registrarSolverJobEmExecucao(String jobId, long planVersion, SolverRequest request)
+            throws SQLException {
         try (Connection conn = connectionFactory.getConnection()) {
             if (!hasSolverJobsSchema(conn)) {
                 return;
             }
             boolean hasRequestPayload = hasColumn(conn, "solver_jobs", "request_payload");
             String requestPayload = gson.toJson(request);
-            String sql = "INSERT INTO solver_jobs (job_id, plan_version, status, cancel_requested, solicitado_em, iniciado_em, finalizado_em, erro) "
-                    + "VALUES (?, ?, ?, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, NULL) "
-                    + "ON CONFLICT (job_id) DO UPDATE SET "
-                    + "plan_version = EXCLUDED.plan_version, "
-                    + "status = EXCLUDED.status, "
-                    + "cancel_requested = false, "
-                    + "solicitado_em = CURRENT_TIMESTAMP, "
-                    + "iniciado_em = CURRENT_TIMESTAMP, "
-                    + "finalizado_em = NULL, "
-                    + "erro = NULL";
+            String sql =
+                    "INSERT INTO solver_jobs (job_id, plan_version, status, cancel_requested, solicitado_em, iniciado_em, finalizado_em, erro) "
+                            + "VALUES (?, ?, ?, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, NULL) "
+                            + "ON CONFLICT (job_id) DO UPDATE SET "
+                            + "plan_version = EXCLUDED.plan_version, "
+                            + "status = EXCLUDED.status, "
+                            + "cancel_requested = false, "
+                            + "solicitado_em = CURRENT_TIMESTAMP, "
+                            + "iniciado_em = CURRENT_TIMESTAMP, "
+                            + "finalizado_em = NULL, "
+                            + "erro = NULL";
             if (hasRequestPayload) {
-                sql = "INSERT INTO solver_jobs (job_id, plan_version, status, cancel_requested, solicitado_em, iniciado_em, finalizado_em, erro, request_payload) "
-                        + "VALUES (?, ?, ?, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, NULL, CAST(? AS jsonb)) "
-                        + "ON CONFLICT (job_id) DO UPDATE SET "
-                        + "plan_version = EXCLUDED.plan_version, "
-                        + "status = EXCLUDED.status, "
-                        + "cancel_requested = false, "
-                        + "solicitado_em = CURRENT_TIMESTAMP, "
-                        + "iniciado_em = CURRENT_TIMESTAMP, "
-                        + "finalizado_em = NULL, "
-                        + "erro = NULL, "
-                        + "request_payload = EXCLUDED.request_payload";
+                sql =
+                        "INSERT INTO solver_jobs (job_id, plan_version, status, cancel_requested, solicitado_em, iniciado_em, finalizado_em, erro, request_payload) "
+                                + "VALUES (?, ?, ?, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, NULL, CAST(? AS jsonb)) "
+                                + "ON CONFLICT (job_id) DO UPDATE SET "
+                                + "plan_version = EXCLUDED.plan_version, "
+                                + "status = EXCLUDED.status, "
+                                + "cancel_requested = false, "
+                                + "solicitado_em = CURRENT_TIMESTAMP, "
+                                + "iniciado_em = CURRENT_TIMESTAMP, "
+                                + "finalizado_em = NULL, "
+                                + "erro = NULL, "
+                                + "request_payload = EXCLUDED.request_payload";
             }
             try (PreparedStatement stmt = conn.prepareStatement(sql)) {
                 stmt.setString(1, jobId);

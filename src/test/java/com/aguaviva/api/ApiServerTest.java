@@ -3,7 +3,6 @@ package com.aguaviva.api;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
-import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.aguaviva.domain.cliente.Cliente;
@@ -16,8 +15,8 @@ import com.aguaviva.repository.ConnectionFactory;
 import com.aguaviva.repository.UserRepository;
 import com.aguaviva.service.AtendimentoTelefonicoResultado;
 import com.aguaviva.service.AtendimentoTelefonicoService;
-import com.aguaviva.service.ExecucaoEntregaService;
 import com.aguaviva.service.EventoOperacionalIdempotenciaService;
+import com.aguaviva.service.ExecucaoEntregaService;
 import com.aguaviva.service.PedidoTimelineService;
 import com.aguaviva.service.PlanejamentoResultado;
 import com.aguaviva.service.ReplanejamentoWorkerService;
@@ -174,7 +173,13 @@ class ApiServerTest {
         HttpClient client = HttpClient.newHttpClient();
 
         try (ApiServer.RunningServer running = ApiServer.startForTests(
-                0, atendimentoService, execucaoService, replanejamentoService, pedidoTimelineService, eventoOperacionalIdempotenciaService, factory)) {
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
             String payload = GSON.toJson(
                     Map.of("telefone", "(38) 99876-9001", "quantidadeGaloes", 2, "atendenteId", atendenteId));
 
@@ -217,7 +222,13 @@ class ApiServerTest {
         HttpClient client = HttpClient.newHttpClient();
 
         try (ApiServer.RunningServer running = ApiServer.startForTests(
-                0, atendimentoService, execucaoService, replanejamentoService, pedidoTimelineService, eventoOperacionalIdempotenciaService, factory)) {
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
             HttpResponse<String> resposta = client.send(
                     HttpRequest.newBuilder()
                             .uri(URI.create("http://localhost:" + running.port() + "/health"))
@@ -232,13 +243,11 @@ class ApiServerTest {
             assertEquals(
                     "*",
                     resposta.headers().firstValue("Access-Control-Allow-Origin").orElse(null));
-            assertTrue(resposta
-                    .headers()
+            assertTrue(resposta.headers()
                     .firstValue("Access-Control-Allow-Methods")
                     .orElse("")
                     .contains("GET"));
-            assertTrue(resposta
-                    .headers()
+            assertTrue(resposta.headers()
                     .firstValue("Access-Control-Allow-Headers")
                     .orElse("")
                     .toLowerCase()
@@ -251,7 +260,13 @@ class ApiServerTest {
         HttpClient client = HttpClient.newHttpClient();
 
         try (ApiServer.RunningServer running = ApiServer.startForTests(
-                0, atendimentoService, execucaoService, replanejamentoService, pedidoTimelineService, eventoOperacionalIdempotenciaService, factory)) {
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
             HttpResponse<String> resposta = client.send(
                     HttpRequest.newBuilder()
                             .uri(URI.create("http://localhost:" + running.port() + "/health"))
@@ -273,7 +288,13 @@ class ApiServerTest {
         HttpClient client = HttpClient.newHttpClient();
 
         try (ApiServer.RunningServer running = ApiServer.startForTests(
-                0, atendimentoService, execucaoService, replanejamentoService, pedidoTimelineService, eventoOperacionalIdempotenciaService, factory)) {
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
             String payload = GSON.toJson(Map.of(
                     "externalCallId",
                     "call-api-001",
@@ -322,7 +343,13 @@ class ApiServerTest {
         HttpClient client = HttpClient.newHttpClient();
 
         try (ApiServer.RunningServer running = ApiServer.startForTests(
-                0, atendimentoService, execucaoService, replanejamentoService, pedidoTimelineService, eventoOperacionalIdempotenciaService, factory)) {
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
             String payload = GSON.toJson(Map.of(
                     "externalCallId",
                     "call-api-vale-001",
@@ -364,7 +391,13 @@ class ApiServerTest {
 
         HttpClient client = HttpClient.newHttpClient();
         try (ApiServer.RunningServer running = ApiServer.startForTests(
-                0, atendimentoService, execucaoService, replanejamentoService, pedidoTimelineService, eventoOperacionalIdempotenciaService, factory)) {
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
             String payload = GSON.toJson(
                     Map.of("externalEventId", "evt-api-001", "eventType", "PEDIDO_ENTREGUE", "entregaId", entregaId));
 
@@ -410,7 +443,13 @@ class ApiServerTest {
 
         HttpClient client = HttpClient.newHttpClient();
         try (ApiServer.RunningServer running = ApiServer.startForTests(
-                0, atendimentoService, execucaoService, replanejamentoService, pedidoTimelineService, eventoOperacionalIdempotenciaService, factory)) {
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
             String primeiraPayload = GSON.toJson(Map.of(
                     "externalEventId",
                     "evt-api-002",
@@ -466,7 +505,13 @@ class ApiServerTest {
 
         HttpClient client = HttpClient.newHttpClient();
         try (ApiServer.RunningServer running = ApiServer.startForTests(
-                0, atendimentoService, execucaoService, replanejamentoService, pedidoTimelineService, eventoOperacionalIdempotenciaService, factory)) {
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
             String entreguePayload = GSON.toJson(Map.of("eventType", "PEDIDO_ENTREGUE", "entregaId", entregaId));
             HttpResponse<String> primeira = client.send(
                     HttpRequest.newBuilder()
@@ -476,13 +521,8 @@ class ApiServerTest {
                             .build(),
                     HttpResponse.BodyHandlers.ofString());
 
-            String canceladoPayload = GSON.toJson(Map.of(
-                    "eventType",
-                    "PEDIDO_CANCELADO",
-                    "entregaId",
-                    entregaId,
-                    "motivo",
-                    "cliente cancelou"));
+            String canceladoPayload = GSON.toJson(
+                    Map.of("eventType", "PEDIDO_CANCELADO", "entregaId", entregaId, "motivo", "cliente cancelou"));
             HttpResponse<String> segunda = client.send(
                     HttpRequest.newBuilder()
                             .uri(URI.create("http://localhost:" + running.port() + "/api/eventos"))
@@ -516,7 +556,13 @@ class ApiServerTest {
 
         HttpClient client = HttpClient.newHttpClient();
         try (ApiServer.RunningServer running = ApiServer.startForTests(
-                0, atendimentoService, execucaoService, replanejamentoService, pedidoTimelineService, eventoOperacionalIdempotenciaService, factory)) {
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
             String payload = GSON.toJson(Map.of("eventType", "PEDIDO_ENTREGUE", "entregaId", entregaId));
             HttpResponse<String> resposta = client.send(
                     HttpRequest.newBuilder()
@@ -552,7 +598,8 @@ class ApiServerTest {
                 execucaoService,
                 replanejamentoService,
                 pedidoTimelineService,
-                eventoOperacionalIdempotenciaService, factory)) {
+                eventoOperacionalIdempotenciaService,
+                factory)) {
             String payload = GSON.toJson(Map.of("eventType", "PEDIDO_ENTREGUE", "entregaId", entregaId));
             HttpResponse<String> resposta = client.send(
                     HttpRequest.newBuilder()
@@ -591,9 +638,10 @@ class ApiServerTest {
                 execucaoService,
                 replanejamentoService,
                 pedidoTimelineService,
-                eventoOperacionalIdempotenciaService, factory)) {
-            String payload = GSON.toJson(Map.of(
-                    "eventType", "ROTA_INICIADA", "rotaId", rotaId, "actorEntregadorId", outroEntregador));
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String payload = GSON.toJson(
+                    Map.of("eventType", "ROTA_INICIADA", "rotaId", rotaId, "actorEntregadorId", outroEntregador));
             HttpResponse<String> resposta = client.send(
                     HttpRequest.newBuilder()
                             .uri(URI.create("http://localhost:" + running.port() + "/api/eventos"))
@@ -630,7 +678,8 @@ class ApiServerTest {
                 execucaoService,
                 replanejamentoService,
                 pedidoTimelineService,
-                eventoOperacionalIdempotenciaService, factory)) {
+                eventoOperacionalIdempotenciaService,
+                factory)) {
             String payload = GSON.toJson(Map.of(
                     "eventType", "PEDIDO_ENTREGUE", "entregaId", entregaId, "actorEntregadorId", outroEntregador));
             HttpResponse<String> resposta = client.send(
@@ -673,11 +722,12 @@ class ApiServerTest {
                 execucaoService,
                 replanejamentoService,
                 pedidoTimelineService,
-                eventoOperacionalIdempotenciaService, factory)) {
+                eventoOperacionalIdempotenciaService,
+                factory)) {
             HttpResponse<String> resposta = client.send(
                     HttpRequest.newBuilder()
-                            .uri(URI.create(
-                                    "http://localhost:" + running.port() + "/api/entregadores/" + entregadorId + "/roteiro"))
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/entregadores/" + entregadorId
+                                    + "/roteiro"))
                             .GET()
                             .build(),
                     HttpResponse.BodyHandlers.ofString());
@@ -687,7 +737,9 @@ class ApiServerTest {
             assertEquals(entregadorId, payload.get("entregadorId").getAsInt());
             assertTrue(payload.has("rota"));
             assertEquals(rotaId, payload.getAsJsonObject("rota").get("rotaId").getAsInt());
-            assertEquals("EM_ANDAMENTO", payload.getAsJsonObject("rota").get("status").getAsString());
+            assertEquals(
+                    "EM_ANDAMENTO",
+                    payload.getAsJsonObject("rota").get("status").getAsString());
             assertEquals(3, payload.get("cargaRemanescente").getAsInt());
 
             JsonArray pendentesExecucao = payload.getAsJsonArray("paradasPendentesExecucao");
@@ -708,11 +760,12 @@ class ApiServerTest {
                 execucaoService,
                 replanejamentoService,
                 pedidoTimelineService,
-                eventoOperacionalIdempotenciaService, factory)) {
+                eventoOperacionalIdempotenciaService,
+                factory)) {
             HttpResponse<String> resposta = client.send(
                     HttpRequest.newBuilder()
-                            .uri(URI.create(
-                                    "http://localhost:" + running.port() + "/api/entregadores/" + entregadorId + "/roteiro"))
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/entregadores/" + entregadorId
+                                    + "/roteiro"))
                             .GET()
                             .build(),
                     HttpResponse.BodyHandlers.ofString());
@@ -768,21 +821,30 @@ class ApiServerTest {
             JsonObject payload = GSON.fromJson(resposta.body(), JsonObject.class);
 
             assertEquals(200, resposta.statusCode());
-            assertEquals(1, payload.getAsJsonObject("pedidosPorStatus").get("pendente").getAsInt());
-            assertEquals(1, payload.getAsJsonObject("pedidosPorStatus").get("confirmado").getAsInt());
-            assertEquals(1, payload.getAsJsonObject("pedidosPorStatus").get("emRota").getAsInt());
-            assertEquals(1, payload.getAsJsonObject("pedidosPorStatus").get("entregue").getAsInt());
-            assertEquals(1, payload.getAsJsonObject("pedidosPorStatus").get("cancelado").getAsInt());
+            assertEquals(
+                    1,
+                    payload.getAsJsonObject("pedidosPorStatus").get("pendente").getAsInt());
+            assertEquals(
+                    1,
+                    payload.getAsJsonObject("pedidosPorStatus")
+                            .get("confirmado")
+                            .getAsInt());
+            assertEquals(
+                    1, payload.getAsJsonObject("pedidosPorStatus").get("emRota").getAsInt());
+            assertEquals(
+                    1,
+                    payload.getAsJsonObject("pedidosPorStatus").get("entregue").getAsInt());
+            assertEquals(
+                    1,
+                    payload.getAsJsonObject("pedidosPorStatus").get("cancelado").getAsInt());
 
             JsonArray rotasEmAndamento = payload.getAsJsonObject("rotas").getAsJsonArray("emAndamento");
             JsonArray rotasPlanejadas = payload.getAsJsonObject("rotas").getAsJsonArray("planejadas");
             assertEquals(1, rotasEmAndamento.size());
             assertEquals(1, rotasPlanejadas.size());
 
-            JsonArray pendentesElegiveis =
-                    payload.getAsJsonObject("filas").getAsJsonArray("pendentesElegiveis");
-            JsonArray confirmadosSecundaria =
-                    payload.getAsJsonObject("filas").getAsJsonArray("confirmadosSecundaria");
+            JsonArray pendentesElegiveis = payload.getAsJsonObject("filas").getAsJsonArray("pendentesElegiveis");
+            JsonArray confirmadosSecundaria = payload.getAsJsonObject("filas").getAsJsonArray("confirmadosSecundaria");
             JsonArray emRotaPrimaria = payload.getAsJsonObject("filas").getAsJsonArray("emRotaPrimaria");
             assertTrue(contemPedido(pendentesElegiveis, pedidoPendente));
             assertTrue(contemPedido(confirmadosSecundaria, pedidoConfirmado));
@@ -905,8 +967,12 @@ class ApiServerTest {
             assertEquals(200, resposta.statusCode());
             JsonArray eventos = payload.getAsJsonArray("eventos");
             assertEquals(2, eventos.size());
-            assertEquals("PEDIDO_ENTREGUE", eventos.get(0).getAsJsonObject().get("eventType").getAsString());
-            assertEquals("PEDIDO_FALHOU", eventos.get(1).getAsJsonObject().get("eventType").getAsString());
+            assertEquals(
+                    "PEDIDO_ENTREGUE",
+                    eventos.get(0).getAsJsonObject().get("eventType").getAsString());
+            assertEquals(
+                    "PEDIDO_FALHOU",
+                    eventos.get(1).getAsJsonObject().get("eventType").getAsString());
         }
     }
 
@@ -966,8 +1032,8 @@ class ApiServerTest {
                 factory)) {
             HttpResponse<String> resposta = client.send(
                     HttpRequest.newBuilder()
-                            .uri(URI.create(
-                                    "http://localhost:" + running.port() + "/api/operacao/replanejamento/jobs?limite=1"))
+                            .uri(URI.create("http://localhost:" + running.port()
+                                    + "/api/operacao/replanejamento/jobs?limite=1"))
                             .GET()
                             .build(),
                     HttpResponse.BodyHandlers.ofString());
@@ -1001,8 +1067,8 @@ class ApiServerTest {
                 factory)) {
             HttpResponse<String> resposta = client.send(
                     HttpRequest.newBuilder()
-                            .uri(URI.create(
-                                    "http://localhost:" + running.port() + "/api/operacao/replanejamento/jobs?limite=201"))
+                            .uri(URI.create("http://localhost:" + running.port()
+                                    + "/api/operacao/replanejamento/jobs?limite=201"))
                             .GET()
                             .build(),
                     HttpResponse.BodyHandlers.ofString());
@@ -1026,8 +1092,8 @@ class ApiServerTest {
                 factory)) {
             HttpResponse<String> resposta = client.send(
                     HttpRequest.newBuilder()
-                            .uri(URI.create(
-                                    "http://localhost:" + running.port() + "/api/operacao/replanejamento/jobs?limite=0"))
+                            .uri(URI.create("http://localhost:" + running.port()
+                                    + "/api/operacao/replanejamento/jobs?limite=0"))
                             .GET()
                             .build(),
                     HttpResponse.BodyHandlers.ofString());
@@ -1051,8 +1117,7 @@ class ApiServerTest {
                 factory)) {
             HttpResponse<String> resposta = client.send(
                     HttpRequest.newBuilder()
-                            .uri(URI.create(
-                                    "http://localhost:" + running.port() + "/api/operacao/replanejamento/jobs"))
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/operacao/replanejamento/jobs"))
                             .GET()
                             .build(),
                     HttpResponse.BodyHandlers.ofString());
@@ -1096,8 +1161,8 @@ class ApiServerTest {
                 factory)) {
             HttpResponse<String> resposta = client.send(
                     HttpRequest.newBuilder()
-                            .uri(URI.create(
-                                    "http://localhost:" + running.port() + "/api/operacao/replanejamento/jobs/" + jobId))
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/operacao/replanejamento/jobs/"
+                                    + jobId))
                             .GET()
                             .build(),
                     HttpResponse.BodyHandlers.ofString());
@@ -1144,8 +1209,8 @@ class ApiServerTest {
                 factory)) {
             HttpResponse<String> resposta = client.send(
                     HttpRequest.newBuilder()
-                            .uri(URI.create(
-                                    "http://localhost:" + running.port() + "/api/operacao/replanejamento/jobs/job-inexistente"))
+                            .uri(URI.create("http://localhost:" + running.port()
+                                    + "/api/operacao/replanejamento/jobs/job-inexistente"))
                             .GET()
                             .build(),
                     HttpResponse.BodyHandlers.ofString());
@@ -1175,7 +1240,8 @@ class ApiServerTest {
                 execucaoService,
                 replanejamentoService,
                 pedidoTimelineService,
-                eventoOperacionalIdempotenciaService, factory)) {
+                eventoOperacionalIdempotenciaService,
+                factory)) {
             HttpResponse<String> resposta = client.send(
                     HttpRequest.newBuilder()
                             .uri(URI.create(
@@ -1205,7 +1271,8 @@ class ApiServerTest {
                 execucaoService,
                 replanejamentoService,
                 pedidoTimelineService,
-                eventoOperacionalIdempotenciaService, factory)) {
+                eventoOperacionalIdempotenciaService,
+                factory)) {
             HttpResponse<String> resposta = client.send(
                     HttpRequest.newBuilder()
                             .uri(URI.create("http://localhost:" + running.port() + "/api/pedidos/999999/execucao"))
@@ -1237,7 +1304,13 @@ class ApiServerTest {
 
         HttpClient client = HttpClient.newHttpClient();
         try (ApiServer.RunningServer running = ApiServer.startForTests(
-                0, atendimentoService, execucaoService, replanejamentoService, pedidoTimelineService, eventoOperacionalIdempotenciaService, factory)) {
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
             HttpResponse<String> resposta = client.send(
                     HttpRequest.newBuilder()
                             .uri(URI.create(
@@ -1264,7 +1337,13 @@ class ApiServerTest {
     void deveRetornar404QuandoPedidoNaoExisteNaTimelineViaHttp() throws Exception {
         HttpClient client = HttpClient.newHttpClient();
         try (ApiServer.RunningServer running = ApiServer.startForTests(
-                0, atendimentoService, execucaoService, replanejamentoService, pedidoTimelineService, eventoOperacionalIdempotenciaService, factory)) {
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
             HttpResponse<String> resposta = client.send(
                     HttpRequest.newBuilder()
                             .uri(URI.create("http://localhost:" + running.port() + "/api/pedidos/999999/timeline"))
@@ -1296,7 +1375,13 @@ class ApiServerTest {
 
         HttpClient client = HttpClient.newHttpClient();
         try (ApiServer.RunningServer running = ApiServer.startForTests(
-                0, atendimentoService, execucaoService, replanejamentoService, pedidoTimelineService, eventoOperacionalIdempotenciaService, factory)) {
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
             HttpResponse<String> resposta = client.send(
                     HttpRequest.newBuilder()
                             .uri(URI.create(
@@ -1336,7 +1421,13 @@ class ApiServerTest {
 
         HttpClient client = HttpClient.newHttpClient();
         try (ApiServer.RunningServer running = ApiServer.startForTests(
-                0, atendimentoService, execucaoService, replanejamentoService, pedidoTimelineService, eventoOperacionalIdempotenciaService, factory)) {
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
             HttpResponse<String> resposta = client.send(
                     HttpRequest.newBuilder()
                             .uri(URI.create(
@@ -1366,7 +1457,13 @@ class ApiServerTest {
         HttpClient client = HttpClient.newHttpClient();
 
         try (ApiServer.RunningServer running = ApiServer.startForTests(
-                0, atendimentoService, execucaoService, replanejamentoService, pedidoTimelineService, eventoOperacionalIdempotenciaService, factory)) {
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
             String atendimentoPayload = GSON.toJson(
                     Map.of("telefone", "(38) 99876-9006", "quantidadeGaloes", 1, "atendenteId", atendenteId));
             HttpResponse<String> atendimentoResp = client.send(
@@ -1448,14 +1545,10 @@ class ApiServerTest {
                 execucaoService,
                 replanejamentoAssincrono,
                 pedidoTimelineService,
-                eventoOperacionalIdempotenciaService, factory)) {
+                eventoOperacionalIdempotenciaService,
+                factory)) {
             String payload = GSON.toJson(Map.of(
-                    "eventType",
-                    "PEDIDO_CANCELADO",
-                    "entregaId",
-                    entregaId,
-                    "motivo",
-                    "cancelamento teste async"));
+                    "eventType", "PEDIDO_CANCELADO", "entregaId", entregaId, "motivo", "cancelamento teste async"));
             HttpResponse<String> resposta = client.send(
                     HttpRequest.newBuilder()
                             .uri(URI.create("http://localhost:" + running.port() + "/api/eventos"))
@@ -1466,9 +1559,7 @@ class ApiServerTest {
 
             assertEquals(200, resposta.statusCode());
             aguardarAte(
-                    () -> chamadasReplanejamento.get() >= 1,
-                    3000,
-                    "worker imediato nao disparou apos cancelamento");
+                    () -> chamadasReplanejamento.get() >= 1, 3000, "worker imediato nao disparou apos cancelamento");
             assertTrue(chamadasReplanejamento.get() >= 1);
         }
     }
@@ -1497,7 +1588,8 @@ class ApiServerTest {
                 execucaoService,
                 replanejamentoAssincrono,
                 pedidoTimelineService,
-                eventoOperacionalIdempotenciaService, factory)) {
+                eventoOperacionalIdempotenciaService,
+                factory)) {
             String payload = GSON.toJson(Map.of("eventType", "PEDIDO_ENTREGUE", "entregaId", entregaId));
             HttpResponse<String> resposta = client.send(
                     HttpRequest.newBuilder()
@@ -1523,8 +1615,14 @@ class ApiServerTest {
         });
         HttpClient client = HttpClient.newHttpClient();
 
-        try (ApiServer.RunningServer running =
-                ApiServer.startForTests(0, atendimentoService, execucaoService, replanejamentoAssincrono, pedidoTimelineService, eventoOperacionalIdempotenciaService, factory)) {
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoAssincrono,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
             String payload = GSON.toJson(Map.of(
                     "externalCallId",
                     "api-worker-criado-evt-001",
@@ -1546,9 +1644,7 @@ class ApiServerTest {
 
             assertEquals(200, resposta.statusCode());
             aguardarAte(
-                    () -> chamadasReplanejamento.get() >= 1,
-                    3000,
-                    "worker assincrono nao disparou apos PEDIDO_CRIADO");
+                    () -> chamadasReplanejamento.get() >= 1, 3000, "worker assincrono nao disparou apos PEDIDO_CRIADO");
             assertTrue(chamadasReplanejamento.get() >= 1);
         }
     }
@@ -1558,7 +1654,13 @@ class ApiServerTest {
         HttpClient client = HttpClient.newHttpClient();
 
         try (ApiServer.RunningServer running = ApiServer.startForTests(
-                0, atendimentoService, execucaoService, replanejamentoService, pedidoTimelineService, eventoOperacionalIdempotenciaService, factory)) {
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
             String payload = GSON.toJson(Map.of("debounceSegundos", 0, "limiteEventos", 100));
             HttpResponse<String> resposta = client.send(
                     HttpRequest.newBuilder()
@@ -1586,7 +1688,13 @@ class ApiServerTest {
         int entregaId = criarEntrega(pedidoId, rotaId, "PENDENTE");
 
         try (ApiServer.RunningServer running = ApiServer.startForTests(
-                0, atendimentoService, execucaoService, replanejamentoService, pedidoTimelineService, eventoOperacionalIdempotenciaService, factory)) {
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
             String payload = GSON.toJson(Map.of("entregadorId", entregadorId));
             HttpResponse<String> resposta = client.send(
                     HttpRequest.newBuilder()
@@ -1615,7 +1723,13 @@ class ApiServerTest {
         HttpClient client = HttpClient.newHttpClient();
 
         try (ApiServer.RunningServer running = ApiServer.startForTests(
-                0, atendimentoService, execucaoService, replanejamentoService, pedidoTimelineService, eventoOperacionalIdempotenciaService, factory)) {
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
             String payload = GSON.toJson(Map.of("entregadorId", entregadorId));
             HttpResponse<String> resposta = client.send(
                     HttpRequest.newBuilder()
@@ -1643,10 +1757,15 @@ class ApiServerTest {
         HttpClient client = HttpClient.newHttpClient();
 
         try (ApiServer.RunningServer running = ApiServer.startForTests(
-                0, atendimentoService, execucaoService, replanejamentoService, pedidoTimelineService, eventoOperacionalIdempotenciaService, factory)) {
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
             String payload = GSON.toJson(Map.of("entregadorId", entregadorId));
-            URI oneClickUri =
-                    URI.create("http://localhost:" + running.port() + "/api/operacao/rotas/prontas/iniciar");
+            URI oneClickUri = URI.create("http://localhost:" + running.port() + "/api/operacao/rotas/prontas/iniciar");
 
             ExecutorService executor = Executors.newFixedThreadPool(2);
             CountDownLatch disparo = new CountDownLatch(1);
@@ -1783,7 +1902,8 @@ class ApiServerTest {
         }
     }
 
-    private int criarRotaComPlanVersion(int entregadorId, String status, long planVersion, int numeroNoDia) throws Exception {
+    private int criarRotaComPlanVersion(int entregadorId, String status, long planVersion, int numeroNoDia)
+            throws Exception {
         try (Connection conn = factory.getConnection();
                 PreparedStatement stmt = conn.prepareStatement(
                         "INSERT INTO rotas (entregador_id, data, numero_no_dia, status, plan_version) VALUES (?, CURRENT_DATE, ?, ?, ?) RETURNING id")) {
@@ -1854,7 +1974,8 @@ class ApiServerTest {
             String requestPayloadJson,
             String responsePayloadJson,
             String erro,
-            LocalDateTime solicitadoEm) throws Exception {
+            LocalDateTime solicitadoEm)
+            throws Exception {
         String sql = "INSERT INTO solver_jobs "
                 + "(job_id, plan_version, status, cancel_requested, solicitado_em, iniciado_em, finalizado_em, erro, request_payload, response_payload) "
                 + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), CASE WHEN ? IS NULL THEN NULL ELSE CAST(? AS jsonb) END)";
@@ -1890,7 +2011,8 @@ class ApiServerTest {
         }
     }
 
-    private int criarPedidoDireto(int clienteId, int atendenteId, String status, int quantidadeGaloes) throws Exception {
+    private int criarPedidoDireto(int clienteId, int atendenteId, String status, int quantidadeGaloes)
+            throws Exception {
         try (Connection conn = factory.getConnection();
                 PreparedStatement stmt = conn.prepareStatement(
                         "INSERT INTO pedidos (cliente_id, quantidade_galoes, janela_tipo, status, criado_por) "

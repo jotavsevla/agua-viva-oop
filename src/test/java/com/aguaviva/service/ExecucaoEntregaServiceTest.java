@@ -364,8 +364,8 @@ class ExecucaoEntregaServiceTest {
         int rotaId = criarRota(entregadorCorreto, "PLANEJADA");
         int entregaId = criarEntrega(pedidoId, rotaId, "PENDENTE");
 
-        IllegalStateException ex =
-                assertThrows(IllegalStateException.class, () -> execucaoService.registrarRotaIniciada(rotaId, outroEntregador));
+        IllegalStateException ex = assertThrows(
+                IllegalStateException.class, () -> execucaoService.registrarRotaIniciada(rotaId, outroEntregador));
 
         assertTrue(ex.getMessage().toLowerCase().contains("entregador"));
         assertEquals("PLANEJADA", statusRota(rotaId));
@@ -384,8 +384,7 @@ class ExecucaoEntregaServiceTest {
         int entregaId = criarEntrega(pedidoId, rotaId, "EM_EXECUCAO");
 
         IllegalStateException ex = assertThrows(
-                IllegalStateException.class,
-                () -> execucaoService.registrarPedidoEntregue(entregaId, outroEntregador));
+                IllegalStateException.class, () -> execucaoService.registrarPedidoEntregue(entregaId, outroEntregador));
 
         assertTrue(ex.getMessage().toLowerCase().contains("entregador"));
         assertEquals("EM_EXECUCAO", statusEntrega(entregaId));

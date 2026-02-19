@@ -4,9 +4,9 @@ import com.aguaviva.repository.ConnectionFactory;
 import com.aguaviva.service.AtendimentoTelefonicoResultado;
 import com.aguaviva.service.AtendimentoTelefonicoService;
 import com.aguaviva.service.DispatchEventTypes;
+import com.aguaviva.service.EventoOperacionalIdempotenciaService;
 import com.aguaviva.service.ExecucaoEntregaResultado;
 import com.aguaviva.service.ExecucaoEntregaService;
-import com.aguaviva.service.EventoOperacionalIdempotenciaService;
 import com.aguaviva.service.OperacaoEventosService;
 import com.aguaviva.service.OperacaoMapaService;
 import com.aguaviva.service.OperacaoPainelService;
@@ -134,13 +134,12 @@ public final class ApiServer {
 
         int resolvedPort = server.getAddress().getPort();
         System.out.println("API online na porta " + resolvedPort);
-        System.out.println(
-                "Endpoints: /health, /api/atendimento/pedidos, /api/eventos, /api/replanejamento/run, "
-                        + "/api/pedidos/{pedidoId}/timeline, /api/pedidos/{pedidoId}/execucao, "
-                        + "/api/entregadores/{entregadorId}/roteiro, "
-                        + "/api/operacao/painel, /api/operacao/eventos, /api/operacao/mapa, "
-                        + "/api/operacao/replanejamento/jobs, /api/operacao/replanejamento/jobs/{jobId}, "
-                        + "/api/operacao/rotas/prontas/iniciar");
+        System.out.println("Endpoints: /health, /api/atendimento/pedidos, /api/eventos, /api/replanejamento/run, "
+                + "/api/pedidos/{pedidoId}/timeline, /api/pedidos/{pedidoId}/execucao, "
+                + "/api/entregadores/{entregadorId}/roteiro, "
+                + "/api/operacao/painel, /api/operacao/eventos, /api/operacao/mapa, "
+                + "/api/operacao/replanejamento/jobs, /api/operacao/replanejamento/jobs/{jobId}, "
+                + "/api/operacao/rotas/prontas/iniciar");
         return new RunningServer(server, resolvedPort);
     }
 
@@ -289,10 +288,7 @@ public final class ApiServer {
             } catch (IllegalStateException e) {
                 writeJson(exchange, 409, Map.of("erro", e.getMessage()));
             } catch (Exception e) {
-                writeJson(
-                        exchange,
-                        500,
-                        Map.of("erro", "Falha ao iniciar rota pronta", "detalhe", e.getMessage()));
+                writeJson(exchange, 500, Map.of("erro", "Falha ao iniciar rota pronta", "detalhe", e.getMessage()));
             }
         }
     }
@@ -334,7 +330,8 @@ public final class ApiServer {
                     writeJson(exchange, 400, Map.of("erro", e.getMessage()));
                 }
             } catch (Exception e) {
-                writeJson(exchange, 500, Map.of("erro", "Falha ao consultar dados do pedido", "detalhe", e.getMessage()));
+                writeJson(
+                        exchange, 500, Map.of("erro", "Falha ao consultar dados do pedido", "detalhe", e.getMessage()));
             }
         }
     }
@@ -351,7 +348,8 @@ public final class ApiServer {
             }
 
             try {
-                int entregadorId = parseEntregadorIdRoteiro(exchange.getRequestURI().getPath());
+                int entregadorId =
+                        parseEntregadorIdRoteiro(exchange.getRequestURI().getPath());
                 RoteiroEntregadorService.RoteiroEntregadorResultado roteiro =
                         roteiroEntregadorService.consultarRoteiro(entregadorId);
                 writeJson(exchange, 200, roteiro);
@@ -627,11 +625,12 @@ public final class ApiServer {
             case DispatchEventTypes.PEDIDO_FALHOU ->
                 execucaoEntregaService.registrarPedidoFalhou(
                         requireInt(req.entregaId(), "entrega_id"), req.motivo(), req.actorEntregadorId());
-            case DispatchEventTypes.PEDIDO_CANCELADO -> execucaoEntregaService.registrarPedidoCancelado(
-                    requireInt(req.entregaId(), "entrega_id"),
-                    req.motivo(),
-                    req.cobrancaCancelamentoCentavos(),
-                    req.actorEntregadorId());
+            case DispatchEventTypes.PEDIDO_CANCELADO ->
+                execucaoEntregaService.registrarPedidoCancelado(
+                        requireInt(req.entregaId(), "entrega_id"),
+                        req.motivo(),
+                        req.cobrancaCancelamentoCentavos(),
+                        req.actorEntregadorId());
             default -> throw new IllegalArgumentException("event_type invalido: " + eventType);
         };
     }
@@ -663,7 +662,9 @@ public final class ApiServer {
     private ScopeRef resolveScope(String eventType, EventoRequest req) {
         return switch (eventType) {
             case DispatchEventTypes.ROTA_INICIADA -> new ScopeRef("ROTA", requireInt(req.rotaId(), "rota_id"));
-            case DispatchEventTypes.PEDIDO_ENTREGUE, DispatchEventTypes.PEDIDO_FALHOU, DispatchEventTypes.PEDIDO_CANCELADO ->
+            case DispatchEventTypes.PEDIDO_ENTREGUE,
+                    DispatchEventTypes.PEDIDO_FALHOU,
+                    DispatchEventTypes.PEDIDO_CANCELADO ->
                 new ScopeRef("ENTREGA", requireInt(req.entregaId(), "entrega_id"));
             default -> throw new IllegalArgumentException("event_type invalido: " + eventType);
         };
@@ -716,5 +717,4 @@ public final class ApiServer {
     private record ScopeRef(String scopeType, int scopeId) {}
 
     private record IniciarRotaProntaRequest(Integer entregadorId) {}
-
 }

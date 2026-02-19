@@ -529,14 +529,16 @@ class RotaServiceTest {
         int clienteExecucao = criarClienteComSaldo("(38) 99999-7711", 10);
         int clienteNovo = criarClienteComSaldo("(38) 99999-7712", 10);
 
-        Pedido pedidoExecucao = pedidoRepository.save(new Pedido(clienteExecucao, 2, JanelaTipo.ASAP, null, null, atendenteId));
+        Pedido pedidoExecucao =
+                pedidoRepository.save(new Pedido(clienteExecucao, 2, JanelaTipo.ASAP, null, null, atendenteId));
         Pedido pedidoNovo = pedidoRepository.save(new Pedido(clienteNovo, 1, JanelaTipo.ASAP, null, null, atendenteId));
         atualizarStatusPedido(pedidoExecucao.getId(), "EM_ROTA");
 
         int rotaEmAndamento = inserirRotaComStatus(entregadorComExecucao, "EM_ANDAMENTO", 1);
         inserirEntregaComStatus(pedidoExecucao.getId(), rotaEmAndamento, 1, "EM_EXECUCAO");
 
-        java.util.concurrent.atomic.AtomicReference<String> payloadSolver = new java.util.concurrent.atomic.AtomicReference<>("");
+        java.util.concurrent.atomic.AtomicReference<String> payloadSolver =
+                new java.util.concurrent.atomic.AtomicReference<>("");
         solverStub.setDynamicSolveHandler(requestBody -> {
             payloadSolver.set(requestBody);
             return """
@@ -560,7 +562,9 @@ class RotaServiceTest {
         assertEquals(1, resultado.rotasCriadas());
         assertEquals(1, resultado.entregasCriadas());
         assertEquals(1, solverStub.requestCount());
-        assertTrue(payloadSolver.get().contains("\"entregadores\":[" + entregadorComExecucao + "," + entregadorLivre + "]"));
+        assertTrue(payloadSolver
+                .get()
+                .contains("\"entregadores\":[" + entregadorComExecucao + "," + entregadorLivre + "]"));
         assertTrue(payloadSolver.get().contains("\"capacidades_entregadores\":[3,5]"));
         assertEquals("CONFIRMADO", statusDoPedido(pedidoNovo.getId()));
     }
@@ -573,14 +577,16 @@ class RotaServiceTest {
         int clienteExecucao = criarClienteComSaldo("(38) 99999-77120", 10);
         int clienteNovo = criarClienteComSaldo("(38) 99999-77121", 10);
 
-        Pedido pedidoExecucao = pedidoRepository.save(new Pedido(clienteExecucao, 2, JanelaTipo.ASAP, null, null, atendenteId));
+        Pedido pedidoExecucao =
+                pedidoRepository.save(new Pedido(clienteExecucao, 2, JanelaTipo.ASAP, null, null, atendenteId));
         Pedido pedidoNovo = pedidoRepository.save(new Pedido(clienteNovo, 1, JanelaTipo.ASAP, null, null, atendenteId));
         atualizarStatusPedido(pedidoExecucao.getId(), "EM_ROTA");
 
         int rotaEmAndamento = inserirRotaComStatus(entregadorComExecucao, "EM_ANDAMENTO", 1);
         inserirEntregaComStatus(pedidoExecucao.getId(), rotaEmAndamento, 1, "EM_EXECUCAO");
 
-        java.util.concurrent.atomic.AtomicReference<String> payloadSolver = new java.util.concurrent.atomic.AtomicReference<>("");
+        java.util.concurrent.atomic.AtomicReference<String> payloadSolver =
+                new java.util.concurrent.atomic.AtomicReference<>("");
         solverStub.setDynamicSolveHandler(requestBody -> {
             payloadSolver.set(requestBody);
             return """
@@ -604,7 +610,9 @@ class RotaServiceTest {
         assertEquals(1, resultado.rotasCriadas());
         assertEquals(1, resultado.entregasCriadas());
         assertEquals(1, solverStub.requestCount());
-        assertTrue(payloadSolver.get().contains("\"entregadores\":[" + entregadorComExecucao + "," + entregadorLivre + "]"));
+        assertTrue(payloadSolver
+                .get()
+                .contains("\"entregadores\":[" + entregadorComExecucao + "," + entregadorLivre + "]"));
         assertTrue(payloadSolver.get().contains("\"capacidades_entregadores\":[5,5]"));
     }
 
@@ -617,8 +625,10 @@ class RotaServiceTest {
         int clientePendente = criarClienteComSaldo("(38) 99999-7716", 10);
         int clienteNovo = criarClienteComSaldo("(38) 99999-7717", 10);
 
-        Pedido pedidoExecucao = pedidoRepository.save(new Pedido(clienteExecucao, 1, JanelaTipo.ASAP, null, null, atendenteId));
-        Pedido pedidoPendente = pedidoRepository.save(new Pedido(clientePendente, 2, JanelaTipo.ASAP, null, null, atendenteId));
+        Pedido pedidoExecucao =
+                pedidoRepository.save(new Pedido(clienteExecucao, 1, JanelaTipo.ASAP, null, null, atendenteId));
+        Pedido pedidoPendente =
+                pedidoRepository.save(new Pedido(clientePendente, 2, JanelaTipo.ASAP, null, null, atendenteId));
         Pedido pedidoNovo = pedidoRepository.save(new Pedido(clienteNovo, 1, JanelaTipo.ASAP, null, null, atendenteId));
         atualizarStatusPedido(pedidoExecucao.getId(), "EM_ROTA");
         atualizarStatusPedido(pedidoPendente.getId(), "EM_ROTA");
@@ -627,7 +637,8 @@ class RotaServiceTest {
         inserirEntregaComStatus(pedidoExecucao.getId(), rotaEmAndamento, 1, "EM_EXECUCAO");
         inserirEntregaComStatus(pedidoPendente.getId(), rotaEmAndamento, 2, "PENDENTE");
 
-        java.util.concurrent.atomic.AtomicReference<String> payloadSolver = new java.util.concurrent.atomic.AtomicReference<>("");
+        java.util.concurrent.atomic.AtomicReference<String> payloadSolver =
+                new java.util.concurrent.atomic.AtomicReference<>("");
         solverStub.setDynamicSolveHandler(requestBody -> {
             payloadSolver.set(requestBody);
             return """
@@ -651,7 +662,8 @@ class RotaServiceTest {
         assertEquals(1, resultado.rotasCriadas());
         assertEquals(1, resultado.entregasCriadas());
         assertEquals(1, solverStub.requestCount());
-        assertTrue(payloadSolver.get().contains("\"entregadores\":[" + entregadorComCarga + "," + entregadorLivre + "]"));
+        assertTrue(
+                payloadSolver.get().contains("\"entregadores\":[" + entregadorComCarga + "," + entregadorLivre + "]"));
         assertTrue(payloadSolver.get().contains("\"capacidades_entregadores\":[2,5]"));
     }
 
@@ -670,7 +682,8 @@ class RotaServiceTest {
         Pedido pedido2 = pedidoRepository.save(new Pedido(cliente2, 1, JanelaTipo.ASAP, null, null, atendenteId));
         Pedido pedido3 = pedidoRepository.save(new Pedido(cliente3, 1, JanelaTipo.ASAP, null, null, atendenteId));
 
-        java.util.concurrent.atomic.AtomicReference<String> payloadSolver = new java.util.concurrent.atomic.AtomicReference<>("");
+        java.util.concurrent.atomic.AtomicReference<String> payloadSolver =
+                new java.util.concurrent.atomic.AtomicReference<>("");
         solverStub.setDynamicSolveHandler(requestBody -> {
             payloadSolver.set(requestBody);
             return """
@@ -693,8 +706,7 @@ class RotaServiceTest {
                       ],
                       "nao_atendidos": [%d]
                     }
-                    """
-                    .formatted(entregadorA, pedido1.getId(), entregadorB, pedido2.getId(), pedido3.getId());
+                    """.formatted(entregadorA, pedido1.getId(), entregadorB, pedido2.getId(), pedido3.getId());
         });
 
         PlanejamentoResultado resultado = criarService().planejarRotasPendentes();
@@ -710,13 +722,12 @@ class RotaServiceTest {
         assertEquals("PENDENTE", statusDoPedido(pedido3.getId()));
 
         try (Connection conn = factory.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(
-                        "SELECT r.entregador_id, COUNT(*) "
-                                + "FROM rotas r "
-                                + "JOIN entregas e ON e.rota_id = r.id "
-                                + "WHERE r.status::text = 'PLANEJADA' "
-                                + "GROUP BY r.entregador_id "
-                                + "ORDER BY r.entregador_id");
+                PreparedStatement stmt = conn.prepareStatement("SELECT r.entregador_id, COUNT(*) "
+                        + "FROM rotas r "
+                        + "JOIN entregas e ON e.rota_id = r.id "
+                        + "WHERE r.status::text = 'PLANEJADA' "
+                        + "GROUP BY r.entregador_id "
+                        + "ORDER BY r.entregador_id");
                 ResultSet rs = stmt.executeQuery()) {
             int linhas = 0;
             while (rs.next()) {
@@ -734,12 +745,14 @@ class RotaServiceTest {
         int clienteAntigo = criarClienteComSaldo("(38) 99999-7713", 10);
         int clienteNovo = criarClienteComSaldo("(38) 99999-7714", 10);
 
-        Pedido pedidoAntigo = pedidoRepository.save(new Pedido(clienteAntigo, 3, JanelaTipo.ASAP, null, null, atendenteId));
+        Pedido pedidoAntigo =
+                pedidoRepository.save(new Pedido(clienteAntigo, 3, JanelaTipo.ASAP, null, null, atendenteId));
         Pedido pedidoNovo = pedidoRepository.save(new Pedido(clienteNovo, 3, JanelaTipo.ASAP, null, null, atendenteId));
         atualizarStatusPedido(pedidoAntigo.getId(), "CONFIRMADO");
         atualizarStatusPedido(pedidoNovo.getId(), "CONFIRMADO");
 
-        java.util.concurrent.atomic.AtomicReference<String> payloadSolver = new java.util.concurrent.atomic.AtomicReference<>("");
+        java.util.concurrent.atomic.AtomicReference<String> payloadSolver =
+                new java.util.concurrent.atomic.AtomicReference<>("");
         solverStub.setDynamicSolveHandler(requestBody -> {
             payloadSolver.set(requestBody);
             return """
@@ -779,9 +792,12 @@ class RotaServiceTest {
         int clienteGrande = criarClienteComSaldo("(38) 99999-7719", 10);
         int clientePequeno = criarClienteComSaldo("(38) 99999-7720", 10);
 
-        Pedido pedidoExecucao = pedidoRepository.save(new Pedido(clienteExecucao, 2, JanelaTipo.ASAP, null, null, atendenteId));
-        Pedido pedidoGrande = pedidoRepository.save(new Pedido(clienteGrande, 4, JanelaTipo.ASAP, null, null, atendenteId));
-        Pedido pedidoPequeno = pedidoRepository.save(new Pedido(clientePequeno, 2, JanelaTipo.ASAP, null, null, atendenteId));
+        Pedido pedidoExecucao =
+                pedidoRepository.save(new Pedido(clienteExecucao, 2, JanelaTipo.ASAP, null, null, atendenteId));
+        Pedido pedidoGrande =
+                pedidoRepository.save(new Pedido(clienteGrande, 4, JanelaTipo.ASAP, null, null, atendenteId));
+        Pedido pedidoPequeno =
+                pedidoRepository.save(new Pedido(clientePequeno, 2, JanelaTipo.ASAP, null, null, atendenteId));
         atualizarStatusPedido(pedidoExecucao.getId(), "EM_ROTA");
         atualizarStatusPedido(pedidoGrande.getId(), "CONFIRMADO");
         atualizarStatusPedido(pedidoPequeno.getId(), "CONFIRMADO");
@@ -789,7 +805,8 @@ class RotaServiceTest {
         int rotaEmAndamento = inserirRotaComStatus(entregadorId, "EM_ANDAMENTO", 1);
         inserirEntregaComStatus(pedidoExecucao.getId(), rotaEmAndamento, 1, "EM_EXECUCAO");
 
-        java.util.concurrent.atomic.AtomicReference<String> payloadSolver = new java.util.concurrent.atomic.AtomicReference<>("");
+        java.util.concurrent.atomic.AtomicReference<String> payloadSolver =
+                new java.util.concurrent.atomic.AtomicReference<>("");
         solverStub.setDynamicSolveHandler(requestBody -> {
             payloadSolver.set(requestBody);
             return """
@@ -829,8 +846,10 @@ class RotaServiceTest {
         int clientePlanejado = criarClienteComSaldo("(38) 99999-7722", 10);
         int clienteNovo = criarClienteComSaldo("(38) 99999-7723", 10);
 
-        Pedido pedidoExecucao = pedidoRepository.save(new Pedido(clienteExecucao, 1, JanelaTipo.ASAP, null, null, atendenteId));
-        Pedido pedidoPlanejado = pedidoRepository.save(new Pedido(clientePlanejado, 1, JanelaTipo.ASAP, null, null, atendenteId));
+        Pedido pedidoExecucao =
+                pedidoRepository.save(new Pedido(clienteExecucao, 1, JanelaTipo.ASAP, null, null, atendenteId));
+        Pedido pedidoPlanejado =
+                pedidoRepository.save(new Pedido(clientePlanejado, 1, JanelaTipo.ASAP, null, null, atendenteId));
         Pedido pedidoNovo = pedidoRepository.save(new Pedido(clienteNovo, 1, JanelaTipo.ASAP, null, null, atendenteId));
         atualizarStatusPedido(pedidoExecucao.getId(), "EM_ROTA");
         atualizarStatusPedido(pedidoPlanejado.getId(), "CONFIRMADO");
@@ -1611,8 +1630,7 @@ class RotaServiceTest {
 
     private int contarEntregasPorPedido(int pedidoId) throws Exception {
         try (Connection conn = factory.getConnection();
-                PreparedStatement stmt =
-                        conn.prepareStatement("SELECT COUNT(*) FROM entregas WHERE pedido_id = ?")) {
+                PreparedStatement stmt = conn.prepareStatement("SELECT COUNT(*) FROM entregas WHERE pedido_id = ?")) {
             stmt.setInt(1, pedidoId);
             try (ResultSet rs = stmt.executeQuery()) {
                 rs.next();
@@ -1623,8 +1641,8 @@ class RotaServiceTest {
 
     private int contarRotasPorStatus(String status) throws Exception {
         try (Connection conn = factory.getConnection();
-                PreparedStatement stmt =
-                        conn.prepareStatement("SELECT COUNT(*) FROM rotas WHERE status::text = ? AND data = CURRENT_DATE")) {
+                PreparedStatement stmt = conn.prepareStatement(
+                        "SELECT COUNT(*) FROM rotas WHERE status::text = ? AND data = CURRENT_DATE")) {
             stmt.setString(1, status);
             try (ResultSet rs = stmt.executeQuery()) {
                 rs.next();
@@ -1698,7 +1716,7 @@ class RotaServiceTest {
 
     private boolean solverJobsColumnExists(Connection conn, String coluna) throws Exception {
         try (PreparedStatement stmt = conn.prepareStatement(
-                        "SELECT 1 FROM information_schema.columns WHERE table_name = 'solver_jobs' AND column_name = ?")) {
+                "SELECT 1 FROM information_schema.columns WHERE table_name = 'solver_jobs' AND column_name = ?")) {
             stmt.setString(1, coluna);
             try (ResultSet rs = stmt.executeQuery()) {
                 return rs.next();
@@ -1727,8 +1745,8 @@ class RotaServiceTest {
             if (!solverJobsTableExists(conn)) {
                 return false;
             }
-            try (PreparedStatement stmt = conn.prepareStatement(
-                            "SELECT 1 FROM solver_jobs WHERE status::text = ? LIMIT 1")) {
+            try (PreparedStatement stmt =
+                    conn.prepareStatement("SELECT 1 FROM solver_jobs WHERE status::text = ? LIMIT 1")) {
                 stmt.setString(1, status);
                 try (ResultSet rs = stmt.executeQuery()) {
                     return rs.next();
@@ -1742,7 +1760,8 @@ class RotaServiceTest {
             if (!solverJobsTableExists(conn) || !solverJobsColumnExists(conn, coluna)) {
                 return null;
             }
-            String sql = "SELECT " + coluna + "::text FROM solver_jobs WHERE status::text = ? ORDER BY solicitado_em DESC LIMIT 1";
+            String sql = "SELECT " + coluna
+                    + "::text FROM solver_jobs WHERE status::text = ? ORDER BY solicitado_em DESC LIMIT 1";
             try (PreparedStatement stmt = conn.prepareStatement(sql)) {
                 stmt.setString(1, status);
                 try (ResultSet rs = stmt.executeQuery()) {

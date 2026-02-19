@@ -129,13 +129,8 @@ public class AtendimentoTelefonicoService {
 
                 validarElegibilidadeVale(conn, cliente.clienteId(), quantidadeGaloes, metodoPagamentoNormalizado);
 
-                InsertPedidoResult insert =
-                        inserirPedidoPendente(
-                                conn,
-                                cliente.clienteId(),
-                                quantidadeGaloes,
-                                atendenteId,
-                                metodoPagamentoNormalizado);
+                InsertPedidoResult insert = inserirPedidoPendente(
+                        conn, cliente.clienteId(), quantidadeGaloes, atendenteId, metodoPagamentoNormalizado);
 
                 dispatchEventService.publicar(
                         conn,
@@ -273,8 +268,8 @@ public class AtendimentoTelefonicoService {
         }
     }
 
-    private void validarElegibilidadeVale(
-            Connection conn, int clienteId, int quantidadeGaloes, String metodoPagamento) throws SQLException {
+    private void validarElegibilidadeVale(Connection conn, int clienteId, int quantidadeGaloes, String metodoPagamento)
+            throws SQLException {
         if (!METODO_PAGAMENTO_VALE.equals(metodoPagamento)) {
             return;
         }
@@ -306,12 +301,11 @@ public class AtendimentoTelefonicoService {
             String externalCallId,
             String metodoPagamento)
             throws SQLException {
-        String sql =
-                "INSERT INTO pedidos "
-                        + "(cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por, external_call_id, metodo_pagamento) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
-                        + "ON CONFLICT (external_call_id) DO NOTHING "
-                        + "RETURNING id, cliente_id";
+        String sql = "INSERT INTO pedidos "
+                + "(cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por, external_call_id, metodo_pagamento) "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
+                + "ON CONFLICT (external_call_id) DO NOTHING "
+                + "RETURNING id, cliente_id";
 
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, clienteId);
@@ -339,11 +333,10 @@ public class AtendimentoTelefonicoService {
     private InsertPedidoResult inserirPedidoPendente(
             Connection conn, int clienteId, int quantidadeGaloes, int atendenteId, String metodoPagamento)
             throws SQLException {
-        String sql =
-                "INSERT INTO pedidos "
-                        + "(cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por, metodo_pagamento) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
-                        + "RETURNING id, cliente_id";
+        String sql = "INSERT INTO pedidos "
+                + "(cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por, metodo_pagamento) "
+                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+                + "RETURNING id, cliente_id";
 
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, clienteId);

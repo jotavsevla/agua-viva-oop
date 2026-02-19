@@ -41,9 +41,11 @@ class ContractsV1Test {
                         openApi.contains("/api/pedidos/{pedidoId}/execucao:"),
                         "Contrato deve expor endpoint de execucao de pedido"),
                 () -> assertTrue(
-                        openApi.contains("/api/operacao/painel:"), "Contrato deve expor endpoint de painel operacional"),
+                        openApi.contains("/api/operacao/painel:"),
+                        "Contrato deve expor endpoint de painel operacional"),
                 () -> assertTrue(
-                        openApi.contains("/api/operacao/eventos:"), "Contrato deve expor endpoint de eventos operacionais"),
+                        openApi.contains("/api/operacao/eventos:"),
+                        "Contrato deve expor endpoint de eventos operacionais"),
                 () -> assertTrue(
                         openApi.contains("/api/operacao/mapa:"), "Contrato deve expor endpoint de mapa operacional"),
                 () -> assertTrue(

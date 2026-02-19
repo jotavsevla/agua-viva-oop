@@ -62,7 +62,8 @@ public class OperacaoReplanejamentoService {
                                 rs.getLong("plan_version"),
                                 rs.getString("status"),
                                 rs.getBoolean("cancel_requested"),
-                                rs.getObject("solicitado_em", LocalDateTime.class).toString(),
+                                rs.getObject("solicitado_em", LocalDateTime.class)
+                                        .toString(),
                                 iniciadoEm == null ? null : iniciadoEm.toString(),
                                 finalizadoEm == null ? null : finalizadoEm.toString(),
                                 rs.getString("erro"),
@@ -91,24 +92,17 @@ public class OperacaoReplanejamentoService {
 
             boolean hasRequestPayload = hasColumn(conn, "solver_jobs", "request_payload");
             boolean hasResponsePayload = hasColumn(conn, "solver_jobs", "response_payload");
-            SolverJobDetalhe job = buscarJobDetalhado(
-                    conn, jobIdSolicitado, hasRequestPayload, hasResponsePayload);
+            SolverJobDetalhe job = buscarJobDetalhado(conn, jobIdSolicitado, hasRequestPayload, hasResponsePayload);
 
             return new OperacaoReplanejamentoJobDetalheResultado(
-                    LocalDateTime.now().toString(),
-                    ambiente,
-                    true,
-                    job);
+                    LocalDateTime.now().toString(), ambiente, true, job);
         } catch (SQLException e) {
             throw new IllegalStateException("Falha ao consultar job de replanejamento", e);
         }
     }
 
     private SolverJobDetalhe buscarJobDetalhado(
-            Connection conn,
-            String jobIdSolicitado,
-            boolean hasRequestPayload,
-            boolean hasResponsePayload)
+            Connection conn, String jobIdSolicitado, boolean hasRequestPayload, boolean hasResponsePayload)
             throws SQLException {
         String sql = "SELECT job_id, plan_version, status::text AS status, cancel_requested, "
                 + "solicitado_em, iniciado_em, finalizado_em, erro, "

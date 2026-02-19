@@ -33,10 +33,11 @@ public class OperacaoEventosService {
         }
 
         try (Connection conn = connectionFactory.getConnection()) {
-            String sql = "SELECT id, event_type, status::text AS status, aggregate_type, aggregate_id, payload, created_em, processed_em "
-                    + "FROM dispatch_events "
-                    + "ORDER BY created_em DESC, id DESC "
-                    + "LIMIT ?";
+            String sql =
+                    "SELECT id, event_type, status::text AS status, aggregate_type, aggregate_id, payload, created_em, processed_em "
+                            + "FROM dispatch_events "
+                            + "ORDER BY created_em DESC, id DESC "
+                            + "LIMIT ?";
             List<EventoOperacional> eventos = new ArrayList<>();
             try (PreparedStatement stmt = conn.prepareStatement(sql)) {
                 stmt.setInt(1, limite);
