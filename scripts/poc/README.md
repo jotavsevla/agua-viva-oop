@@ -2,13 +2,22 @@
 
 Este diretorio entrega a execucao minima da PoC com sequencia HTTP congelada.
 
-## Script principal
+## Scripts canonicos
 
+- `scripts/poc/run-business-gate.sh`
+- `scripts/poc/run-demo-m3-i0.sh`
 - `scripts/poc/run-cenario.sh`
 - `scripts/poc/run-suite.sh`
 - `scripts/poc/run-e2e-local.sh`
-- `scripts/poc/run-gate-3x.sh`
-- `scripts/poc/run-business-gate.sh`
+- `scripts/poc/seed-montes-claros-test.sh`
+- `scripts/poc/check-montes-claros-seed.sh`
+
+Gate canonico da PoC:
+1. `scripts/poc/run-business-gate.sh` (strict, evidencias oficiais)
+
+## Atalho local (nao canonico)
+
+- `scripts/poc/run-gate-3x.sh` (atalho para E2E local; nao substitui o business gate oficial)
 
 Cenarios suportados:
 
@@ -43,6 +52,7 @@ Cenarios suportados:
 chmod +x scripts/poc/run-cenario.sh
 chmod +x scripts/poc/run-suite.sh
 chmod +x scripts/poc/run-e2e-local.sh
+chmod +x scripts/poc/run-demo-m3-i0.sh
 
 scripts/poc/run-cenario.sh feliz
 scripts/poc/run-cenario.sh falha
@@ -54,17 +64,23 @@ scripts/poc/run-suite.sh
 # One-command local (sobe stack, API/UI e roda gate completo)
 scripts/poc/run-e2e-local.sh
 
-# Gate forte: 3 rodadas consecutivas (reseta estado a cada rodada)
-scripts/poc/run-e2e-local.sh --rounds 3
-
-# Atalho para gate 3x
-scripts/poc/run-gate-3x.sh
-
 # Gate oficial de negocio (strict por padrao)
 scripts/poc/run-business-gate.sh
 
 # Gate de negocio em 3 rodadas strict
 scripts/poc/run-business-gate.sh --mode strict --rounds 3
+
+# Demo guiada unica M3-I0 com evidencias consolidadas
+scripts/poc/run-demo-m3-i0.sh
+
+# Atalho local para gate E2E 3x (nao substitui o business gate oficial)
+scripts/poc/run-gate-3x.sh
+
+# Aplicar seed geografico de Montes Claros no banco de teste
+scripts/poc/seed-montes-claros-test.sh
+
+# Validar se o seed de Montes Claros esta consistente
+scripts/poc/check-montes-claros-seed.sh
 ```
 
 ### Flags uteis do one-command
@@ -121,6 +137,13 @@ Resumo consolidado do gate:
 artifacts/poc/e2e-<timestamp>/gate-summary.json
 ```
 
+Resumo consolidado da demo guiada M3-I0:
+
+```bash
+artifacts/poc/demo-m3-i0-<timestamp>/demo-summary.json
+artifacts/poc/demo-m3-i0-<timestamp>/demo-summary.txt
+```
+
 Por rodada, tambem sao gerados:
 
 1. `round-0X/playwright.log`
@@ -150,6 +173,7 @@ Variaveis mais usadas:
 - `PROMOCOES_STRICT` (`0` por padrao; `1` para exigir transicoes no check de promocoes)
 - `DEBOUNCE_SEGUNDOS` (padrao do `run-cenario.sh`: `0`)
 - `SUITE_DEBOUNCE_SEGUNDOS` (padrao do `run-suite.sh`: `0`)
+- `SEED_MONTES_CLAROS` (`1` por padrao no reset; `0` para base minima sem clientes seedados)
 - `METODO_PAGAMENTO` (`PIX`, `DINHEIRO`, `CARTAO`, `VALE`, `NAO_INFORMADO`)
 - `TELEFONE`
 - `QUANTIDADE_GALOES`
@@ -169,3 +193,71 @@ O script cria/atualiza automaticamente:
 3. cliente de PoC com coordenada valida para roteirizacao.
 
 Se `METODO_PAGAMENTO=VALE`, o script tambem ajusta `saldo_vales` para o cliente.
+
+## Seed geografico de Montes Claros (teste)
+
+O seed `sql/seeds/001_seed_clientes_montes_claros_test.sql` injeta clientes com coordenadas reais/plausiveis de bairros de Montes Claros (Centro, Major Prates, Todos os Santos, Sao Jose, Ibituruna e Jardim Panorama), sem criar pedidos.
+
+Uso direto:
+
+```bash
+scripts/poc/seed-montes-claros-test.sh
+```
+
+No fluxo de reset, ele roda automaticamente por padrao:
+
+```bash
+scripts/poc/reset-test-state.sh
+```
+
+Para desabilitar:
+
+```bash
+SEED_MONTES_CLAROS=0 scripts/poc/reset-test-state.sh
+```
+
+## Ancoragem rapida (PoC-MVP)
+
+Fluxo recomendado para provar "acontecendo" no banco real de teste:
+
+```bash
+# 1) subir stack de teste
+scripts/poc/start-test-env.sh
+
+# 2) resetar estado + seed de Montes Claros
+scripts/poc/reset-test-state.sh
+
+# 3) validar massa geografica seedada
+scripts/poc/check-montes-claros-seed.sh
+
+# 4) rodar cenarios canonicos
+scripts/poc/run-cenario.sh feliz
+scripts/poc/run-cenario.sh falha
+scripts/poc/run-cenario.sh cancelamento
+
+# 5) fechar gate oficial (1x e depois 3x)
+scripts/poc/run-business-gate.sh --mode strict --rounds 1
+scripts/poc/run-business-gate.sh --mode strict --rounds 3
+```
+
+Evidencia final esperada:
+
+1. `artifacts/poc/business-gate-<timestamp>/business-summary.json`
+2. checks obrigatorios (`R01..R27`) em `PASS`
+3. cenarios `feliz/falha/cancelamento` com status finais esperados
+
+## Demo guiada unica (M3-I0)
+
+Fluxo oficial para narrativa executiva unica, com pacote de evidencia por cenario:
+
+```bash
+scripts/poc/run-demo-m3-i0.sh
+```
+
+Saidas obrigatorias:
+
+1. `demo-summary.json`
+2. `demo-summary.txt`
+3. `scenarios/<feliz|falha|cancelamento>/timeline-final.json`
+4. `scenarios/<feliz|falha|cancelamento>/execucao-final.json`
+5. `scenarios/<falha|cancelamento>/job-detail-*.json` (quando houver novo job no cenario)

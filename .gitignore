@@ -35,3 +35,10 @@ produto-ui/prototipo/playwright-report/
 # Markdown de documentacao local (publico no GitHub: apenas README da raiz)
 **/*.md
 !/README.md
+
+# Excecao: diagrama SVG referenciado pelo README
+!docs/
+docs/*
+!docs/.assets/
+docs/.assets/*
+!docs/.assets/arquitetura.svg
