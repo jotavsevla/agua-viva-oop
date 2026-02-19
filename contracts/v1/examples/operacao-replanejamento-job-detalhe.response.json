@@ -1,0 +1,35 @@
+{
+  "atualizadoEm": "2026-02-18T19:30:00",
+  "ambiente": "test",
+  "habilitado": true,
+  "job": {
+    "jobId": "job-plan-12-abc123",
+    "planVersion": 12,
+    "status": "CONCLUIDO",
+    "cancelRequested": false,
+    "solicitadoEm": "2026-02-18T19:04:58",
+    "iniciadoEm": "2026-02-18T19:04:58",
+    "finalizadoEm": "2026-02-18T19:04:59",
+    "erro": null,
+    "hasRequestPayload": true,
+    "hasResponsePayload": true,
+    "rotasImpactadas": [
+      {
+        "rotaId": 101,
+        "entregadorId": 7,
+        "statusRota": "PLANEJADA",
+        "camada": "SECUNDARIA",
+        "totalEntregas": 2
+      }
+    ],
+    "pedidosImpactados": [
+      {
+        "pedidoId": 502,
+        "entregaId": 880,
+        "rotaId": 101,
+        "statusPedido": "CONFIRMADO",
+        "statusEntrega": "PENDENTE"
+      }
+    ]
+  }
+}

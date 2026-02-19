@@ -48,7 +48,8 @@ public class OperacaoMapaService {
     }
 
     private DepositoResumo consultarDeposito(Connection conn) throws SQLException {
-        String sql = "SELECT chave, valor FROM configuracoes WHERE chave IN ('deposito_latitude', 'deposito_longitude')";
+        String sql =
+                "SELECT chave, valor FROM configuracoes WHERE chave IN ('deposito_latitude', 'deposito_longitude')";
         Map<String, String> valores = new LinkedHashMap<>();
         try (PreparedStatement stmt = conn.prepareStatement(sql);
                 ResultSet rs = stmt.executeQuery()) {
@@ -129,13 +130,14 @@ public class OperacaoMapaService {
 
         List<RotaMapaResumo> resultado = new ArrayList<>();
         for (RotaAccumulator rota : rotas.values()) {
-            resultado.add(new RotaMapaResumo(
-                    rota.rotaId, rota.entregadorId, rota.statusRota, rota.camada, rota.paradas));
+            resultado.add(
+                    new RotaMapaResumo(rota.rotaId, rota.entregadorId, rota.statusRota, rota.camada, rota.paradas));
         }
         return resultado;
     }
 
-    public record OperacaoMapaResultado(String atualizadoEm, String ambiente, DepositoResumo deposito, List<RotaMapaResumo> rotas) {
+    public record OperacaoMapaResultado(
+            String atualizadoEm, String ambiente, DepositoResumo deposito, List<RotaMapaResumo> rotas) {
         public OperacaoMapaResultado {
             rotas = List.copyOf(rotas);
         }

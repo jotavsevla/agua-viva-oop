@@ -234,6 +234,52 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /api/operacao/replanejamento/jobs:
+    get:
+      summary: Feed operacional de jobs de replanejamento do solver
+      tags: [operacao]
+      parameters:
+        - name: limite
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 200
+      responses:
+        '200':
+          description: Jobs de replanejamento retornados
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperacaoReplanejamentoResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/operacao/replanejamento/jobs/{jobId}:
+    get:
+      summary: Detalhe de impacto operacional de um job de replanejamento
+      tags: [operacao]
+      parameters:
+        - name: jobId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Detalhe do job retornado
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperacaoReplanejamentoJobDetalheResponse'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /api/financeiro/clientes/{clienteId}/saldo:
     get:
       summary: Consultar saldo de vales
@@ -787,6 +833,138 @@ components:
           items:
             $ref: '#/components/schemas/OperacaoMapaRota'
       required: [atualizadoEm, ambiente, deposito, rotas]
+
+    OperacaoReplanejamentoJob:
+      type: object
+      properties:
+        jobId:
+          type: string
+        planVersion:
+          type: integer
+        status:
+          type: string
+        cancelRequested:
+          type: boolean
+        solicitadoEm:
+          type: string
+          format: date-time
+        iniciadoEm:
+          type: string
+          format: date-time
+          nullable: true
+        finalizadoEm:
+          type: string
+          format: date-time
+          nullable: true
+        erro:
+          type: string
+          nullable: true
+        hasRequestPayload:
+          type: boolean
+        hasResponsePayload:
+          type: boolean
+      required:
+        [jobId, planVersion, status, cancelRequested, solicitadoEm, iniciadoEm, finalizadoEm, erro, hasRequestPayload, hasResponsePayload]
+
+    OperacaoReplanejamentoResponse:
+      type: object
+      properties:
+        atualizadoEm:
+          type: string
+          format: date-time
+        ambiente:
+          type: string
+        habilitado:
+          type: boolean
+        jobs:
+          type: array
+          items:
+            $ref: '#/components/schemas/OperacaoReplanejamentoJob'
+      required: [atualizadoEm, ambiente, habilitado, jobs]
+
+    OperacaoReplanejamentoRotaImpactada:
+      type: object
+      properties:
+        rotaId:
+          type: integer
+        entregadorId:
+          type: integer
+        statusRota:
+          type: string
+        camada:
+          type: string
+        totalEntregas:
+          type: integer
+      required: [rotaId, entregadorId, statusRota, camada, totalEntregas]
+
+    OperacaoReplanejamentoPedidoImpactado:
+      type: object
+      properties:
+        pedidoId:
+          type: integer
+        entregaId:
+          type: integer
+        rotaId:
+          type: integer
+        statusPedido:
+          type: string
+        statusEntrega:
+          type: string
+      required: [pedidoId, entregaId, rotaId, statusPedido, statusEntrega]
+
+    OperacaoReplanejamentoJobDetalhe:
+      type: object
+      properties:
+        jobId:
+          type: string
+        planVersion:
+          type: integer
+        status:
+          type: string
+        cancelRequested:
+          type: boolean
+        solicitadoEm:
+          type: string
+          format: date-time
+        iniciadoEm:
+          type: string
+          format: date-time
+          nullable: true
+        finalizadoEm:
+          type: string
+          format: date-time
+          nullable: true
+        erro:
+          type: string
+          nullable: true
+        hasRequestPayload:
+          type: boolean
+        hasResponsePayload:
+          type: boolean
+        rotasImpactadas:
+          type: array
+          items:
+            $ref: '#/components/schemas/OperacaoReplanejamentoRotaImpactada'
+        pedidosImpactados:
+          type: array
+          items:
+            $ref: '#/components/schemas/OperacaoReplanejamentoPedidoImpactado'
+      required:
+        [jobId, planVersion, status, cancelRequested, solicitadoEm, iniciadoEm, finalizadoEm, erro, hasRequestPayload, hasResponsePayload, rotasImpactadas, pedidosImpactados]
+
+    OperacaoReplanejamentoJobDetalheResponse:
+      type: object
+      properties:
+        atualizadoEm:
+          type: string
+          format: date-time
+        ambiente:
+          type: string
+        habilitado:
+          type: boolean
+        job:
+          $ref: '#/components/schemas/OperacaoReplanejamentoJobDetalhe'
+      required: [atualizadoEm, ambiente, habilitado, job]
 
     SaldoResponse:
       type: object

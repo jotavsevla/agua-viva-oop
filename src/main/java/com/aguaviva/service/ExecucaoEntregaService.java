@@ -101,7 +101,8 @@ public class ExecucaoEntregaService {
     }
 
     public ExecucaoEntregaResultado registrarPedidoEntregue(int entregaId, Integer actorEntregadorId) {
-        return finalizarEntrega(entregaId, "ENTREGUE", DispatchEventTypes.PEDIDO_ENTREGUE, null, null, actorEntregadorId);
+        return finalizarEntrega(
+                entregaId, "ENTREGUE", DispatchEventTypes.PEDIDO_ENTREGUE, null, null, actorEntregadorId);
     }
 
     public ExecucaoEntregaResultado registrarPedidoFalhou(int entregaId, String motivo) {
@@ -454,9 +455,7 @@ public class ExecucaoEntregaService {
     }
 
     private boolean isTerminalStatus(String statusEntrega) {
-        return "ENTREGUE".equals(statusEntrega)
-                || "FALHOU".equals(statusEntrega)
-                || "CANCELADA".equals(statusEntrega);
+        return "ENTREGUE".equals(statusEntrega) || "FALHOU".equals(statusEntrega) || "CANCELADA".equals(statusEntrega);
     }
 
     private String statusFinalEsperadoParaEvento(String eventType) {

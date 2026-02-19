@@ -1,0 +1,31 @@
+{
+  "atualizadoEm": "2026-02-18T19:05:00",
+  "ambiente": "test",
+  "habilitado": true,
+  "jobs": [
+    {
+      "jobId": "job-plan-12-abc123",
+      "planVersion": 12,
+      "status": "EM_EXECUCAO",
+      "cancelRequested": false,
+      "solicitadoEm": "2026-02-18T19:04:58",
+      "iniciadoEm": "2026-02-18T19:04:58",
+      "finalizadoEm": null,
+      "erro": null,
+      "hasRequestPayload": true,
+      "hasResponsePayload": false
+    },
+    {
+      "jobId": "job-plan-11-def456",
+      "planVersion": 11,
+      "status": "CONCLUIDO",
+      "cancelRequested": false,
+      "solicitadoEm": "2026-02-18T19:01:10",
+      "iniciadoEm": "2026-02-18T19:01:10",
+      "finalizadoEm": "2026-02-18T19:01:11",
+      "erro": null,
+      "hasRequestPayload": true,
+      "hasResponsePayload": true
+    }
+  ]
+}

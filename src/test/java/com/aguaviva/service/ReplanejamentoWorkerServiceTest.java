@@ -219,6 +219,60 @@ class ReplanejamentoWorkerServiceTest {
         }
     }
 
+    @Test
+    void deveSolicitarPreempcaoAoDetectarLockOcupadoEReprocessarNaRetentativa() throws Exception {
+        inserirEvento(DispatchEventTypes.PEDIDO_CRIADO, 40);
+        inserirEvento(DispatchEventTypes.PEDIDO_FALHOU, 40);
+
+        AtomicInteger pedidosPreempcao = new AtomicInteger(0);
+        AtomicInteger chamadasExecutor = new AtomicInteger(0);
+        CountDownLatch primeiraExecucaoIniciada = new CountDownLatch(1);
+        CountDownLatch liberarPrimeiraExecucao = new CountDownLatch(1);
+
+        ReplanejamentoWorkerService workerComPreempcao = new ReplanejamentoWorkerService(
+                factory,
+                capacidadePolicy -> {
+                    chamadasExecutor.incrementAndGet();
+                    primeiraExecucaoIniciada.countDown();
+                    try {
+                        liberarPrimeiraExecucao.await(2, TimeUnit.SECONDS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new IllegalStateException("executor interrompido", e);
+                    }
+                    return new PlanejamentoResultado(1, 1, 0);
+                },
+                new DispatchEventService(),
+                pedidosPreempcao::incrementAndGet);
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        try {
+            Future<ReplanejamentoWorkerResultado> primeiraRodada =
+                    executor.submit(() -> workerComPreempcao.processarPendentes(0, 1));
+            assertTrue(primeiraExecucaoIniciada.await(1, TimeUnit.SECONDS));
+
+            Future<ReplanejamentoWorkerResultado> segundaRodada =
+                    executor.submit(() -> workerComPreempcao.processarPendentes(0, 1));
+
+            Thread.sleep(200);
+            liberarPrimeiraExecucao.countDown();
+
+            ReplanejamentoWorkerResultado primeira = primeiraRodada.get(3, TimeUnit.SECONDS);
+            ReplanejamentoWorkerResultado segunda = segundaRodada.get(3, TimeUnit.SECONDS);
+
+            assertTrue(primeira.replanejou());
+            assertTrue(segunda.replanejou());
+            assertEquals(1, primeira.eventosProcessados());
+            assertEquals(1, segunda.eventosProcessados());
+            assertEquals(2, chamadasExecutor.get());
+            assertTrue(pedidosPreempcao.get() >= 1);
+            assertEquals(2, contarProcessados());
+        } finally {
+            liberarPrimeiraExecucao.countDown();
+            executor.shutdownNow();
+        }
+    }
+
     private void inserirEvento(String eventType, int secondsAgo) throws Exception {
         String sql = "INSERT INTO dispatch_events (event_type, aggregate_type, aggregate_id, payload, available_em) "
                 + "VALUES (?, 'PEDIDO', 1, '{}'::jsonb, CURRENT_TIMESTAMP - (? * INTERVAL '1 second'))";

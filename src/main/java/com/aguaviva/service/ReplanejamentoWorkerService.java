@@ -15,35 +15,56 @@ import java.util.function.Supplier;
 public class ReplanejamentoWorkerService {
 
     private static final long ADVISORY_LOCK_KEY = 114_011L;
+    private static final int MAX_TENTATIVAS_LOCK_OCUPADO = 20;
+    private static final long RETRY_LOCK_SLEEP_MS = 75L;
 
     private final ConnectionFactory connectionFactory;
     private final Function<CapacidadePolicy, PlanejamentoResultado> replanejamentoExecutor;
     private final DispatchEventService dispatchEventService;
+    private final Runnable onWorkerLockBusy;
 
     public ReplanejamentoWorkerService(
             ConnectionFactory connectionFactory, Supplier<PlanejamentoResultado> replanejamentoExecutor) {
         this(
                 connectionFactory,
-                capacidadePolicy -> Objects.requireNonNull(replanejamentoExecutor, "ReplanejamentoExecutor nao pode ser nulo")
+                capacidadePolicy -> Objects.requireNonNull(
+                                replanejamentoExecutor, "ReplanejamentoExecutor nao pode ser nulo")
                         .get(),
-                new DispatchEventService());
+                new DispatchEventService(),
+                () -> {});
     }
 
     public ReplanejamentoWorkerService(
             ConnectionFactory connectionFactory,
             Function<CapacidadePolicy, PlanejamentoResultado> replanejamentoExecutor) {
-        this(connectionFactory, replanejamentoExecutor, new DispatchEventService());
+        this(connectionFactory, replanejamentoExecutor, new DispatchEventService(), () -> {});
+    }
+
+    public ReplanejamentoWorkerService(
+            ConnectionFactory connectionFactory,
+            Function<CapacidadePolicy, PlanejamentoResultado> replanejamentoExecutor,
+            Runnable onWorkerLockBusy) {
+        this(connectionFactory, replanejamentoExecutor, new DispatchEventService(), onWorkerLockBusy);
     }
 
     ReplanejamentoWorkerService(
             ConnectionFactory connectionFactory,
             Function<CapacidadePolicy, PlanejamentoResultado> replanejamentoExecutor,
             DispatchEventService dispatchEventService) {
+        this(connectionFactory, replanejamentoExecutor, dispatchEventService, () -> {});
+    }
+
+    ReplanejamentoWorkerService(
+            ConnectionFactory connectionFactory,
+            Function<CapacidadePolicy, PlanejamentoResultado> replanejamentoExecutor,
+            DispatchEventService dispatchEventService,
+            Runnable onWorkerLockBusy) {
         this.connectionFactory = Objects.requireNonNull(connectionFactory, "ConnectionFactory nao pode ser nulo");
         this.replanejamentoExecutor =
                 Objects.requireNonNull(replanejamentoExecutor, "ReplanejamentoExecutor nao pode ser nulo");
         this.dispatchEventService =
                 Objects.requireNonNull(dispatchEventService, "DispatchEventService nao pode ser nulo");
+        this.onWorkerLockBusy = Objects.requireNonNull(onWorkerLockBusy, "onWorkerLockBusy nao pode ser nulo");
     }
 
     public ReplanejamentoWorkerResultado processarPendentes(int debounceSegundos, int limiteEventos) {
@@ -54,6 +75,31 @@ public class ReplanejamentoWorkerService {
             throw new IllegalArgumentException("limiteEventos deve ser maior que zero");
         }
 
+        boolean preempcaoSolicitada = false;
+        for (int tentativa = 1; tentativa <= MAX_TENTATIVAS_LOCK_OCUPADO; tentativa++) {
+            WorkerAttempt tentativaWorker = processarUmaTentativa(debounceSegundos, limiteEventos);
+            if (!tentativaWorker.lockOcupado()) {
+                return tentativaWorker.resultado();
+            }
+
+            if (!preempcaoSolicitada) {
+                onWorkerLockBusy.run();
+                preempcaoSolicitada = true;
+            }
+
+            if (tentativa == MAX_TENTATIVAS_LOCK_OCUPADO) {
+                break;
+            }
+
+            if (!aguardarRetryLock(tentativa)) {
+                break;
+            }
+        }
+
+        return new ReplanejamentoWorkerResultado(0, false, 0, 0, 0);
+    }
+
+    private WorkerAttempt processarUmaTentativa(int debounceSegundos, int limiteEventos) {
         try (Connection conn = connectionFactory.getConnection()) {
             conn.setAutoCommit(false);
             try {
@@ -61,18 +107,20 @@ public class ReplanejamentoWorkerService {
 
                 if (!tryAcquireWorkerLock(conn)) {
                     conn.commit();
-                    return new ReplanejamentoWorkerResultado(0, false, 0, 0, 0);
+                    return WorkerAttempt.lockBusy();
                 }
 
                 List<DispatchEventRef> eventos =
                         buscarEventosPendentesComDebounce(conn, debounceSegundos, limiteEventos);
                 if (eventos.isEmpty()) {
                     conn.commit();
-                    return new ReplanejamentoWorkerResultado(0, false, 0, 0, 0);
+                    return WorkerAttempt.withResult(new ReplanejamentoWorkerResultado(0, false, 0, 0, 0));
                 }
 
-                ReplanejamentoPolicyMatrix.ReplanejamentoEventPolicy politicaLote = ReplanejamentoPolicyMatrix.consolidate(
-                        eventos.stream().map(DispatchEventRef::eventType).toList());
+                ReplanejamentoPolicyMatrix.ReplanejamentoEventPolicy politicaLote =
+                        ReplanejamentoPolicyMatrix.consolidate(eventos.stream()
+                                .map(DispatchEventRef::eventType)
+                                .toList());
                 boolean deveReplanejar = politicaLote.replaneja();
 
                 PlanejamentoResultado planejamento = new PlanejamentoResultado(0, 0, 0);
@@ -83,12 +131,12 @@ public class ReplanejamentoWorkerService {
                 marcarEventosProcessados(conn, eventos);
                 conn.commit();
 
-                return new ReplanejamentoWorkerResultado(
+                return WorkerAttempt.withResult(new ReplanejamentoWorkerResultado(
                         eventos.size(),
                         deveReplanejar,
                         planejamento.rotasCriadas(),
                         planejamento.entregasCriadas(),
-                        planejamento.pedidosNaoAtendidos());
+                        planejamento.pedidosNaoAtendidos()));
             } catch (Exception e) {
                 conn.rollback();
                 throw e;
@@ -97,6 +145,17 @@ public class ReplanejamentoWorkerService {
             }
         } catch (SQLException e) {
             throw new IllegalStateException("Falha ao processar worker de replanejamento", e);
+        }
+    }
+
+    private boolean aguardarRetryLock(int tentativa) {
+        try {
+            long backoff = RETRY_LOCK_SLEEP_MS * Math.max(1L, tentativa);
+            Thread.sleep(Math.min(backoff, 400L));
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
         }
     }
 
@@ -146,6 +205,16 @@ public class ReplanejamentoWorkerService {
             Array sqlArray = conn.createArrayOf("bigint", ids);
             stmt.setArray(1, sqlArray);
             stmt.executeUpdate();
+        }
+    }
+
+    private record WorkerAttempt(boolean lockOcupado, ReplanejamentoWorkerResultado resultado) {
+        static WorkerAttempt lockBusy() {
+            return new WorkerAttempt(true, null);
+        }
+
+        static WorkerAttempt withResult(ReplanejamentoWorkerResultado resultado) {
+            return new WorkerAttempt(false, resultado);
         }
     }
 

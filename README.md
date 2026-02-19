@@ -283,7 +283,7 @@ Gson com `LOWER_CASE_WITH_UNDERSCORES` converte `capacidadeVeiculo` → `capacid
 
 **Service** (`service/`) — Orquestra domain + repository + solver.
 Gerencia transacoes e coordena fluxos de negocio:
-- `RotaService` com planejamento transacional, `plan_version`, cancelamento best-effort, concorrencia multi-instancia e reaproveitamento local
+- `RotaService` com planejamento transacional, `plan_version`, cancelamento best-effort, preempcao distribuida via `solver_jobs` e trilha de `request_payload`/`response_payload`
 - `PedidoLifecycleService` como porta unica de transicao de status (state machine + lock pessimista)
 - `AtendimentoTelefonicoService` com idempotencia por `external_call_id` e regra de vale no checkout
 - `ExecucaoEntregaService` para eventos operacionais (`ROTA_INICIADA`, `PEDIDO_ENTREGUE`, `PEDIDO_FALHOU`, `PEDIDO_CANCELADO`) + debito de vale + regra terminal so em `EM_EXECUCAO`
@@ -729,6 +729,8 @@ Endpoints:
 - `GET /api/operacao/painel`
 - `GET /api/operacao/eventos`
 - `GET /api/operacao/mapa`
+- `GET /api/operacao/replanejamento/jobs`
+- `GET /api/operacao/replanejamento/jobs/{jobId}`
 
 ### Contratos compartilhados (A0)
 

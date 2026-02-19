@@ -241,7 +241,7 @@ wait_for_execucao_with_rota() {
 is_required_check() {
   local id="$1"
   case "$id" in
-    R01|R02|R03|R04|R05|R06|R07|R08|R09|R10|R11|R12|R13|R14|R15|R16|R17|R18|R19|R23|R24|R25)
+    R01|R02|R03|R04|R05|R06|R07|R08|R09|R10|R11|R12|R13|R14|R15|R16|R17|R18|R19|R23|R24|R25|R26|R27)
       echo "true"
       ;;
     *)
@@ -368,6 +368,7 @@ set +e
   cd "$ROOT_DIR"
   API_PORT="$API_PORT" \
   API_BASE="$API_BASE" \
+  FORCE_API_RESTART=1 \
   DB_CONTAINER="$DB_CONTAINER" \
   POSTGRES_DB="$DB_NAME" \
   POSTGRES_USER="$DB_USER" \
@@ -403,6 +404,8 @@ if [[ "$START_EXIT" -ne 0 ]]; then
   record_check "R23" "OpenAPI cobre endpoints operacionais efetivos" "SKIPPED" "$START_LOG" "Bootstrap falhou"
   record_check "R24" "Testes de contrato bloqueiam drift" "SKIPPED" "$START_LOG" "Bootstrap falhou"
   record_check "R25" "Nenhum pedido com mais de uma entrega aberta" "SKIPPED" "$START_LOG" "Bootstrap falhou"
+  record_check "R26" "Feed de jobs de replanejamento consistente e limitado" "SKIPPED" "$START_LOG" "Bootstrap falhou"
+  record_check "R27" "Detalhe de job correlaciona plan_version com rotas e pedidos" "SKIPPED" "$START_LOG" "Bootstrap falhou"
 
   log "Bootstrap do ambiente falhou (exit=$START_EXIT). Evidencia completa em: $START_LOG"
   if [[ -s "$START_LOG" ]]; then
@@ -1027,6 +1030,8 @@ END;")"
     '/api/operacao/painel:' \
     '/api/operacao/eventos:' \
     '/api/operacao/mapa:' \
+    '/api/operacao/replanejamento/jobs:' \
+    '/api/operacao/replanejamento/jobs/{jobId}:' \
     '/api/operacao/rotas/prontas/iniciar:' \
     '/api/replanejamento/run:'
   do
@@ -1084,6 +1089,110 @@ END;")"
     record_check "R25" "Nenhum pedido com mais de uma entrega aberta" "PASS" "$check_dir/evidence.txt" "Invariante de entrega aberta por pedido preservada."
   else
     record_check "R25" "Nenhum pedido com mais de uma entrega aberta" "FAIL" "$check_dir/evidence.txt" "Detectados pedidos com entregas abertas duplicadas."
+  fi
+
+  # R26
+  check_dir="$(new_check_dir R26)"
+  api_get_capture "/api/operacao/replanejamento/jobs?limite=3"
+  jobs_status="$API_LAST_STATUS"
+  jobs_body="$API_LAST_BODY"
+  jobs_ok=0
+  if [[ "$jobs_status" == "200" ]]; then
+    if echo "$jobs_body" | jq -e '.jobs | length <= 3' >/dev/null 2>&1 \
+      && echo "$jobs_body" | jq -e '.jobs as $j | (($j | length) < 2 or (reduce range(1; ($j | length)) as $i (true; . and ($j[$i-1].solicitadoEm >= $j[$i].solicitadoEm))))' >/dev/null 2>&1 \
+      && echo "$jobs_body" | jq -e 'all(.jobs[]?; has("jobId") and has("status") and has("cancelRequested") and has("hasRequestPayload") and has("hasResponsePayload"))' >/dev/null 2>&1; then
+      jobs_ok=1
+    fi
+  fi
+  {
+    echo "jobs_status=$jobs_status"
+    echo "$jobs_body" | jq . 2>/dev/null || echo "$jobs_body"
+  } > "$check_dir/evidence.txt"
+  if [[ "$jobs_ok" -eq 1 ]]; then
+    record_check "R26" "Feed de jobs de replanejamento consistente e limitado" "PASS" "$check_dir/evidence.txt" "Endpoint operacional retornou limite/ordenacao/campos obrigatorios dos jobs."
+  else
+    record_check "R26" "Feed de jobs de replanejamento consistente e limitado" "FAIL" "$check_dir/evidence.txt" "Endpoint de jobs nao respeitou limite, ordenacao ou campos esperados."
+  fi
+
+  # R27
+  check_dir="$(new_check_dir R27)"
+  r27_job_id="bg-r27-$(date +%s)-$RANDOM"
+  r27_plan_version="$((900000 + RANDOM))"
+  r27_atendente_id="$(psql_query "SELECT id FROM users WHERE papel = 'atendente' AND ativo = true ORDER BY id LIMIT 1;" | extract_single_value)"
+  if [[ -z "$r27_atendente_id" ]]; then
+    r27_atendente_id="$(psql_query "INSERT INTO users (nome, email, senha_hash, papel, ativo)
+VALUES ('Atendente BG R27', 'bg.r27.atendente.${RANDOM}@aguaviva.local', 'hash-r27', 'atendente', true)
+RETURNING id;" | extract_single_value)"
+  fi
+  r27_entregador_id="$(psql_query "INSERT INTO users (nome, email, senha_hash, papel, ativo)
+VALUES ('Entregador BG R27', 'bg.r27.entregador.${RANDOM}@aguaviva.local', 'hash-r27', 'entregador', true)
+RETURNING id;" | extract_single_value)"
+  r27_ok=0
+
+  if [[ -n "$r27_entregador_id" && -n "$r27_atendente_id" ]]; then
+    r27_cliente_id="$(psql_query "INSERT INTO clientes (nome, telefone, tipo, endereco, latitude, longitude)
+VALUES ('Cliente BG R27', '3899999${RANDOM}', 'PF', 'Rua R27', -16.7310, -43.8710)
+RETURNING id;" | extract_single_value)"
+    r27_pedido_id="$(psql_query "INSERT INTO pedidos (cliente_id, quantidade_galoes, janela_tipo, status, criado_por)
+VALUES (${r27_cliente_id}, 1, 'ASAP', 'CONFIRMADO', ${r27_atendente_id})
+RETURNING id;" | extract_single_value)"
+    r27_numero_rota="$(psql_query "SELECT COALESCE(MAX(numero_no_dia), 0) + 1
+FROM rotas
+WHERE entregador_id = ${r27_entregador_id}
+  AND data = CURRENT_DATE;" | extract_single_value)"
+    r27_rota_id="$(psql_query "INSERT INTO rotas (entregador_id, data, numero_no_dia, status, plan_version)
+VALUES (${r27_entregador_id}, CURRENT_DATE, ${r27_numero_rota}, 'PLANEJADA', ${r27_plan_version})
+RETURNING id;" | extract_single_value)"
+    r27_entrega_id="$(psql_query "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, status, plan_version)
+VALUES (${r27_pedido_id}, ${r27_rota_id}, 1, 'PENDENTE', ${r27_plan_version})
+RETURNING id;" | extract_single_value)"
+    psql_exec "INSERT INTO solver_jobs
+      (job_id, plan_version, status, cancel_requested, solicitado_em, iniciado_em, finalizado_em, erro, request_payload, response_payload)
+    VALUES
+      ('${r27_job_id}', ${r27_plan_version}, 'CONCLUIDO', false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, '{}'::jsonb, '{\"rotas\":[]}'::jsonb);"
+
+    api_get_capture "/api/operacao/replanejamento/jobs/${r27_job_id}"
+    r27_status="$API_LAST_STATUS"
+    r27_body="$API_LAST_BODY"
+    if [[ "$r27_status" == "200" ]]; then
+      if echo "$r27_body" | jq -e \
+        --arg jobId "$r27_job_id" \
+        --argjson planVersion "$r27_plan_version" \
+        --argjson rotaId "$r27_rota_id" \
+        --argjson pedidoId "$r27_pedido_id" \
+        --argjson entregaId "$r27_entrega_id" \
+        '.job.jobId == $jobId
+          and .job.planVersion == $planVersion
+          and any(.job.rotasImpactadas[]?; .rotaId == $rotaId)
+          and any(.job.pedidosImpactados[]?; .pedidoId == $pedidoId and .entregaId == $entregaId)' >/dev/null 2>&1; then
+        r27_ok=1
+      fi
+    fi
+  else
+    r27_status="0"
+    r27_body="{}"
+    r27_cliente_id=""
+    r27_pedido_id=""
+    r27_rota_id=""
+    r27_entrega_id=""
+  fi
+
+  {
+    echo "r27_status=$r27_status"
+    echo "r27_job_id=$r27_job_id"
+    echo "r27_plan_version=$r27_plan_version"
+    echo "r27_entregador_id=$r27_entregador_id"
+    echo "r27_atendente_id=$r27_atendente_id"
+    echo "r27_cliente_id=${r27_cliente_id:-}"
+    echo "r27_pedido_id=${r27_pedido_id:-}"
+    echo "r27_rota_id=${r27_rota_id:-}"
+    echo "r27_entrega_id=${r27_entrega_id:-}"
+    echo "$r27_body" | jq . 2>/dev/null || echo "$r27_body"
+  } > "$check_dir/evidence.txt"
+  if [[ "$r27_ok" -eq 1 ]]; then
+    record_check "R27" "Detalhe de job correlaciona plan_version com rotas e pedidos" "PASS" "$check_dir/evidence.txt" "Detalhe de job retornou correlacao esperada de rota e pedido."
+  else
+    record_check "R27" "Detalhe de job correlaciona plan_version com rotas e pedidos" "FAIL" "$check_dir/evidence.txt" "Endpoint de detalhe nao comprovou correlacao por plan_version."
   fi
 fi
 

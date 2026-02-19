@@ -78,8 +78,7 @@ public class EventoOperacionalIdempotenciaService {
 
     public void assertSchema(Connection conn) throws SQLException {
         if (!hasTable(conn, "eventos_operacionais_idempotencia")) {
-            throw new IllegalStateException(
-                    "Schema desatualizado: tabela eventos_operacionais_idempotencia ausente");
+            throw new IllegalStateException("Schema desatualizado: tabela eventos_operacionais_idempotencia ausente");
         }
         if (!hasColumn(conn, "eventos_operacionais_idempotencia", "external_event_id")) {
             throw new IllegalStateException(
