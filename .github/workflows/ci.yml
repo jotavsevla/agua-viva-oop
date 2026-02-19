@@ -78,6 +78,9 @@ jobs:
           java-version: "21"
           cache: maven
 
+      - name: Run Spotless check
+        run: mvn -DskipTests spotless:check
+
       - name: Install PostgreSQL client
         run: sudo apt-get update && sudo apt-get install -y postgresql-client
 
