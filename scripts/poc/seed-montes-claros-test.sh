@@ -10,6 +10,8 @@ DB_NAME="${DB_NAME:-agua_viva_oop_test}"
 DB_HOST="${DB_HOST:-localhost}"
 DB_PORT="${DB_PORT:-5435}"
 DB_PASSWORD="${DB_PASSWORD:-postgres}"
+CLIENTES_BBOX="${CLIENTES_BBOX:--43.9600,-16.8200,-43.7800,-16.6200}"
+GEOFENCE_SUMMARY_FILE="${GEOFENCE_SUMMARY_FILE:-$ROOT_DIR/artifacts/poc/geofence-summary.json}"
 
 usage() {
   cat <<'USAGE'
@@ -23,10 +25,13 @@ Variaveis opcionais:
   DB_HOST=localhost
   DB_PORT=5435
   DB_PASSWORD=postgres
+  CLIENTES_BBOX=-43.9600,-16.8200,-43.7800,-16.6200
+  GEOFENCE_SUMMARY_FILE=artifacts/poc/geofence-summary.json
 
 Comportamento:
   - Se houver `psql` local, aplica seed via conexao TCP.
   - Se nao houver `psql`, usa fallback com `docker exec` no container do Postgres.
+  - Ao final valida consistencia do seed e geofence operacional.
 USAGE
 }
 
@@ -65,4 +70,13 @@ else
     -v ON_ERROR_STOP=1 < "$SEED_FILE" >/dev/null
 fi
 
-echo "[seed-montes-claros-test] Seed aplicado com sucesso (clientes + saldo VALE base)."
+DB_CONTAINER="$DB_CONTAINER" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
+DB_HOST="$DB_HOST" DB_PORT="$DB_PORT" DB_PASSWORD="$DB_PASSWORD" \
+"$ROOT_DIR/scripts/poc/check-montes-claros-seed.sh"
+
+DB_CONTAINER="$DB_CONTAINER" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
+DB_HOST="$DB_HOST" DB_PORT="$DB_PORT" DB_PASSWORD="$DB_PASSWORD" \
+CLIENTES_BBOX="$CLIENTES_BBOX" GEOFENCE_SUMMARY_FILE="$GEOFENCE_SUMMARY_FILE" \
+"$ROOT_DIR/scripts/poc/check-clientes-geofence.sh"
+
+echo "[seed-montes-claros-test] Seed aplicado e validado com sucesso (consistencia + geofence)."
