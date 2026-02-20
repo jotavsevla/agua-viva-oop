@@ -9,9 +9,25 @@ que resolve roteamento de veiculos com restricoes reais.
 
 ## Escopo Publico
 
-Este `README.md` e a referencia publica do projeto.
-Documentacao adicional e mantida apenas em material interno/local.
-Status consolidado de negocio desta fase esta resumido neste proprio README.
+Este `README.md` e a referencia publica para terceiros.
+Ele resume contexto, arquitetura, contratos e como executar o projeto.
+Guia operacional detalhado, testes por tipo, padroes de docs e estilo ficam em `docs/`.
+Politica completa de publico x interno: `docs/DOCUMENTACAO-PADROES.md`.
+
+## Mapa de documentacao interna (temas exclusivos)
+
+Documentos abaixo sao internos (uso local da equipe) e seguem padrao tematico.
+
+- Padroes de documentacao: `docs/DOCUMENTACAO-PADROES.md`
+- Status tecnico interno: `docs/ESTADO-ATUAL.md`
+- Gate operacional PoC: `docs/GATE_POC_OPERACIONAL.md`
+- Runbook do ambiente de teste: `docs/RUNBOOK_OPERACAO_TESTE.md`
+- Testes Java: `docs/TESTES-JAVA.md`
+- Testes Solver (Python): `docs/TESTES-SOLVER-PYTHON.md`
+- Testes UI unitarios (JS): `docs/TESTES-UI-JS.md`
+- Testes E2E (Playwright): `docs/TESTES-E2E-PLAYWRIGHT.md`
+- Estilo e formatacao (`spotless:check`): `docs/ESTILO-E-FORMATACAO.md`
+- Versionamento, branch, commit e PR: `GIT-E-PADROES.md`
 
 ## Memoria Tecnica Recente (PoC Operacional)
 
@@ -58,6 +74,19 @@ Regras do gate oficial:
 1. Nao aceita verde parcial por etapa nao executada.
 2. Em `strict`, etapas obrigatorias do E2E (Playwright + suite + promocoes) sao mandatórias.
 3. Evidencias sao consolidadas em `artifacts/poc/business-gate-<timestamp>/business-summary.json`.
+
+### Demo Guiada Unica (M3-I0)
+
+Roteiro unico para demonstracao executiva do loop operacional, com pacote fechado de evidencias por cenario:
+
+```bash
+scripts/poc/run-demo-m3-i0.sh
+```
+
+Saidas principais:
+
+1. `artifacts/poc/demo-m3-i0-<timestamp>/demo-summary.json`
+2. `artifacts/poc/demo-m3-i0-<timestamp>/demo-summary.txt`
 
 ---
 
@@ -236,36 +265,7 @@ FROM metricas_brutas mb JOIN users u ON u.id = mb.entregador_id;
 
 ## Arquitetura
 
-```
-┌─────────────────────────────────────────────────────────────┐
-│                        Docker Compose                       │
-│                                                             │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌────────────┐  │
-│  │PostgreSQL│  │  OSRM    │  │Nominatim │  │  Solver    │  │
-│  │  :5434   │  │  :5000   │  │  :8088   │  │  :8080     │  │
-│  │          │  │ distancias│  │ geocoding│  │ OR-Tools   │  │
-│  │          │  │ reais    │  │ endereco │  │ CVRPTW     │  │
-│  │          │  │ por vias │  │ → lat/lon│  │            │  │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └─────┬──────┘  │
-│       │              │             │              │          │
-└───────┼──────────────┼─────────────┼──────────────┼──────────┘
-        │              │             │              │
-   ┌────┴──────────────┴─────────────┴──────────────┴──────┐
-   │                    Java Backend                        │
-   │                                                        │
-   │  domain/     → Regras de negocio (OOP pura)            │
-   │  repository/ → JDBC (leitura/gravacao)                 │
-   │  solver/     → SolverClient (HTTP + JSON)              │
-   │  service/    → Orquestracao transacional                │
-   │  api/        → Endpoints HTTP (JDK built-in)           │
-   └───────────────────────┬────────────────────────────────┘
-                           │
-                    ┌──────┴──────┐
-                    │   Browser   │
-                    │ Leaflet.js  │
-                    │ (mapa)      │
-                    └─────────────┘
-```
+![Diagrama de arquitetura](docs/.assets/arquitetura.svg)
 
 ### Camadas com separacao rigida
 
@@ -399,83 +399,17 @@ a integracao completa desse fluxo no service segue em andamento.
 
 ## Testes
 
-Suite de testes mapeada em multiplas camadas — TDD (teste escrito antes da implementacao).
-Matriz objetiva `regra de negocio -> teste -> evidencia`: nesta secao.
+O projeto usa suites separadas por tipo de teste para evitar mistura de contexto.
 
-### Testes unitarios (Java + 29 Python)
+- Java (unitario + integracao): `docs/TESTES-JAVA.md`
+- Solver Python (pytest): `docs/TESTES-SOLVER-PYTHON.md`
+- UI JS unitario (node:test): `docs/TESTES-UI-JS.md`
+- E2E Playwright: `docs/TESTES-E2E-PLAYWRIGHT.md`
 
-Testam logica pura sem dependencias externas (sem banco, sem rede, sem Docker).
-
-| Suite            | Testes | O que valida                                                    |
-| ---------------- | ------ | --------------------------------------------------------------- |
-| PasswordTest     | 18     | Politica de senha, BCrypt, matching, reconstrucao, Value Object |
-| UserTest         | 27     | Invariantes, hierarquia (10 combinacoes), identidade, email     |
-| SolverClientTest | 14     | Serializacao/deserializacao JSON, roundtrip, construcao, metadados async e compatibilidade HTTP |
-| ContractsV1Test  | 3      | Presenca/consistencia do pacote `contracts/v1` (OpenAPI, eventos e exemplos) |
-| ClienteTest      | 16     | Invariantes de cliente, coordenadas, identidade da entidade     |
-| PedidoTest       | 16     | Invariantes de pedido, janela HARD/ASAP, identidade da entidade |
-| PedidoStateMachineTest | 8 | Transicoes validas/invalidas e regra de cobranca por cancelamento em rota |
-| test_vrp         | 16     | Solver CVRPTW, capacidade, time windows, multiplas viagens, cancelamento cooperativo |
-| test_models      | 6      | Validacao Pydantic, defaults, galoes >= 1                       |
-| test_matrix      | 5      | Haversine, simetria, fallback OSRM → Haversine                 |
-| test_main_async  | 2      | Fluxo async de job e cancelamento antecipado no solver          |
-
-### Testes de integracao (Java)
-
-Testam interacao com PostgreSQL real (porta 5435, tmpfs, dados em memoria).
-
-| Suite                 | Testes | O que valida                                                 |
-| --------------------- | ------ | ------------------------------------------------------------ |
-| ConnectionFactoryTest | 5      | Conexao valida + versao PostgreSQL + resolucao de config (`runtime env > .env > default`) |
-| UserRepositoryTest    | 21     | CRUD completo, email unico, todos os enum, soft delete, hash persistido |
-| ClienteRepositoryTest | 13     | CRUD completo, telefone unico, mapeamento de enum e coordenadas |
-| PedidoRepositoryTest  | 12     | CRUD completo, filtros por cliente/pendentes, FKs e status/janelas |
-| RotaServiceTest       | 24     | Fluxo fim-a-fim + rollback + idempotencia + reprocessamento + pagamento nao-vale + lock distribuido + concorrencia multi-instancia + alta disputa + retries simultaneos |
-| PedidoLifecycleServiceTest | 3 | Transicao com lock pessimista + efeitos de cancelamento/cobranca |
-| AtendimentoTelefonicoServiceTest | 11 | Entrada telefonica/manual idempotente por `external_call_id`, regra de vale, reaproveitamento de pedido ativo |
-| ExecucaoEntregaServiceTest | 12 | Eventos operacionais + debito de vale + idempotencia de eventos terminais + bloqueio de estado invalido |
-| ReplanejamentoWorkerServiceTest | 5 | Coalescencia por debounce + lock distribuido + trigger seletivo por tipo de evento |
-| ApiServerTest | 28 | Contrato HTTP completo (atendimento, eventos com idempotencia/409, endpoint manual desativado, one-click de rota pronta, CORS, vale, timeline, execucao, roteiro, painel, feed e mapa operacional) |
-
-### Testes JS unit (15)
-
-Testam helpers do prototipo UI sem dependencia de browser ou banco.
-
-| Suite                | Testes | O que valida                                   |
-| -------------------- | ------ | ---------------------------------------------- |
-| timeline-flow.test   | 3      | Fetch de timeline com fallback                 |
-| timeline-utils.test  | 4      | Path building, normalizacao e merge de payload |
-| operational-e2e.test | 8      | Payloads terminais, SQL lookup e validacoes    |
-
-### Testes E2E Playwright (5)
-
-Loop operacional ponta-a-ponta: UI → API HTTP → service → banco real.
-
-| Teste | Caminho exercitado | Status esperado |
-| ----- | ------------------ | --------------- |
-| cenario feliz | atendimento → rota → entrega → timeline | ENTREGUE |
-| cenario falha | atendimento → roteirizacao por evento → rota → falha → timeline | CANCELADO |
-| cenario cancelamento | atendimento → roteirizacao por evento → rota → cancelamento → timeline | CANCELADO |
-| vale com saldo | POST atendimento VALE + saldo suficiente | HTTP 200 |
-| vale sem saldo | POST atendimento VALE + saldo zero | HTTP 400 |
-
-Isolamento entre testes: limpeza por `TRUNCATE ... RESTART IDENTITY CASCADE` nos testes de repositorio.
-Sem mocks. Banco real em tmpfs (Java) e banco dev via Docker (E2E).
-
-### Rodando os testes
+Comando rapido (rodar Java no projeto raiz):
 
 ```bash
-# Java (236 testes — pre-requisito: postgres-oop-test rodando e migrations 001-015)
 mvn test
-
-# Python (29 testes — dentro do venv do solver)
-cd solver && .venv/bin/python -m pytest tests/ -v
-
-# JS unit (15 testes)
-cd produto-ui/prototipo && node --test tests/*.test.js
-
-# E2E Playwright (5 testes — requer API + banco dev + prototipo rodando)
-cd produto-ui/prototipo && npx playwright test e2e/poc-m1-ui.spec.js
 ```
 
 ---
@@ -644,7 +578,7 @@ CONTAINER_NAME=postgres-oop-test POSTGRES_DB=agua_viva_oop_test ./apply-migratio
 ### Compilar e testar (Java)
 
 ```bash
-mvn test           # 236 testes (unitarios + integracao)
+mvn test
 mvn clean compile  # compilar sem testes
 ```
 
@@ -686,7 +620,7 @@ docker compose up -d osrm nominatim solver
 # 3. Testar solver localmente (opcional)
 cd solver && python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-pytest tests/ -v   # 29 testes
+pytest tests/ -v
 ```
 
 ### Poda de mapa (recomendado para recuperacao mais rapida)

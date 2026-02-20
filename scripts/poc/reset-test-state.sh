@@ -5,6 +5,8 @@ DB_CONTAINER="${DB_CONTAINER:-postgres-oop-test}"
 DB_USER="${DB_USER:-postgres}"
 DB_NAME="${DB_NAME:-agua_viva_oop_test}"
 NUM_ENTREGADORES_ATIVOS="${NUM_ENTREGADORES_ATIVOS:-1}"
+SEED_MONTES_CLAROS="${SEED_MONTES_CLAROS:-1}"
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || {
@@ -17,6 +19,11 @@ require_cmd docker
 
 if ! [[ "$NUM_ENTREGADORES_ATIVOS" =~ ^[0-9]+$ ]] || [[ "$NUM_ENTREGADORES_ATIVOS" -le 0 ]]; then
   echo "NUM_ENTREGADORES_ATIVOS invalido: $NUM_ENTREGADORES_ATIVOS (use inteiro > 0)" >&2
+  exit 1
+fi
+
+if [[ "$SEED_MONTES_CLAROS" != "0" && "$SEED_MONTES_CLAROS" != "1" ]]; then
+  echo "SEED_MONTES_CLAROS invalido: $SEED_MONTES_CLAROS (use 0 ou 1)" >&2
   exit 1
 fi
 
@@ -55,4 +62,9 @@ FROM generate_series(1, GREATEST(${NUM_ENTREGADORES_ATIVOS} - 1, 0)) AS n
 ON CONFLICT (email) DO UPDATE SET ativo = true;
 SQL
 
-echo "[reset-test-state] Estado resetado com base minima (entregadores ativos: ${NUM_ENTREGADORES_ATIVOS})"
+if [[ "$SEED_MONTES_CLAROS" == "1" ]]; then
+  "$ROOT_DIR/scripts/poc/seed-montes-claros-test.sh"
+  echo "[reset-test-state] Estado resetado com base operacional + seed geografico de Montes Claros (entregadores ativos: ${NUM_ENTREGADORES_ATIVOS})"
+else
+  echo "[reset-test-state] Estado resetado com base minima (entregadores ativos: ${NUM_ENTREGADORES_ATIVOS})"
+fi
