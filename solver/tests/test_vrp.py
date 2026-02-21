@@ -90,6 +90,28 @@ def test_capacity_single_trip_limits_atendimentos():
         assert total_demand <= 5
 
 
+def test_prioridade_hard_reduz_chance_de_drop():
+    # Capacidade so permite atender 1 de 2 pedidos.
+    # Pedido 1 (HARD/prioridade 1) deve ser preferido sobre pedido 2 (ASAP/prioridade 2).
+    matrix = [
+        [0, 300, 300],
+        [300, 0, 300],
+        [300, 300, 0],
+    ]
+    routes, dropped = solve(
+        duration_matrix=matrix,
+        demands=[0, 3, 3],
+        time_windows=[(0, 36000)] * 3,
+        num_drivers=1,
+        vehicle_capacity=3,
+        priorities=[0, 1, 2],
+    )
+
+    atendidos = {node for _, stops in routes for node, _ in stops}
+    assert 1 in atendidos
+    assert 2 in dropped
+
+
 def test_time_window_respected():
     # Entrega 1: janela 0-1800s (08:00-08:30)
     # Entrega 2: janela 7200-10800s (10:00-11:00)
