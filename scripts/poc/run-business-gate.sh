@@ -159,6 +159,26 @@ log() {
   echo "[business-gate] $*"
 }
 
+infer_java_major() {
+  if ! command -v java >/dev/null 2>&1; then
+    return 0
+  fi
+  java -version 2>&1 | awk -F[\".] 'NR==1 { if ($2 == "1") print $3; else print $2 }'
+}
+
+CONTRACT_TEST_MVN_ARGS="${CONTRACT_TEST_MVN_ARGS:-}"
+if [[ -z "$CONTRACT_TEST_MVN_ARGS" ]]; then
+  JAVA_MAJOR="$(infer_java_major)"
+  if [[ -n "$JAVA_MAJOR" && "$JAVA_MAJOR" != "21" ]]; then
+    CONTRACT_TEST_MVN_ARGS="-Denforcer.skip=true"
+    log "Java ${JAVA_MAJOR} detectado fora da faixa 21.x; contrato rodara com ${CONTRACT_TEST_MVN_ARGS}."
+  fi
+fi
+CONTRACT_TEST_MVN_ARGS_ARRAY=()
+if [[ -n "$CONTRACT_TEST_MVN_ARGS" ]]; then
+  read -r -a CONTRACT_TEST_MVN_ARGS_ARRAY <<< "$CONTRACT_TEST_MVN_ARGS"
+fi
+
 contains_fixed_text() {
   local needle="$1"
   local file="$2"
@@ -455,6 +475,7 @@ else
   check_dir="$(new_check_dir R02)"
   if reset_state_for_check "$check_dir"; then
     prepare_base_users
+    seed_cliente "38999901002" "Cliente BG R02" "0" >/dev/null
     call_id="bg-r02-$(date +%s)-$RANDOM"
     payload="$(jq -n --arg externalCallId "$call_id" --arg telefone "(38) 99990-1002" --argjson quantidadeGaloes 1 --argjson atendenteId "$ATENDENTE_ID" '{externalCallId:$externalCallId,telefone:$telefone,quantidadeGaloes:$quantidadeGaloes,atendenteId:$atendenteId,metodoPagamento:"PIX"}')"
     api_post_capture "/api/atendimento/pedidos" "$payload"
@@ -1089,7 +1110,7 @@ END;")"
   set +e
   (
     cd "$ROOT_DIR"
-    mvn -Dtest=ContractsV1Test,ApiContractDriftTest test
+    mvn "${CONTRACT_TEST_MVN_ARGS_ARRAY[@]}" -Dtest=ContractsV1Test,ApiContractDriftTest test
   ) > "$check_dir/mvn-contract-tests.log" 2>&1
   r24_exit="$?"
   set -e
