@@ -13,6 +13,8 @@ Variaveis opcionais:
   UI_BASE=http://localhost:4174
   SOLVER_REBUILD=1
   DB_CONTAINER=postgres-oop-test
+  DB_SERVICE=postgres-oop-test
+  COMPOSE_FILE=compose.yml
   DB_USER=postgres
   DB_NAME=agua_viva_oop_test
   DB_HOST=localhost
@@ -183,6 +185,8 @@ DB_NAME="${DB_NAME:-agua_viva_oop_test}"
 DB_HOST="${DB_HOST:-localhost}"
 DB_PORT="${DB_PORT:-5435}"
 DB_PASSWORD="${DB_PASSWORD:-postgres}"
+DB_SERVICE="${DB_SERVICE:-$DB_CONTAINER}"
+COMPOSE_FILE="${COMPOSE_FILE:-compose.yml}"
 SEED_MONTES_CLAROS="${SEED_MONTES_CLAROS:-1}"
 
 if [[ "$KEEP_RUNNING" != "0" && "$KEEP_RUNNING" != "1" ]]; then
@@ -227,7 +231,9 @@ echo "[demo-m3-i0] Subindo ambiente de teste"
   UI_BASE="$UI_BASE" \
   UI_PORT="$UI_PORT" \
   SOLVER_REBUILD="$SOLVER_REBUILD" \
+  COMPOSE_FILE="$COMPOSE_FILE" \
   DB_CONTAINER="$DB_CONTAINER" \
+  DB_SERVICE="$DB_SERVICE" \
   POSTGRES_DB="$DB_NAME" \
   POSTGRES_USER="$DB_USER" \
   POSTGRES_HOST="$DB_HOST" \
@@ -240,6 +246,8 @@ echo "[demo-m3-i0] Resetando estado operacional"
 (
   cd "$ROOT_DIR"
   DB_CONTAINER="$DB_CONTAINER" \
+  DB_SERVICE="$DB_SERVICE" \
+  COMPOSE_FILE="$COMPOSE_FILE" \
   DB_USER="$DB_USER" \
   DB_NAME="$DB_NAME" \
   SEED_MONTES_CLAROS="$SEED_MONTES_CLAROS" \
@@ -250,6 +258,8 @@ echo "[demo-m3-i0] Validando seed de Montes Claros"
 (
   cd "$ROOT_DIR"
   DB_CONTAINER="$DB_CONTAINER" \
+  DB_SERVICE="$DB_SERVICE" \
+  COMPOSE_FILE="$COMPOSE_FILE" \
   DB_USER="$DB_USER" \
   DB_NAME="$DB_NAME" \
   DB_HOST="$DB_HOST" \
@@ -282,7 +292,9 @@ for scenario in "${SCENARIOS[@]}"; do
   (
     cd "$ROOT_DIR"
     API_BASE="$API_BASE" \
+    COMPOSE_FILE="$COMPOSE_FILE" \
     DB_CONTAINER="$DB_CONTAINER" \
+    DB_SERVICE="$DB_SERVICE" \
     DB_USER="$DB_USER" \
     DB_NAME="$DB_NAME" \
     DB_HOST="$DB_HOST" \

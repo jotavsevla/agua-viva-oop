@@ -2,6 +2,8 @@
 set -euo pipefail
 
 DB_CONTAINER="${DB_CONTAINER:-postgres-oop-test}"
+DB_SERVICE="${DB_SERVICE:-$DB_CONTAINER}"
+COMPOSE_FILE="${COMPOSE_FILE:-compose.yml}"
 DB_USER="${DB_USER:-postgres}"
 DB_NAME="${DB_NAME:-agua_viva_oop_test}"
 DB_HOST="${DB_HOST:-localhost}"
@@ -64,7 +66,7 @@ run_sql() {
     return
   fi
 
-  docker exec -i "$DB_CONTAINER" psql \
+  docker compose -f "$ROOT_DIR/$COMPOSE_FILE" exec -T "$DB_SERVICE" psql \
     -U "$DB_USER" \
     -d "$DB_NAME" \
     -v ON_ERROR_STOP=1 \
@@ -116,7 +118,7 @@ ON CONFLICT (email) DO UPDATE SET ativo = true;
 SQL
 
 if [[ "$SEED_MONTES_CLAROS" == "1" ]]; then
-  DB_CONTAINER="$DB_CONTAINER" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
+  DB_CONTAINER="$DB_CONTAINER" DB_SERVICE="$DB_SERVICE" COMPOSE_FILE="$COMPOSE_FILE" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
     DB_HOST="$DB_HOST" DB_PORT="$DB_PORT" DB_PASSWORD="$DB_PASSWORD" \
     DB_FORCE_CONTAINER="$DB_FORCE_CONTAINER" \
     "$ROOT_DIR/scripts/poc/seed-montes-claros-test.sh"

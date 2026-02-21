@@ -5,6 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SEED_FILE="$ROOT_DIR/sql/seeds/001_seed_clientes_montes_claros_test.sql"
 
 DB_CONTAINER="${DB_CONTAINER:-postgres-oop-test}"
+DB_SERVICE="${DB_SERVICE:-$DB_CONTAINER}"
+COMPOSE_FILE="${COMPOSE_FILE:-compose.yml}"
 DB_USER="${DB_USER:-postgres}"
 DB_NAME="${DB_NAME:-agua_viva_oop_test}"
 DB_HOST="${DB_HOST:-localhost}"
@@ -32,7 +34,7 @@ Variaveis opcionais:
 
 Comportamento:
   - Se houver `psql` local, aplica seed via conexao TCP.
-  - Se nao houver `psql`, usa fallback com `docker exec` no container do Postgres.
+  - Se nao houver `psql`, usa fallback com `docker compose exec` no service do Postgres.
   - Defina `DB_FORCE_CONTAINER=1` para forcar caminho via container.
   - Ao final valida consistencia do seed e geofence operacional.
 USAGE
@@ -67,17 +69,17 @@ if [[ "$DB_FORCE_CONTAINER" != "1" ]] && command -v psql >/dev/null 2>&1; then
     -f "$SEED_FILE" >/dev/null
 else
   require_cmd docker
-  docker exec -i "$DB_CONTAINER" psql \
+  docker compose -f "$ROOT_DIR/$COMPOSE_FILE" exec -T "$DB_SERVICE" psql \
     -U "$DB_USER" \
     -d "$DB_NAME" \
     -v ON_ERROR_STOP=1 < "$SEED_FILE" >/dev/null
 fi
 
-DB_CONTAINER="$DB_CONTAINER" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
+DB_CONTAINER="$DB_CONTAINER" DB_SERVICE="$DB_SERVICE" COMPOSE_FILE="$COMPOSE_FILE" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
 DB_HOST="$DB_HOST" DB_PORT="$DB_PORT" DB_PASSWORD="$DB_PASSWORD" DB_FORCE_CONTAINER="$DB_FORCE_CONTAINER" \
 "$ROOT_DIR/scripts/poc/check-montes-claros-seed.sh"
 
-DB_CONTAINER="$DB_CONTAINER" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
+DB_CONTAINER="$DB_CONTAINER" DB_SERVICE="$DB_SERVICE" COMPOSE_FILE="$COMPOSE_FILE" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
 DB_HOST="$DB_HOST" DB_PORT="$DB_PORT" DB_PASSWORD="$DB_PASSWORD" \
 DB_FORCE_CONTAINER="$DB_FORCE_CONTAINER" CLIENTES_BBOX="$CLIENTES_BBOX" GEOFENCE_SUMMARY_FILE="$GEOFENCE_SUMMARY_FILE" \
 "$ROOT_DIR/scripts/poc/check-clientes-geofence.sh"

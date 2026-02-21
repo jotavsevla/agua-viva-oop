@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
 DB_CONTAINER="${DB_CONTAINER:-postgres-oop-test}"
+DB_SERVICE="${DB_SERVICE:-$DB_CONTAINER}"
+COMPOSE_FILE="${COMPOSE_FILE:-compose.yml}"
 DB_USER="${DB_USER:-postgres}"
 DB_NAME="${DB_NAME:-agua_viva_oop_test}"
 DB_HOST="${DB_HOST:-localhost}"
@@ -55,7 +59,7 @@ query_sql() {
     exit 1
   }
 
-  docker exec -i "$DB_CONTAINER" psql \
+  docker compose -f "$ROOT_DIR/$COMPOSE_FILE" exec -T "$DB_SERVICE" psql \
     -U "$DB_USER" \
     -d "$DB_NAME" \
     -v ON_ERROR_STOP=1 \

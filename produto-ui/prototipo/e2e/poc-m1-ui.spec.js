@@ -1,10 +1,14 @@
 const { execFileSync } = require("node:child_process");
+const path = require("node:path");
 const { test, expect } = require("@playwright/test");
 
 const API_BASE = process.env.API_BASE || "http://localhost:8082";
 const DB_CONTAINER = process.env.DB_CONTAINER || "postgres-oop-test";
+const DB_SERVICE = process.env.DB_SERVICE || DB_CONTAINER;
+const COMPOSE_FILE = process.env.COMPOSE_FILE || "compose.yml";
 const DB_USER = process.env.DB_USER || "postgres";
 const DB_NAME = process.env.DB_NAME || "agua_viva_oop_test";
+const ROOT_DIR = path.resolve(__dirname, "..", "..", "..");
 const DEFAULT_SCENARIOS = ["feliz", "falha", "cancelamento"];
 
 function normalizeScenario(value) {
@@ -59,11 +63,7 @@ function fetchEntregaRotaByPedidoId(pedidoId) {
     `SELECT e.rota_id, e.id AS entrega_id FROM entregas e ` +
     `WHERE e.pedido_id = ${safePedidoId} ORDER BY e.id DESC LIMIT 1;`;
 
-  const raw = execFileSync(
-    "docker",
-    ["exec", "-i", DB_CONTAINER, "psql", "-U", DB_USER, "-d", DB_NAME, "-q", "-Atc", sql],
-    { encoding: "utf8" }
-  )
+  const raw = execSql(sql)
     .trim()
     .split("\n")
     .filter(Boolean)
@@ -91,7 +91,22 @@ function sqlEscape(value) {
 function execSql(sql) {
   return execFileSync(
     "docker",
-    ["exec", "-i", DB_CONTAINER, "psql", "-U", DB_USER, "-d", DB_NAME, "-q", "-Atc", sql],
+    [
+      "compose",
+      "-f",
+      path.join(ROOT_DIR, COMPOSE_FILE),
+      "exec",
+      "-T",
+      DB_SERVICE,
+      "psql",
+      "-U",
+      DB_USER,
+      "-d",
+      DB_NAME,
+      "-q",
+      "-Atc",
+      sql
+    ],
     { encoding: "utf8" }
   ).trim();
 }

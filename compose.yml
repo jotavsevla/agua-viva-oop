@@ -1,13 +1,12 @@
 services:
   postgres-oop-dev:
     image: postgres:16-alpine
-    container_name: postgres-oop-dev
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: agua_viva_oop_dev
     ports:
-      - "5434:5432"
+      - "${POSTGRES_DEV_PORT:-5434}:5432"
     volumes:
       - pgdata-oop-dev:/var/lib/postgresql/data
     healthcheck:
@@ -18,13 +17,12 @@ services:
 
   postgres-oop-test:
     image: postgres:16-alpine
-    container_name: postgres-oop-test
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: agua_viva_oop_test
     ports:
-      - "5435:5432"
+      - "${POSTGRES_TEST_PORT:-5435}:5432"
     tmpfs:
       - /var/lib/postgresql/data
     healthcheck:
@@ -37,13 +35,12 @@ services:
   # Importa o .pbf automaticamente no primeiro start (~30min para MG)
   nominatim:
     image: mediagis/nominatim:4.4
-    container_name: nominatim-agua-viva
     environment:
       # Pode ser apontado para um recorte menor (ex.: cidade) para reduzir tempo de import/startup.
       PBF_URL: ${NOMINATIM_PBF_URL:-https://download.geofabrik.de/south-america/brazil/sudeste-latest.osm.pbf}
       NOMINATIM_PASSWORD: nominatim
     ports:
-      - "8088:8080"
+      - "${NOMINATIM_PORT:-8088}:8080"
     volumes:
       - nominatim-data:/var/lib/postgresql/14/main
     shm_size: 1g
@@ -53,9 +50,8 @@ services:
   # Antes de subir: cd solver/osrm && ./prepare.sh
   osrm:
     image: osrm/osrm-backend
-    container_name: osrm-agua-viva
     ports:
-      - "5000:5000"
+      - "${OSRM_PORT:-5000}:5000"
     volumes:
       - ./solver/osrm/data:/data
     # Dataset preprocessado em solver/osrm/data (sem extensao .osrm).
@@ -65,9 +61,8 @@ services:
   # Solver Python — otimizador de rotas (OR-Tools + FastAPI)
   solver:
     build: ./solver
-    container_name: solver-agua-viva
     ports:
-      - "8080:8080"
+      - "${SOLVER_PORT:-8080}:8080"
     environment:
       - OSRM_URL=http://osrm:5000
     depends_on:

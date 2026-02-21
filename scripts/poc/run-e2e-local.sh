@@ -46,6 +46,7 @@ Variaveis opcionais:
   MODE=strict
   ARTIFACT_DIR=artifacts/poc/e2e-<timestamp>
   DB_CONTAINER=postgres-oop-test
+  DB_SERVICE=postgres-oop-test
   DB_USER=postgres
   DB_NAME=agua_viva_oop_test
   POSTGRES_HOST=localhost
@@ -173,6 +174,7 @@ START_SOLVER="${START_SOLVER:-1}"
 APPLY_MIGRATIONS="${APPLY_MIGRATIONS:-1}"
 PLAYWRIGHT_INSTALL="${PLAYWRIGHT_INSTALL:-1}"
 DB_CONTAINER="${DB_CONTAINER:-postgres-oop-test}"
+DB_SERVICE="${DB_SERVICE:-$DB_CONTAINER}"
 DB_USER="${DB_USER:-postgres}"
 DB_NAME="${DB_NAME:-agua_viva_oop_test}"
 POSTGRES_HOST="${POSTGRES_HOST:-localhost}"
@@ -229,19 +231,19 @@ wait_http() {
   done
 }
 
-wait_container_ready() {
-  local name="$1"
+wait_db_service_ready() {
+  local service="$1"
   local timeout="${2:-90}"
-  local start now status
+  local start now
   start="$(date +%s)"
   while true; do
-    status="$(docker inspect --format '{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}' "$name" 2>/dev/null || true)"
-    if [[ "$status" == "healthy" || "$status" == "running" ]]; then
+    if docker compose -f "$ROOT_DIR/$COMPOSE_FILE" exec -T "$service" \
+      pg_isready -U "$POSTGRES_USER" >/dev/null 2>&1; then
       return 0
     fi
     now="$(date +%s)"
     if (( now - start >= timeout )); then
-      echo "Timeout aguardando container ${name} (status atual: ${status:-desconhecido})" >&2
+      echo "Timeout aguardando service ${service} pronto para conexao." >&2
       return 1
     fi
     sleep 1
@@ -280,7 +282,7 @@ require_cmd npx
 if [[ "$START_POSTGRES" -eq 1 ]]; then
   log "Subindo Postgres test via compose"
   docker compose -f "$ROOT_DIR/$COMPOSE_FILE" up -d postgres-oop-test >/dev/null
-  wait_container_ready "$DB_CONTAINER" 90
+  wait_db_service_ready "$DB_SERVICE" 90
 fi
 
 if [[ "$START_SOLVER" -eq 1 ]]; then
@@ -302,7 +304,7 @@ if [[ "$APPLY_MIGRATIONS" -eq 1 ]]; then
   log "Aplicando migrations"
   (
     cd "$ROOT_DIR"
-    CONTAINER_NAME="$DB_CONTAINER" POSTGRES_USER="$POSTGRES_USER" POSTGRES_DB="$POSTGRES_DB" \
+    DB_SERVICE="$DB_SERVICE" COMPOSE_FILE="$COMPOSE_FILE" POSTGRES_USER="$POSTGRES_USER" POSTGRES_DB="$POSTGRES_DB" \
       ./apply-migrations.sh > "$ARTIFACT_DIR/migrations.log" 2>&1
   )
 fi
@@ -374,7 +376,7 @@ for ((round=1; round<=ROUNDS; round++)); do
     set +e
     (
       cd "$ROOT_DIR"
-      DB_CONTAINER="$DB_CONTAINER" DB_USER="$DB_USER" DB_NAME="$DB_NAME" scripts/poc/reset-test-state.sh \
+      DB_CONTAINER="$DB_CONTAINER" DB_SERVICE="$DB_SERVICE" COMPOSE_FILE="$COMPOSE_FILE" DB_USER="$DB_USER" DB_NAME="$DB_NAME" scripts/poc/reset-test-state.sh \
         > "$round_dir/reset.log" 2>&1
     )
     reset_exit="$?"
@@ -406,7 +408,7 @@ for ((round=1; round<=ROUNDS; round++)); do
     set +e
     (
       cd "$ROOT_DIR/produto-ui/prototipo"
-      API_BASE="$API_BASE" UI_BASE="$UI_BASE" DB_CONTAINER="$DB_CONTAINER" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
+      API_BASE="$API_BASE" UI_BASE="$UI_BASE" DB_CONTAINER="$DB_CONTAINER" DB_SERVICE="$DB_SERVICE" COMPOSE_FILE="$COMPOSE_FILE" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
         npx playwright test e2e/poc-m1-ui.spec.js --workers=1 | tee "$round_dir/playwright.log"
     )
     round_playwright_exit="$?"
@@ -422,7 +424,7 @@ for ((round=1; round<=ROUNDS; round++)); do
     set +e
     (
       cd "$ROOT_DIR"
-      DB_CONTAINER="$DB_CONTAINER" DB_USER="$DB_USER" DB_NAME="$DB_NAME" scripts/poc/reset-test-state.sh \
+      DB_CONTAINER="$DB_CONTAINER" DB_SERVICE="$DB_SERVICE" COMPOSE_FILE="$COMPOSE_FILE" DB_USER="$DB_USER" DB_NAME="$DB_NAME" scripts/poc/reset-test-state.sh \
         > "$round_dir/reset-before-suite.log" 2>&1
     )
     round_reset_before_suite_exit="$?"
@@ -442,7 +444,7 @@ for ((round=1; round<=ROUNDS; round++)); do
       set +e
       (
         cd "$ROOT_DIR"
-        API_BASE="$API_BASE" DB_CONTAINER="$DB_CONTAINER" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
+        API_BASE="$API_BASE" DB_CONTAINER="$DB_CONTAINER" DB_SERVICE="$DB_SERVICE" COMPOSE_FILE="$COMPOSE_FILE" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
           OUT_DIR="$round_dir/poc-suite" scripts/poc/run-suite.sh | tee "$round_dir/poc-suite.log"
       )
       round_suite_exit="$?"
@@ -465,7 +467,7 @@ for ((round=1; round<=ROUNDS; round++)); do
     set +e
     (
       cd "$ROOT_DIR"
-      API_BASE="$API_BASE" DB_CONTAINER="$DB_CONTAINER" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
+      API_BASE="$API_BASE" DB_CONTAINER="$DB_CONTAINER" DB_SERVICE="$DB_SERVICE" COMPOSE_FILE="$COMPOSE_FILE" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
         WORK_DIR="$round_dir/promocoes" SUMMARY_FILE="$round_dir/promocoes-summary.json" \
         REQUIRE_CONFIRMADO_EM_ROTA="$require_confirmado_em_rota" \
         REQUIRE_PENDENTE_CONFIRMADO="$require_pendente_confirmado" \

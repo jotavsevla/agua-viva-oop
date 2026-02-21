@@ -5,7 +5,7 @@ usage() {
   cat <<'USAGE'
 Uso:
   scripts/poc/run-business-gate.sh [--mode strict|observe] [--rounds N] [--api-base URL]
-                                   [--db-container NAME] [--db-user USER] [--db-name DB]
+                                   [--db-container NAME] [--db-service NAME] [--db-user USER] [--db-name DB]
                                    [--keep-running]
 
 Gate oficial de plano de negocio da PoC operacional.
@@ -15,6 +15,7 @@ Defaults:
   --rounds 1
   --api-base http://localhost:8082
   --db-container postgres-oop-test
+  --db-service postgres-oop-test
   --db-user postgres
   --db-name agua_viva_oop_test
 
@@ -34,6 +35,8 @@ MODE="${MODE:-strict}"
 ROUNDS="${ROUNDS:-1}"
 API_BASE="${API_BASE:-http://localhost:8082}"
 DB_CONTAINER="${DB_CONTAINER:-postgres-oop-test}"
+DB_SERVICE="${DB_SERVICE:-$DB_CONTAINER}"
+COMPOSE_FILE="${COMPOSE_FILE:-compose.yml}"
 DB_USER="${DB_USER:-postgres}"
 DB_NAME="${DB_NAME:-agua_viva_oop_test}"
 KEEP_RUNNING=0
@@ -84,6 +87,13 @@ while [[ $# -gt 0 ]]; do
     --db-container=*)
       DB_CONTAINER="${1#*=}"
       ;;
+    --db-service)
+      DB_SERVICE="$2"
+      shift
+      ;;
+    --db-service=*)
+      DB_SERVICE="${1#*=}"
+      ;;
     --db-user)
       DB_USER="$2"
       shift
@@ -117,6 +127,10 @@ done
 if [[ "$MODE" != "strict" && "$MODE" != "observe" ]]; then
   echo "Modo invalido: $MODE (use strict|observe)" >&2
   exit 1
+fi
+
+if [[ "$DB_SERVICE" == "postgres-oop-test" && "$DB_CONTAINER" != "postgres-oop-test" ]]; then
+  DB_SERVICE="$DB_CONTAINER"
 fi
 
 if ! [[ "$ROUNDS" =~ ^[0-9]+$ ]] || [[ "$ROUNDS" -le 0 ]]; then
@@ -173,7 +187,7 @@ psql_query() {
     return
   fi
 
-  docker exec -i "$DB_CONTAINER" \
+  docker compose -f "$ROOT_DIR/$COMPOSE_FILE" exec -T "$DB_SERVICE" \
     psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -q -Atc "$sql"
 }
 
@@ -191,7 +205,7 @@ psql_exec() {
     return
   fi
 
-  docker exec -i "$DB_CONTAINER" \
+  docker compose -f "$ROOT_DIR/$COMPOSE_FILE" exec -T "$DB_SERVICE" \
     psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -q -c "$sql" >/dev/null
 }
 
@@ -297,7 +311,7 @@ reset_state_for_check() {
   set +e
   (
     cd "$ROOT_DIR"
-    DB_CONTAINER="$DB_CONTAINER" DB_USER="$DB_USER" DB_NAME="$DB_NAME" scripts/poc/reset-test-state.sh \
+    DB_CONTAINER="$DB_CONTAINER" DB_SERVICE="$DB_SERVICE" COMPOSE_FILE="$COMPOSE_FILE" DB_USER="$DB_USER" DB_NAME="$DB_NAME" scripts/poc/reset-test-state.sh \
       > "$check_dir/reset.log" 2>&1
   )
   local reset_exit="$?"
@@ -738,7 +752,7 @@ else
       if [[ "$KEEP_RUNNING" -eq 1 ]]; then
         cmd+=(--keep-running)
       fi
-      API_BASE="$API_BASE" DB_CONTAINER="$DB_CONTAINER" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
+      API_BASE="$API_BASE" DB_CONTAINER="$DB_CONTAINER" DB_SERVICE="$DB_SERVICE" COMPOSE_FILE="$COMPOSE_FILE" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
         SOLVER_REBUILD="$SOLVER_REBUILD" ARTIFACT_DIR="$E2E_DIR" "${cmd[@]}"
     ) >> "$check_dir/run-e2e.log" 2>&1
     E2E_EXIT="$?"
@@ -798,13 +812,15 @@ else
 
     set +e
     psql_exec "INSERT INTO rotas (entregador_id, data, numero_no_dia, status) VALUES (${ENTREGADOR_BASE_ID}, CURRENT_DATE, 101, 'PLANEJADA');
-INSERT INTO rotas (entregador_id, data, numero_no_dia, status) VALUES (${ENTREGADOR_BASE_ID}, CURRENT_DATE, 102, 'PLANEJADA');"
+INSERT INTO rotas (entregador_id, data, numero_no_dia, status) VALUES (${ENTREGADOR_BASE_ID}, CURRENT_DATE, 102, 'PLANEJADA');" \
+      >/dev/null 2>"$check_dir/dup14-error.log"
     dup14_exit="$?"
     set -e
 
     set +e
     psql_exec "INSERT INTO rotas (entregador_id, data, numero_no_dia, status) VALUES (${ENTREGADOR_BASE_ID}, CURRENT_DATE, 201, 'EM_ANDAMENTO');
-INSERT INTO rotas (entregador_id, data, numero_no_dia, status) VALUES (${ENTREGADOR_BASE_ID}, CURRENT_DATE, 202, 'EM_ANDAMENTO');"
+INSERT INTO rotas (entregador_id, data, numero_no_dia, status) VALUES (${ENTREGADOR_BASE_ID}, CURRENT_DATE, 202, 'EM_ANDAMENTO');" \
+      >/dev/null 2>"$check_dir/dup15-error.log"
     dup15_exit="$?"
     set -e
 
@@ -813,6 +829,12 @@ INSERT INTO rotas (entregador_id, data, numero_no_dia, status) VALUES (${ENTREGA
       echo "index15=$index15"
       echo "dup14_exit=$dup14_exit"
       echo "dup15_exit=$dup15_exit"
+      if [[ -s "$check_dir/dup14-error.log" ]]; then
+        echo "dup14_error=$(tr '\n' ' ' < "$check_dir/dup14-error.log" | sed 's/[[:space:]]\+/ /g')"
+      fi
+      if [[ -s "$check_dir/dup15-error.log" ]]; then
+        echo "dup15_error=$(tr '\n' ' ' < "$check_dir/dup15-error.log" | sed 's/[[:space:]]\+/ /g')"
+      fi
     } > "$check_dir/evidence.txt"
 
     if [[ "$index14" -ge 1 && "$dup14_exit" -ne 0 ]]; then
@@ -866,7 +888,7 @@ END;")"
     set +e
     (
       cd "$ROOT_DIR"
-      API_BASE="$API_BASE" DB_CONTAINER="$DB_CONTAINER" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
+      API_BASE="$API_BASE" DB_CONTAINER="$DB_CONTAINER" DB_SERVICE="$DB_SERVICE" COMPOSE_FILE="$COMPOSE_FILE" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
         WORK_DIR="$check_dir/promocoes" SUMMARY_FILE="$check_dir/promocoes-summary.json" \
         REQUIRE_CONFIRMADO_EM_ROTA=1 REQUIRE_PENDENTE_CONFIRMADO=1 NUM_ENTREGADORES_ATIVOS=2 \
         scripts/poc/observe-promocoes.sh
@@ -1205,7 +1227,7 @@ RETURNING id;" | extract_single_value)"
     set +e
     (
       cd "$ROOT_DIR"
-      DB_CONTAINER="$DB_CONTAINER" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
+      DB_CONTAINER="$DB_CONTAINER" DB_SERVICE="$DB_SERVICE" COMPOSE_FILE="$COMPOSE_FILE" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
         DB_HOST="${DB_HOST:-localhost}" DB_PORT="${DB_PORT:-5435}" DB_PASSWORD="${DB_PASSWORD:-postgres}" \
         GEOFENCE_SUMMARY_FILE="$check_dir/geofence-summary.json" \
         scripts/poc/check-clientes-geofence.sh
@@ -1227,7 +1249,7 @@ RETURNING id;" | extract_single_value)"
   set +e
   (
     cd "$ROOT_DIR"
-    API_BASE="$API_BASE" DB_CONTAINER="$DB_CONTAINER" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
+    API_BASE="$API_BASE" DB_CONTAINER="$DB_CONTAINER" DB_SERVICE="$DB_SERVICE" COMPOSE_FILE="$COMPOSE_FILE" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
       DB_HOST="${DB_HOST:-localhost}" DB_PORT="${DB_PORT:-5435}" DB_PASSWORD="${DB_PASSWORD:-postgres}" \
       SUMMARY_FILE="$check_dir/entregadores-summary.json" \
       scripts/poc/check-cenario-entregadores.sh
@@ -1245,7 +1267,7 @@ RETURNING id;" | extract_single_value)"
   set +e
   (
     cd "$ROOT_DIR"
-    API_BASE="$API_BASE" DB_CONTAINER="$DB_CONTAINER" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
+    API_BASE="$API_BASE" DB_CONTAINER="$DB_CONTAINER" DB_SERVICE="$DB_SERVICE" COMPOSE_FILE="$COMPOSE_FILE" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
       DB_HOST="${DB_HOST:-localhost}" DB_PORT="${DB_PORT:-5435}" DB_PASSWORD="${DB_PASSWORD:-postgres}" \
       SUMMARY_FILE="$check_dir/frota-perfil-summary.json" \
       scripts/poc/check-frota-perfil.sh
@@ -1263,7 +1285,7 @@ RETURNING id;" | extract_single_value)"
   set +e
   (
     cd "$ROOT_DIR"
-    API_BASE="$API_BASE" DB_CONTAINER="$DB_CONTAINER" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
+    API_BASE="$API_BASE" DB_CONTAINER="$DB_CONTAINER" DB_SERVICE="$DB_SERVICE" COMPOSE_FILE="$COMPOSE_FILE" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
       DB_HOST="${DB_HOST:-localhost}" DB_PORT="${DB_PORT:-5435}" DB_PASSWORD="${DB_PASSWORD:-postgres}" \
       SUMMARY_FILE="$check_dir/sla-operacional-summary.json" \
       scripts/poc/check-sla-operacional.sh
