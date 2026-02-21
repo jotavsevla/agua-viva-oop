@@ -33,6 +33,12 @@ Variaveis opcionais:
   MOTIVO_CANCELAMENTO=cliente cancelou
   COBRANCA_CANCELAMENTO_CENTAVOS=2500
   EXTERNAL_EVENT_PREFIX=poc-evento
+  WAIT_EXECUCAO_MAX_ATTEMPTS=45
+  WAIT_EXECUCAO_SLEEP_SECONDS=1
+  START_ROTA_MAX_ATTEMPTS=30
+  START_ROTA_SLEEP_SECONDS=1
+  WAIT_TIMELINE_MAX_ATTEMPTS=30
+  WAIT_TIMELINE_SLEEP_SECONDS=1
 USAGE
 }
 
@@ -75,7 +81,22 @@ api_request() {
   local method="$1"
   local path="$2"
   local payload="${3:-}"
-  local raw status body
+  api_request_capture "$method" "$path" "$payload"
+
+  if [[ "$API_LAST_STATUS" -lt 200 || "$API_LAST_STATUS" -ge 300 ]]; then
+    echo "Falha HTTP $API_LAST_STATUS em $method $path" >&2
+    echo "$API_LAST_BODY" | jq . >&2 || echo "$API_LAST_BODY" >&2
+    exit 1
+  fi
+
+  printf '%s' "$API_LAST_BODY"
+}
+
+api_request_capture() {
+  local method="$1"
+  local path="$2"
+  local payload="${3:-}"
+  local raw
 
   if [[ "$method" == "GET" ]]; then
     raw="$(curl -sS -w $'\n%{http_code}' "$API_BASE$path")"
@@ -87,16 +108,8 @@ api_request() {
       "$API_BASE$path")"
   fi
 
-  status="${raw##*$'\n'}"
-  body="${raw%$'\n'*}"
-
-  if [[ "$status" -lt 200 || "$status" -ge 300 ]]; then
-    echo "Falha HTTP $status em $method $path" >&2
-    echo "$body" | jq . >&2 || echo "$body" >&2
-    exit 1
-  fi
-
-  printf '%s' "$body"
+  API_LAST_STATUS="${raw##*$'\n'}"
+  API_LAST_BODY="${raw%$'\n'*}"
 }
 
 print_step() {
@@ -119,28 +132,117 @@ wait_for_execucao_com_rota() {
   local pedido_id="$1"
   local max_attempts="${2:-20}"
   local wait_seconds="${3:-1}"
-  local tentativa response rota rota_primaria camada
+  local tentativa response rota rota_primaria status
 
   for tentativa in $(seq 1 "$max_attempts"); do
-    response="$(api_request GET "/api/pedidos/${pedido_id}/execucao")"
+    api_request_capture GET "/api/pedidos/${pedido_id}/execucao"
+    status="$API_LAST_STATUS"
+    response="$API_LAST_BODY"
+
+    if [[ "$status" == "404" ]]; then
+      sleep "$wait_seconds"
+      continue
+    fi
+
+    if [[ "$status" != "200" ]]; then
+      echo "Falha HTTP $status em GET /api/pedidos/${pedido_id}/execucao" >&2
+      echo "$response" | jq . >&2 || echo "$response" >&2
+      return 1
+    fi
+
     rota_primaria="$(echo "$response" | jq -r '.rotaPrimariaId // 0')"
     rota="$(echo "$response" | jq -r '.rotaId // 0')"
-    camada="$(echo "$response" | jq -r '.camada // ""')"
-
     if [[ "$rota_primaria" != "0" && "$rota_primaria" != "null" && -n "$rota_primaria" ]]; then
       printf '%s' "$response"
       return 0
     fi
 
-    # Enquanto estiver em camada secundaria confirmada, aguarda promocao para primaria
-    # para evitar 409 ao iniciar rota com uma entrega ainda transiente.
-    if [[ "$rota" != "0" && "$rota" != "null" && -n "$rota" && "$camada" != "SECUNDARIA_CONFIRMADA" ]]; then
+    # A camada pode estar em transicao; basta ter rota candidata e o start da rota
+    # faz retry de 409 ate a promocao ficar consistente.
+    if [[ "$rota" != "0" && "$rota" != "null" && -n "$rota" ]]; then
       printf '%s' "$response"
       return 0
     fi
     sleep "$wait_seconds"
   done
 
+  return 1
+}
+
+wait_for_timeline_status() {
+  local pedido_id="$1"
+  local expected_status="$2"
+  local max_attempts="${3:-20}"
+  local wait_seconds="${4:-1}"
+  local tentativa timeline status_atual
+
+  for tentativa in $(seq 1 "$max_attempts"); do
+    timeline="$(api_request GET "/api/pedidos/${pedido_id}/timeline")"
+    status_atual="$(echo "$timeline" | jq -r '.statusAtual // ""')"
+    if [[ "$status_atual" == "$expected_status" ]]; then
+      printf '%s' "$timeline"
+      return 0
+    fi
+    sleep "$wait_seconds"
+  done
+
+  return 1
+}
+
+start_rota_with_retry() {
+  local pedido_id="$1"
+  local max_attempts="$2"
+  local wait_seconds="$3"
+  local tentativa execucao_atual rota_candidata payload event_id
+  execucao_atual=""
+
+  for tentativa in $(seq 1 "$max_attempts"); do
+    if [[ -z "$execucao_atual" ]]; then
+      api_request_capture GET "/api/pedidos/${pedido_id}/execucao"
+      if [[ "$API_LAST_STATUS" == "404" ]]; then
+        sleep "$wait_seconds"
+        continue
+      fi
+      if [[ "$API_LAST_STATUS" != "200" ]]; then
+        echo "Falha HTTP $API_LAST_STATUS em GET /api/pedidos/${pedido_id}/execucao" >&2
+        echo "$API_LAST_BODY" | jq . >&2 || echo "$API_LAST_BODY" >&2
+        return 1
+      fi
+      execucao_atual="$API_LAST_BODY"
+    fi
+
+    rota_candidata="$(echo "$execucao_atual" | jq -r '.rotaPrimariaId // .rotaId // empty')"
+    if [[ -z "$rota_candidata" || "$rota_candidata" == "null" ]]; then
+      sleep "$wait_seconds"
+      execucao_atual=""
+      continue
+    fi
+
+    event_id="${EXTERNAL_EVENT_PREFIX}-${EXTERNAL_CALL_ID}-rota-${tentativa}"
+    payload="$(jq -n \
+      --arg externalEventId "$event_id" \
+      --argjson rotaId "$rota_candidata" \
+      '{ eventType: "ROTA_INICIADA", externalEventId: $externalEventId, rotaId: $rotaId }')"
+
+    api_request_capture POST "/api/eventos" "$payload"
+    if [[ "$API_LAST_STATUS" -ge 200 && "$API_LAST_STATUS" -lt 300 ]]; then
+      printf '%s' "$API_LAST_BODY"
+      return 0
+    fi
+
+    if [[ "$API_LAST_STATUS" != "409" ]]; then
+      echo "Falha HTTP $API_LAST_STATUS em POST /api/eventos (ROTA_INICIADA)" >&2
+      echo "$API_LAST_BODY" | jq . >&2 || echo "$API_LAST_BODY" >&2
+      return 1
+    fi
+
+    # Conflito transiente enquanto a execucao ainda promove a rota primaria.
+    sleep "$wait_seconds"
+    execucao_atual=""
+  done
+
+  echo "Nao foi possivel iniciar rota apos ${max_attempts} tentativa(s)." >&2
+  echo "$execucao_atual" | jq . >&2 || echo "$execucao_atual" >&2
   return 1
 }
 
@@ -186,6 +288,12 @@ MOTIVO_FALHA="${MOTIVO_FALHA:-cliente ausente}"
 MOTIVO_CANCELAMENTO="${MOTIVO_CANCELAMENTO:-cliente cancelou}"
 COBRANCA_CANCELAMENTO_CENTAVOS="${COBRANCA_CANCELAMENTO_CENTAVOS:-2500}"
 EXTERNAL_EVENT_PREFIX="${EXTERNAL_EVENT_PREFIX:-poc-evento}"
+WAIT_EXECUCAO_MAX_ATTEMPTS="${WAIT_EXECUCAO_MAX_ATTEMPTS:-45}"
+WAIT_EXECUCAO_SLEEP_SECONDS="${WAIT_EXECUCAO_SLEEP_SECONDS:-1}"
+START_ROTA_MAX_ATTEMPTS="${START_ROTA_MAX_ATTEMPTS:-30}"
+START_ROTA_SLEEP_SECONDS="${START_ROTA_SLEEP_SECONDS:-1}"
+WAIT_TIMELINE_MAX_ATTEMPTS="${WAIT_TIMELINE_MAX_ATTEMPTS:-30}"
+WAIT_TIMELINE_SLEEP_SECONDS="${WAIT_TIMELINE_SLEEP_SECONDS:-1}"
 
 # Evita colisao de idempotencia entre execucoes proximas no mesmo segundo.
 EXTERNAL_CALL_ID="poc-${SCENARIO}-$(date +%s)-${RANDOM}-$$"
@@ -194,6 +302,19 @@ if ! [[ "$NUM_ENTREGADORES_ATIVOS" =~ ^[0-9]+$ ]] || [[ "$NUM_ENTREGADORES_ATIVO
   echo "NUM_ENTREGADORES_ATIVOS invalido: $NUM_ENTREGADORES_ATIVOS (use inteiro > 0)" >&2
   exit 1
 fi
+
+for n in \
+  "$WAIT_EXECUCAO_MAX_ATTEMPTS" \
+  "$WAIT_EXECUCAO_SLEEP_SECONDS" \
+  "$START_ROTA_MAX_ATTEMPTS" \
+  "$START_ROTA_SLEEP_SECONDS" \
+  "$WAIT_TIMELINE_MAX_ATTEMPTS" \
+  "$WAIT_TIMELINE_SLEEP_SECONDS"; do
+  if ! [[ "$n" =~ ^[0-9]+$ ]] || [[ "$n" -le 0 ]]; then
+    echo "Parametro de espera invalido: $n (use inteiro > 0)" >&2
+    exit 1
+  fi
+done
 
 print_step "Health check"
 health_response="$(api_request GET "/health")"
@@ -280,7 +401,7 @@ timeline_inicial="$(api_request GET "/api/pedidos/${pedido_id}/timeline")"
 print_json "GET /api/pedidos/{pedidoId}/timeline (inicial)" "$timeline_inicial"
 
 print_step "Aguardar roteirizacao automatica por evento (PEDIDO_CRIADO)"
-if ! execucao_inicial="$(wait_for_execucao_com_rota "$pedido_id" 25 1)"; then
+if ! execucao_inicial="$(wait_for_execucao_com_rota "$pedido_id" "$WAIT_EXECUCAO_MAX_ATTEMPTS" "$WAIT_EXECUCAO_SLEEP_SECONDS")"; then
   echo "Execucao nao retornou rota para pedido ${pedido_id} no tempo esperado." >&2
   exit 1
 fi
@@ -298,11 +419,7 @@ echo "rota_id=${rota_id}"
 echo "entrega_id_inicial=${entrega_id:-indefinido}"
 
 print_step "Iniciar rota"
-rota_iniciada_payload="$(jq -n \
-  --arg externalEventId "${EXTERNAL_EVENT_PREFIX}-${EXTERNAL_CALL_ID}-rota" \
-  --argjson rotaId "$rota_id" \
-  '{ eventType: "ROTA_INICIADA", externalEventId: $externalEventId, rotaId: $rotaId }')"
-rota_iniciada_response="$(api_request POST "/api/eventos" "$rota_iniciada_payload")"
+rota_iniciada_response="$(start_rota_with_retry "$pedido_id" "$START_ROTA_MAX_ATTEMPTS" "$START_ROTA_SLEEP_SECONDS")"
 print_json "POST /api/eventos (ROTA_INICIADA)" "$rota_iniciada_response"
 
 execucao_pos_rota="$(api_request GET "/api/pedidos/${pedido_id}/execucao")"
@@ -316,14 +433,17 @@ fi
 echo "entrega_id=${entrega_id}"
 
 print_step "Evento terminal do cenario: ${SCENARIO}"
+expected_timeline_status=""
 case "$SCENARIO" in
   feliz)
+    expected_timeline_status="ENTREGUE"
     evento_terminal_payload="$(jq -n \
       --arg externalEventId "${EXTERNAL_EVENT_PREFIX}-${EXTERNAL_CALL_ID}-terminal" \
       --argjson entregaId "$entrega_id" \
       '{ eventType: "PEDIDO_ENTREGUE", externalEventId: $externalEventId, entregaId: $entregaId }')"
     ;;
   falha)
+    expected_timeline_status="CANCELADO"
     evento_terminal_payload="$(jq -n \
       --arg externalEventId "${EXTERNAL_EVENT_PREFIX}-${EXTERNAL_CALL_ID}-terminal" \
       --argjson entregaId "$entrega_id" \
@@ -331,6 +451,7 @@ case "$SCENARIO" in
       '{ eventType: "PEDIDO_FALHOU", externalEventId: $externalEventId, entregaId: $entregaId, motivo: $motivo }')"
     ;;
   cancelamento)
+    expected_timeline_status="CANCELADO"
     evento_terminal_payload="$(jq -n \
       --arg externalEventId "${EXTERNAL_EVENT_PREFIX}-${EXTERNAL_CALL_ID}-terminal" \
       --argjson entregaId "$entrega_id" \
@@ -349,10 +470,13 @@ esac
 evento_terminal_response="$(api_request POST "/api/eventos" "$evento_terminal_payload")"
 print_json "POST /api/eventos (terminal)" "$evento_terminal_response"
 
-sleep 1
-
 print_step "Timeline final"
-timeline_final="$(api_request GET "/api/pedidos/${pedido_id}/timeline")"
+if ! timeline_final="$(wait_for_timeline_status "$pedido_id" "$expected_timeline_status" "$WAIT_TIMELINE_MAX_ATTEMPTS" "$WAIT_TIMELINE_SLEEP_SECONDS")"; then
+  timeline_final="$(api_request GET "/api/pedidos/${pedido_id}/timeline")"
+  echo "Timeline nao atingiu status esperado=${expected_timeline_status} para pedido_id=${pedido_id} no tempo limite." >&2
+  print_json "GET /api/pedidos/{pedidoId}/timeline (final)" "$timeline_final"
+  exit 1
+fi
 print_json "GET /api/pedidos/{pedidoId}/timeline (final)" "$timeline_final"
 
 echo
