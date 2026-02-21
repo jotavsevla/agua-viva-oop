@@ -1,8 +1,0 @@
-{
-  "enabledPlugins": {
-    "sales@knowledge-work-plugins": true,
-    "data@knowledge-work-plugins": true,
-    "bio-research@knowledge-work-plugins": true,
-    "cowork-plugin-management@knowledge-work-plugins": true
-  }
-}
