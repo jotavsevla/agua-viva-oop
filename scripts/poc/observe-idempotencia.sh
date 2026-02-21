@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 API_BASE="${API_BASE:-http://localhost:8082}"
 DB_CONTAINER="${DB_CONTAINER:-postgres-oop-test}"
+DB_SERVICE="${DB_SERVICE:-$DB_CONTAINER}"
+COMPOSE_FILE="${COMPOSE_FILE:-compose.yml}"
 DB_USER="${DB_USER:-postgres}"
 DB_NAME="${DB_NAME:-agua_viva_oop_test}"
 
@@ -33,6 +36,17 @@ api_post_status() {
     --data "$payload"
 }
 
+psql_query() {
+  local sql="$1"
+  docker compose -f "$ROOT_DIR/$COMPOSE_FILE" exec -T "$DB_SERVICE" \
+    psql -U "$DB_USER" -d "$DB_NAME" -Atc "$sql"
+}
+
+psql_exec() {
+  docker compose -f "$ROOT_DIR/$COMPOSE_FILE" exec -T "$DB_SERVICE" \
+    psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 "$@"
+}
+
 wait_for_rota_do_pedido() {
   local pedido_id="$1"
   local attempts="${2:-20}"
@@ -58,21 +72,21 @@ fi
 echo "[observe-idempotencia] Preparando base de teste"
 "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/reset-test-state.sh" >/dev/null
 
-ATENDENTE_ID="$(docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -Atc "
+ATENDENTE_ID="$(psql_query "
 INSERT INTO users (nome,email,senha_hash,papel,ativo)
 VALUES ('Atendente Idempotencia','idempot.atendente@aguaviva.local','hash_nao_usado','atendente',true)
 ON CONFLICT (email) DO UPDATE SET ativo=true
 RETURNING id;
 " | tail -n1 | tr -d '[:space:]')"
 
-ENTREGADOR_ID="$(docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -Atc "
+ENTREGADOR_ID="$(psql_query "
 INSERT INTO users (nome,email,senha_hash,papel,ativo)
 VALUES ('Entregador Idempotencia','idempot.entregador@aguaviva.local','hash_nao_usado','entregador',true)
 ON CONFLICT (email) DO UPDATE SET ativo=true
 RETURNING id;
 " | tail -n1 | tr -d '[:space:]')"
 
-docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 <<SQL >/dev/null
+psql_exec <<SQL >/dev/null
 INSERT INTO clientes (nome,telefone,tipo,endereco,latitude,longitude)
 VALUES ('Cliente Idempotencia','38998769011','PF','Rua Idempotencia, 1',-16.7310,-43.8710)
 ON CONFLICT (telefone) DO UPDATE SET atualizado_em = CURRENT_TIMESTAMP;
@@ -124,7 +138,7 @@ echo "$BODY_DIVERGENTE" | jq .
 
 echo
 echo "[observe-idempotencia] Registro na tabela de idempotencia"
-docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -Atc "
+psql_query "
 SELECT external_event_id,event_type,scope_type,scope_id,status_code
 FROM eventos_operacionais_idempotencia
 WHERE external_event_id = '$KEY';

@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
 usage() {
   cat <<'USAGE'
 Uso:
@@ -14,6 +16,8 @@ Variaveis opcionais:
   DB_USER=postgres
   DB_PASSWORD=postgres
   DB_CONTAINER=postgres-oop-test
+  DB_SERVICE=postgres-oop-test
+  COMPOSE_FILE=compose.yml
   ATENDENTE_EMAIL=poc.atendente@aguaviva.local
   ENTREGADOR_EMAIL=poc.entregador@aguaviva.local
   NUM_ENTREGADORES_ATIVOS=1
@@ -58,7 +62,7 @@ psql_query() {
   fi
 
   if command -v docker >/dev/null 2>&1; then
-    docker exec -i "$DB_CONTAINER" \
+    docker compose -f "$ROOT_DIR/$COMPOSE_FILE" exec -T "$DB_SERVICE" \
       psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -q -Atc "$sql"
     return
   fi
@@ -155,6 +159,8 @@ DB_NAME="${DB_NAME:-agua_viva_oop_test}"
 DB_USER="${DB_USER:-postgres}"
 DB_PASSWORD="${DB_PASSWORD:-postgres}"
 DB_CONTAINER="${DB_CONTAINER:-postgres-oop-test}"
+DB_SERVICE="${DB_SERVICE:-$DB_CONTAINER}"
+COMPOSE_FILE="${COMPOSE_FILE:-compose.yml}"
 ATENDENTE_EMAIL="${ATENDENTE_EMAIL:-poc.atendente@aguaviva.local}"
 ENTREGADOR_EMAIL="${ENTREGADOR_EMAIL:-poc.entregador@aguaviva.local}"
 NUM_ENTREGADORES_ATIVOS="${NUM_ENTREGADORES_ATIVOS:-1}"

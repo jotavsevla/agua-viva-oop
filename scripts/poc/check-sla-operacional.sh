@@ -5,6 +5,8 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 API_BASE="${API_BASE:-http://localhost:8082}"
 DB_CONTAINER="${DB_CONTAINER:-postgres-oop-test}"
+DB_SERVICE="${DB_SERVICE:-$DB_CONTAINER}"
+COMPOSE_FILE="${COMPOSE_FILE:-compose.yml}"
 DB_USER="${DB_USER:-postgres}"
 DB_NAME="${DB_NAME:-agua_viva_oop_test}"
 DB_HOST="${DB_HOST:-localhost}"
@@ -70,7 +72,7 @@ psql_query() {
   fi
 
   require_cmd docker
-  docker exec -i "$DB_CONTAINER" \
+  docker compose -f "$ROOT_DIR/$COMPOSE_FILE" exec -T "$DB_SERVICE" \
     psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 -q -Atc "$sql"
 }
 
@@ -109,7 +111,7 @@ for round in $(seq 1 "$SLA_ROUNDS"); do
   set +e
   (
     cd "$ROOT_DIR"
-    DB_CONTAINER="$DB_CONTAINER" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
+    DB_CONTAINER="$DB_CONTAINER" DB_SERVICE="$DB_SERVICE" COMPOSE_FILE="$COMPOSE_FILE" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
       NUM_ENTREGADORES_ATIVOS="$NUM_ENTREGADORES_ATIVOS" SEED_MONTES_CLAROS=1 \
       scripts/poc/reset-test-state.sh
   ) > "$round_dir/reset.log" 2>&1

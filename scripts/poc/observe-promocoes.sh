@@ -1,8 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 API_BASE="${API_BASE:-http://localhost:8082}"
 DB_CONTAINER="${DB_CONTAINER:-postgres-oop-test}"
+DB_SERVICE="${DB_SERVICE:-$DB_CONTAINER}"
+COMPOSE_FILE="${COMPOSE_FILE:-compose.yml}"
 DB_USER="${DB_USER:-postgres}"
 DB_NAME="${DB_NAME:-agua_viva_oop_test}"
 WORK_DIR="${WORK_DIR:-/tmp/agua-viva-observe}"
@@ -31,6 +34,17 @@ api_post() {
   --data "$payload"
 }
 
+psql_query() {
+  local sql="$1"
+  docker compose -f "$ROOT_DIR/$COMPOSE_FILE" exec -T "$DB_SERVICE" \
+    psql -U "$DB_USER" -d "$DB_NAME" -q -Atc "$sql"
+}
+
+psql_exec() {
+  docker compose -f "$ROOT_DIR/$COMPOSE_FILE" exec -T "$DB_SERVICE" \
+    psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 "$@"
+}
+
 wait_for_sql_truth() {
   local sql="$1"
   local expected="${2:-1}"
@@ -39,7 +53,7 @@ wait_for_sql_truth() {
   local value
 
   for _ in $(seq 1 "$attempts"); do
-    value="$(docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -q -Atc "$sql" | tr -d '[:space:]')"
+    value="$(psql_query "$sql" | tr -d '[:space:]')"
     if [[ "$value" == "$expected" ]]; then
       return 0
     fi
@@ -74,7 +88,7 @@ TOTAL_PEDIDOS=$((NUM_ENTREGADORES_ATIVOS + 1))
 echo "[observe-promocoes] Resetando estado"
 "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/reset-test-state.sh" >/dev/null
 
-docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 <<SQL >/dev/null
+psql_exec <<SQL >/dev/null
 UPDATE configuracoes SET valor = '1' WHERE chave = 'capacidade_veiculo';
 
 INSERT INTO users (nome,email,senha_hash,papel,ativo)
@@ -102,8 +116,8 @@ FROM generate_series(1, GREATEST(${NUM_ENTREGADORES_ATIVOS} - 1, 0)) AS n
 ON CONFLICT (email) DO UPDATE SET ativo = true;
 SQL
 
-ATENDENTE_ID="$(docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -Atc "SELECT id FROM users WHERE email='promocao.atendente@aguaviva.local' LIMIT 1;" | tr -d '[:space:]')"
-ENTREGADORES_ATIVOS_REAL="$(docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -Atc "SELECT COUNT(*) FROM users WHERE papel='entregador' AND ativo = true;" | tr -d '[:space:]')"
+ATENDENTE_ID="$(psql_query "SELECT id FROM users WHERE email='promocao.atendente@aguaviva.local' LIMIT 1;" | tr -d '[:space:]')"
+ENTREGADORES_ATIVOS_REAL="$(psql_query "SELECT COUNT(*) FROM users WHERE papel='entregador' AND ativo = true;" | tr -d '[:space:]')"
 
 echo "[observe-promocoes] Entregadores ativos: ${ENTREGADORES_ATIVOS_REAL} (alvo: ${NUM_ENTREGADORES_ATIVOS})"
 echo "[observe-promocoes] Pedidos no cenario: ${TOTAL_PEDIDOS}"
@@ -112,7 +126,7 @@ for i in $(seq 1 "$TOTAL_PEDIDOS"); do
   PHONE="38998769$(printf '%03d' $((200 + i)))"
   LAT="$(awk -v i="$i" 'BEGIN { printf "%.4f", -16.7300 - (i / 1000.0) }')"
   LON="$(awk -v i="$i" 'BEGIN { printf "%.4f", -43.8700 - (i / 1000.0) }')"
-  docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 <<SQL >/dev/null
+  psql_exec <<SQL >/dev/null
 INSERT INTO clientes (nome,telefone,tipo,endereco,latitude,longitude)
 VALUES ('Cliente Promocao ${i}','${PHONE}','PF','Rua ${i}',${LAT},${LON})
 ON CONFLICT (telefone) DO UPDATE
@@ -144,7 +158,7 @@ if ! wait_for_sql_truth "SELECT CASE WHEN EXISTS (
 fi
 
 echo "[observe-promocoes] Snapshot antes"
-docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -Atc "$(snapshot_sql)" > "$WORK_DIR/antes.txt"
+psql_query "$(snapshot_sql)" > "$WORK_DIR/antes.txt"
 cat "$WORK_DIR/antes.txt"
 
 PEDIDOS_CONFIRMADOS=()
@@ -182,7 +196,7 @@ fi
 api_post "/api/eventos" "$(jq -n --argjson rotaId "$ROTA_MANTER" '{eventType:"ROTA_INICIADA",rotaId:$rotaId}')" >/dev/null
 
 echo "[observe-promocoes] Aumentando capacidade para permitir promocao de pendente"
-docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -v ON_ERROR_STOP=1 <<'SQL' >/dev/null
+psql_exec <<'SQL' >/dev/null
 UPDATE configuracoes SET valor = '3' WHERE chave = 'capacidade_veiculo';
 SQL
 
@@ -218,7 +232,7 @@ if [[ "$PROMOCAO_OK" -ne 1 ]]; then
 fi
 
 echo "[observe-promocoes] Snapshot depois"
-docker exec -i "$DB_CONTAINER" psql -U "$DB_USER" -d "$DB_NAME" -Atc "$(snapshot_sql)" > "$WORK_DIR/depois.txt"
+psql_query "$(snapshot_sql)" > "$WORK_DIR/depois.txt"
 cat "$WORK_DIR/depois.txt"
 
 echo
