@@ -5,7 +5,6 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.sql.Types;
 import java.util.Locale;
 import java.util.Objects;
@@ -61,13 +60,14 @@ public class AtendimentoTelefonicoService {
                 }
 
                 lockPorTelefone(conn, telefoneNormalizado);
+                assertAtendenteExiste(conn, atendenteId);
 
-                ClienteResolveResult cliente = obterOuCriarClientePorTelefone(conn, telefoneNormalizado);
-                validarElegibilidadeVale(conn, cliente.clienteId(), quantidadeGaloes, metodoPagamentoNormalizado);
+                int clienteId = obterClienteElegivelPorTelefone(conn, telefoneNormalizado);
+                validarElegibilidadeVale(conn, clienteId, quantidadeGaloes, metodoPagamentoNormalizado);
 
                 InsertPedidoResult insert = inserirPedidoPendenteIdempotente(
                         conn,
-                        cliente.clienteId(),
+                        clienteId,
                         quantidadeGaloes,
                         atendenteId,
                         externalCallIdNormalizado,
@@ -79,16 +79,12 @@ public class AtendimentoTelefonicoService {
                             DispatchEventTypes.PEDIDO_CRIADO,
                             "PEDIDO",
                             (long) insert.pedidoId(),
-                            new PedidoCriadoPayload(insert.pedidoId(), insert.clienteId(), externalCallIdNormalizado));
+                            new PedidoCriadoPayload(insert.pedidoId(), clienteId, externalCallIdNormalizado));
                 }
 
                 conn.commit();
                 return new AtendimentoTelefonicoResultado(
-                        insert.pedidoId(),
-                        insert.clienteId(),
-                        telefoneNormalizado,
-                        cliente.clienteCriado() && !insert.idempotente(),
-                        insert.idempotente());
+                        insert.pedidoId(), insert.clienteId(), telefoneNormalizado, false, insert.idempotente());
             } catch (Exception e) {
                 conn.rollback();
                 throw e;
@@ -116,9 +112,10 @@ public class AtendimentoTelefonicoService {
             conn.setAutoCommit(false);
             try {
                 lockPorTelefone(conn, telefoneNormalizado);
+                assertAtendenteExiste(conn, atendenteId);
 
-                ClienteResolveResult cliente = obterOuCriarClientePorTelefone(conn, telefoneNormalizado);
-                Optional<PedidoExistente> pedidoAtivo = buscarPedidoAbertoPorClienteId(conn, cliente.clienteId());
+                int clienteId = obterClienteElegivelPorTelefone(conn, telefoneNormalizado);
+                Optional<PedidoExistente> pedidoAtivo = buscarPedidoAbertoPorClienteId(conn, clienteId);
 
                 if (pedidoAtivo.isPresent()) {
                     conn.commit();
@@ -127,10 +124,10 @@ public class AtendimentoTelefonicoService {
                             existente.pedidoId(), existente.clienteId(), telefoneNormalizado, false, true);
                 }
 
-                validarElegibilidadeVale(conn, cliente.clienteId(), quantidadeGaloes, metodoPagamentoNormalizado);
+                validarElegibilidadeVale(conn, clienteId, quantidadeGaloes, metodoPagamentoNormalizado);
 
                 InsertPedidoResult insert = inserirPedidoPendente(
-                        conn, cliente.clienteId(), quantidadeGaloes, atendenteId, metodoPagamentoNormalizado);
+                        conn, clienteId, quantidadeGaloes, atendenteId, metodoPagamentoNormalizado);
 
                 dispatchEventService.publicar(
                         conn,
@@ -141,7 +138,7 @@ public class AtendimentoTelefonicoService {
 
                 conn.commit();
                 return new AtendimentoTelefonicoResultado(
-                        insert.pedidoId(), insert.clienteId(), telefoneNormalizado, cliente.clienteCriado(), false);
+                        insert.pedidoId(), insert.clienteId(), telefoneNormalizado, false, false);
             } catch (Exception e) {
                 conn.rollback();
                 throw e;
@@ -206,49 +203,48 @@ public class AtendimentoTelefonicoService {
         }
     }
 
-    private Optional<Integer> buscarClienteIdPorTelefoneNormalizado(Connection conn, String telefoneNormalizado)
+    private Optional<ClienteCadastro> buscarClientePorTelefoneNormalizado(Connection conn, String telefoneNormalizado)
             throws SQLException {
-        String sql = "SELECT id FROM clientes WHERE regexp_replace(telefone, '[^0-9]', '', 'g') = ? LIMIT 1";
+        String sql = "SELECT id, endereco, latitude, longitude "
+                + "FROM clientes "
+                + "WHERE regexp_replace(telefone, '[^0-9]', '', 'g') = ? "
+                + "ORDER BY id LIMIT 1";
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, telefoneNormalizado);
             try (ResultSet rs = stmt.executeQuery()) {
                 if (rs.next()) {
-                    return Optional.of(rs.getInt("id"));
+                    return Optional.of(new ClienteCadastro(
+                            rs.getInt("id"),
+                            rs.getString("endereco"),
+                            toNullableDouble(rs, "latitude"),
+                            toNullableDouble(rs, "longitude")));
                 }
                 return Optional.empty();
             }
         }
     }
 
-    private int inserirClienteMinimo(Connection conn, String telefoneNormalizado) throws SQLException {
-        String nome = "Cliente " + telefoneNormalizado;
-        String sql = "INSERT INTO clientes (nome, telefone, tipo, endereco) VALUES (?, ?, ?, ?)";
-
-        try (PreparedStatement stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-            stmt.setString(1, nome);
-            stmt.setString(2, telefoneNormalizado);
-            stmt.setObject(3, "PF", Types.OTHER);
-            stmt.setString(4, ENDERECO_PENDENTE);
-            stmt.executeUpdate();
-
-            try (ResultSet rs = stmt.getGeneratedKeys()) {
-                if (rs.next()) {
-                    return rs.getInt(1);
-                }
-            }
+    private int obterClienteElegivelPorTelefone(Connection conn, String telefoneNormalizado) throws SQLException {
+        Optional<ClienteCadastro> clienteExistente = buscarClientePorTelefoneNormalizado(conn, telefoneNormalizado);
+        if (clienteExistente.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "Cliente nao cadastrado para o telefone informado. Cadastre endereco valido antes de criar pedido");
         }
-
-        throw new SQLException("Falha ao criar cliente minimo para atendimento telefonico");
+        ClienteCadastro cliente = clienteExistente.get();
+        validarClienteElegivelParaPedido(cliente);
+        return cliente.clienteId();
     }
 
-    private ClienteResolveResult obterOuCriarClientePorTelefone(Connection conn, String telefoneNormalizado)
-            throws SQLException {
-        Optional<Integer> clienteExistente = buscarClienteIdPorTelefoneNormalizado(conn, telefoneNormalizado);
-        if (clienteExistente.isPresent()) {
-            return new ClienteResolveResult(clienteExistente.get(), false);
+    private void validarClienteElegivelParaPedido(ClienteCadastro cliente) {
+        String enderecoNormalizado =
+                cliente.endereco() == null ? "" : cliente.endereco().trim();
+        if (enderecoNormalizado.isEmpty() || ENDERECO_PENDENTE.equalsIgnoreCase(enderecoNormalizado)) {
+            throw new IllegalArgumentException("Cliente sem endereco valido. Atualize cadastro antes de criar pedido");
         }
-        int clienteId = inserirClienteMinimo(conn, telefoneNormalizado);
-        return new ClienteResolveResult(clienteId, true);
+        if (cliente.latitude() == null || cliente.longitude() == null) {
+            throw new IllegalArgumentException(
+                    "Cliente sem geolocalizacao valida. Atualize cadastro antes de criar pedido");
+        }
     }
 
     private Optional<PedidoExistente> buscarPedidoAbertoPorClienteId(Connection conn, int clienteId)
@@ -289,6 +285,18 @@ public class AtendimentoTelefonicoService {
                     return 0;
                 }
                 return rs.getInt("quantidade");
+            }
+        }
+    }
+
+    private void assertAtendenteExiste(Connection conn, int atendenteId) throws SQLException {
+        String sql = "SELECT 1 FROM users WHERE id = ? LIMIT 1";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, atendenteId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (!rs.next()) {
+                    throw new IllegalArgumentException("Atendente informado nao existe");
+                }
             }
         }
     }
@@ -414,7 +422,15 @@ public class AtendimentoTelefonicoService {
 
     private record PedidoExistente(int pedidoId, int clienteId) {}
 
-    private record ClienteResolveResult(int clienteId, boolean clienteCriado) {}
+    private static Double toNullableDouble(ResultSet rs, String column) throws SQLException {
+        Object value = rs.getObject(column);
+        if (value == null) {
+            return null;
+        }
+        return rs.getDouble(column);
+    }
+
+    private record ClienteCadastro(int clienteId, String endereco, Double latitude, Double longitude) {}
 
     private record InsertPedidoResult(int pedidoId, int clienteId, boolean idempotente) {}
 

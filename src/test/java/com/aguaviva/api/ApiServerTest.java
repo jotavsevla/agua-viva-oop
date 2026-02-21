@@ -23,6 +23,7 @@ import com.aguaviva.service.ReplanejamentoWorkerService;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import java.math.BigDecimal;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -163,13 +164,21 @@ class ApiServerTest {
     }
 
     private int criarClienteId(String telefone) throws Exception {
-        Cliente cliente = new Cliente("Cliente API " + telefone, telefone, ClienteTipo.PF, "Rua API, 10");
+        Cliente cliente = new Cliente(
+                "Cliente API " + telefone,
+                telefone,
+                ClienteTipo.PF,
+                "Rua API, 10",
+                BigDecimal.valueOf(-16.72),
+                BigDecimal.valueOf(-43.86),
+                null);
         return clienteRepository.save(cliente).getId();
     }
 
     @Test
     void deveRegistrarPedidoManualQuandoExternalCallIdAusenteViaHttp() throws Exception {
         int atendenteId = criarAtendenteId("api-manual@teste.com");
+        criarClienteId("(38) 99876-9001");
         HttpClient client = HttpClient.newHttpClient();
 
         try (ApiServer.RunningServer running = ApiServer.startForTests(
@@ -195,7 +204,7 @@ class ApiServerTest {
             int pedidoIdPrimeiro = primeiraResposta.get("pedidoId").getAsInt();
             assertEquals(200, primeira.statusCode());
             assertFalse(primeiraResposta.get("idempotente").getAsBoolean());
-            assertTrue(primeiraResposta.get("clienteCriado").getAsBoolean());
+            assertFalse(primeiraResposta.get("clienteCriado").getAsBoolean());
             assertTrue(pedidoIdPrimeiro > 0);
 
             HttpResponse<String> segunda = client.send(
@@ -285,6 +294,7 @@ class ApiServerTest {
     @Test
     void deveRegistrarPedidoIdempotenteQuandoExternalCallIdPresenteViaHttp() throws Exception {
         int atendenteId = criarAtendenteId("api-idempotente@teste.com");
+        criarClienteId("(38) 99876-9002");
         HttpClient client = HttpClient.newHttpClient();
 
         try (ApiServer.RunningServer running = ApiServer.startForTests(
@@ -381,6 +391,7 @@ class ApiServerTest {
     void deveTratarEventoOperacionalComoIdempotentePorExternalEventId() throws Exception {
         int atendenteId = criarAtendenteId("api-evento-idempotencia-atendente@teste.com");
         int entregadorId = criarEntregadorId("api-evento-idempotencia-entregador@teste.com");
+        criarClienteId("(38) 99876-9011");
 
         AtendimentoTelefonicoResultado atendimento =
                 atendimentoService.registrarPedidoManual("(38) 99876-9011", 1, atendenteId);
@@ -433,6 +444,7 @@ class ApiServerTest {
     void deveRetornar409QuandoReutilizarExternalEventIdComPayloadDiferente() throws Exception {
         int atendenteId = criarAtendenteId("api-evento-conflito-atendente@teste.com");
         int entregadorId = criarEntregadorId("api-evento-conflito-entregador@teste.com");
+        criarClienteId("(38) 99876-9012");
 
         AtendimentoTelefonicoResultado atendimento =
                 atendimentoService.registrarPedidoManual("(38) 99876-9012", 1, atendenteId);
@@ -495,6 +507,7 @@ class ApiServerTest {
     void deveRetornar409QuandoEventoTerminalDivergirDeEntregaJaFinalizada() throws Exception {
         int atendenteId = criarAtendenteId("api-evento-finalizado-atendente@teste.com");
         int entregadorId = criarEntregadorId("api-evento-finalizado-entregador@teste.com");
+        criarClienteId("(38) 99876-90130");
 
         AtendimentoTelefonicoResultado atendimento =
                 atendimentoService.registrarPedidoManual("(38) 99876-90130", 1, atendenteId);
@@ -546,6 +559,7 @@ class ApiServerTest {
     void deveManterCompatibilidadeQuandoEventoOperacionalNaoTemExternalEventId() throws Exception {
         int atendenteId = criarAtendenteId("api-evento-legado-atendente@teste.com");
         int entregadorId = criarEntregadorId("api-evento-legado-entregador@teste.com");
+        criarClienteId("(38) 99876-9013");
 
         AtendimentoTelefonicoResultado atendimento =
                 atendimentoService.registrarPedidoManual("(38) 99876-9013", 1, atendenteId);
@@ -583,6 +597,7 @@ class ApiServerTest {
     void deveRetornar409QuandoEventoTerminalChegaComEntregaPendenteViaHttp() throws Exception {
         int atendenteId = criarAtendenteId("api-evento-pendente-atendente@teste.com");
         int entregadorId = criarEntregadorId("api-evento-pendente-entregador@teste.com");
+        criarClienteId("(38) 99876-9014");
 
         AtendimentoTelefonicoResultado atendimento =
                 atendimentoService.registrarPedidoManual("(38) 99876-9014", 1, atendenteId);
@@ -623,6 +638,7 @@ class ApiServerTest {
         int atendenteId = criarAtendenteId("api-evento-ownership-atendente@teste.com");
         int entregadorCorreto = criarEntregadorId("api-evento-ownership-entregador-correto@teste.com");
         int outroEntregador = criarEntregadorId("api-evento-ownership-entregador-incorreto@teste.com");
+        criarClienteId("(38) 99876-9015");
 
         AtendimentoTelefonicoResultado atendimento =
                 atendimentoService.registrarPedidoManual("(38) 99876-9015", 1, atendenteId);
@@ -663,6 +679,7 @@ class ApiServerTest {
         int atendenteId = criarAtendenteId("api-evento-ownership2-atendente@teste.com");
         int entregadorCorreto = criarEntregadorId("api-evento-ownership2-entregador-correto@teste.com");
         int outroEntregador = criarEntregadorId("api-evento-ownership2-entregador-incorreto@teste.com");
+        criarClienteId("(38) 99876-9016");
 
         AtendimentoTelefonicoResultado atendimento =
                 atendimentoService.registrarPedidoManual("(38) 99876-9016", 1, atendenteId);
@@ -1225,6 +1242,7 @@ class ApiServerTest {
     void deveRetornarExecucaoAtualDoPedidoViaHttp() throws Exception {
         int atendenteId = criarAtendenteId("api-execucao-atendente@teste.com");
         int entregadorId = criarEntregadorId("api-execucao-entregador@teste.com");
+        criarClienteId("(38) 99876-9020");
 
         AtendimentoTelefonicoResultado atendimento =
                 atendimentoService.registrarPedidoManual("(38) 99876-9020", 2, atendenteId);
@@ -1290,6 +1308,7 @@ class ApiServerTest {
     void deveRetornarTimelineDoPedidoComStatusAtualViaHttp() throws Exception {
         int atendenteId = criarAtendenteId("api-timeline-atendente@teste.com");
         int entregadorId = criarEntregadorId("api-timeline-entregador@teste.com");
+        criarClienteId("(38) 99876-9003");
 
         AtendimentoTelefonicoResultado atendimento =
                 atendimentoService.registrarPedidoManual("(38) 99876-9003", 2, atendenteId);
@@ -1361,6 +1380,7 @@ class ApiServerTest {
     void deveRetornarTimelineComCancelamentoPorFalhaEObservacaoViaHttp() throws Exception {
         int atendenteId = criarAtendenteId("api-timeline-falha-atendente@teste.com");
         int entregadorId = criarEntregadorId("api-timeline-falha-entregador@teste.com");
+        criarClienteId("(38) 99876-9004");
 
         AtendimentoTelefonicoResultado atendimento =
                 atendimentoService.registrarPedidoManual("(38) 99876-9004", 1, atendenteId);
@@ -1407,6 +1427,7 @@ class ApiServerTest {
     void deveRetornarTimelineComCancelamentoSolicitadoEObservacaoViaHttp() throws Exception {
         int atendenteId = criarAtendenteId("api-timeline-cancel-atendente@teste.com");
         int entregadorId = criarEntregadorId("api-timeline-cancel-entregador@teste.com");
+        criarClienteId("(38) 99876-9005");
 
         AtendimentoTelefonicoResultado atendimento =
                 atendimentoService.registrarPedidoManual("(38) 99876-9005", 1, atendenteId);
@@ -1454,6 +1475,7 @@ class ApiServerTest {
     void deveIntegrarAtendimentoEventosETimelineViaHttp() throws Exception {
         int atendenteId = criarAtendenteId("api-e2e-atendente@teste.com");
         int entregadorId = criarEntregadorId("api-e2e-entregador@teste.com");
+        criarClienteId("(38) 99876-9006");
         HttpClient client = HttpClient.newHttpClient();
 
         try (ApiServer.RunningServer running = ApiServer.startForTests(
@@ -1525,6 +1547,7 @@ class ApiServerTest {
     void deveDispararWorkerImediatoAposEventoTerminalDeCancelamentoViaHttp() throws Exception {
         int atendenteId = criarAtendenteId("api-worker-imediato-atendente@teste.com");
         int entregadorId = criarEntregadorId("api-worker-imediato-entregador@teste.com");
+        criarClienteId("(38) 99876-9021");
         AtomicInteger chamadasReplanejamento = new AtomicInteger(0);
         ReplanejamentoWorkerService replanejamentoAssincrono = new ReplanejamentoWorkerService(factory, () -> {
             chamadasReplanejamento.incrementAndGet();
@@ -1568,6 +1591,7 @@ class ApiServerTest {
     void naoDeveDispararWorkerImediatoQuandoEventoTerminalForPedidoEntregueViaHttp() throws Exception {
         int atendenteId = criarAtendenteId("api-worker-entregue-atendente@teste.com");
         int entregadorId = criarEntregadorId("api-worker-entregue-entregador@teste.com");
+        criarClienteId("(38) 99876-9022");
         AtomicInteger chamadasReplanejamento = new AtomicInteger(0);
         ReplanejamentoWorkerService replanejamentoAssincrono = new ReplanejamentoWorkerService(factory, () -> {
             chamadasReplanejamento.incrementAndGet();
@@ -1608,6 +1632,7 @@ class ApiServerTest {
     @Test
     void deveDispararWorkerAssincronoQuandoPedidoForCriadoViaHttp() throws Exception {
         int atendenteId = criarAtendenteId("api-worker-criado-atendente@teste.com");
+        criarClienteId("(38) 99876-9221");
         AtomicInteger chamadasReplanejamento = new AtomicInteger(0);
         ReplanejamentoWorkerService replanejamentoAssincrono = new ReplanejamentoWorkerService(factory, () -> {
             chamadasReplanejamento.incrementAndGet();

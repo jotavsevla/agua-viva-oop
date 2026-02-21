@@ -20,6 +20,7 @@ Documentos abaixo sao internos (uso local da equipe) e seguem padrao tematico.
 
 - Padroes de documentacao: `docs/DOCUMENTACAO-PADROES.md`
 - Status tecnico interno: `docs/ESTADO-ATUAL.md`
+- Ambientes frontend por papel (UI/UX): `docs/AMBIENTES-FRONTEND-POR-PAPEL.md`
 - Gate operacional PoC: `docs/GATE_POC_OPERACIONAL.md`
 - Runbook do ambiente de teste: `docs/RUNBOOK_OPERACAO_TESTE.md`
 - Testes Java: `docs/TESTES-JAVA.md`
@@ -566,10 +567,35 @@ agua-viva/
 
 ### Pre-requisitos
 
-- Java 21+
+- Java 21.x (enforcer no Maven exige faixa `[21,22)` no build)
 - Maven
 - Docker + Docker Compose
 - Python 3.12+ (para testes locais do solver)
+
+Configurar Java 21 com SDKMAN (recomendado, usa `.sdkmanrc` do repo):
+
+```bash
+sdk env install
+sdk env
+java -version
+```
+
+Sem SDKMAN (somente na sessao atual do terminal):
+
+```bash
+export JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home
+export PATH="$JAVA_HOME/bin:$PATH"
+java -version
+```
+
+Fixar Java 21 permanentemente no `zsh` (opcional):
+
+```bash
+echo 'export JAVA_HOME=/opt/homebrew/opt/openjdk@21/libexec/openjdk.jdk/Contents/Home' >> ~/.zshrc
+echo 'export PATH="$JAVA_HOME/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
+java -version
+```
 
 ### Subir banco e aplicar schema completo (001-015)
 
@@ -584,6 +610,7 @@ CONTAINER_NAME=postgres-oop-test POSTGRES_DB=agua_viva_oop_test ./apply-migratio
 ### Compilar e testar (Java)
 
 ```bash
+# valida Java 21 logo no comeco (fase validate)
 mvn test
 mvn clean compile  # compilar sem testes
 ```
@@ -626,7 +653,9 @@ docker compose up -d osrm nominatim solver
 # 3. Testar solver localmente (opcional)
 cd solver && python3 -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-pytest tests/ -v
+pytest tests/
+# opcional (mais detalhado)
+# pytest tests/ -v
 ```
 
 ### Poda de mapa (recomendado para recuperacao mais rapida)
