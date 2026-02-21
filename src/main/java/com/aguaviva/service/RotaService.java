@@ -565,7 +565,8 @@ public class RotaService {
     }
 
     private static int resolverCapacidadeVeiculo(Map<String, String> configs) {
-        int capacidadePadrao = parseCapacidadePositiva(getObrigatorio(configs, "capacidade_veiculo"), "capacidade_veiculo");
+        int capacidadePadrao =
+                parseCapacidadePositiva(getObrigatorio(configs, "capacidade_veiculo"), "capacidade_veiculo");
         String perfil = configs.getOrDefault("frota_perfil_ativo", "PADRAO");
         if (perfil == null) {
             return capacidadePadrao;
@@ -573,12 +574,14 @@ public class RotaService {
 
         String perfilNormalizado = perfil.trim().toUpperCase(Locale.ROOT);
         return switch (perfilNormalizado) {
-            case "MOTO" -> parseCapacidadePositiva(
-                    configs.getOrDefault("capacidade_frota_moto", Integer.toString(capacidadePadrao)),
-                    "capacidade_frota_moto");
-            case "CARRO" -> parseCapacidadePositiva(
-                    configs.getOrDefault("capacidade_frota_carro", Integer.toString(capacidadePadrao)),
-                    "capacidade_frota_carro");
+            case "MOTO" ->
+                parseCapacidadePositiva(
+                        configs.getOrDefault("capacidade_frota_moto", Integer.toString(capacidadePadrao)),
+                        "capacidade_frota_moto");
+            case "CARRO" ->
+                parseCapacidadePositiva(
+                        configs.getOrDefault("capacidade_frota_carro", Integer.toString(capacidadePadrao)),
+                        "capacidade_frota_carro");
             case "", "PADRAO", "DEFAULT", "OFF" -> capacidadePadrao;
             default -> capacidadePadrao;
         };
