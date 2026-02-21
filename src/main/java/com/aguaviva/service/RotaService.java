@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -219,7 +220,8 @@ public class RotaService {
     private ConfiguracaoRoteirizacao carregarConfiguracao(Connection conn) throws SQLException {
         String sql = "SELECT chave, valor FROM configuracoes WHERE chave IN "
                 + "('capacidade_veiculo', 'horario_inicio_expediente', 'horario_fim_expediente', "
-                + "'deposito_latitude', 'deposito_longitude')";
+                + "'deposito_latitude', 'deposito_longitude', 'frota_perfil_ativo', "
+                + "'capacidade_frota_moto', 'capacidade_frota_carro')";
 
         Map<String, String> configs = new HashMap<>();
 
@@ -231,8 +233,9 @@ public class RotaService {
             }
         }
 
+        int capacidadeResolvida = resolverCapacidadeVeiculo(configs);
         return new ConfiguracaoRoteirizacao(
-                Integer.parseInt(getObrigatorio(configs, "capacidade_veiculo")),
+                capacidadeResolvida,
                 getObrigatorio(configs, "horario_inicio_expediente"),
                 getObrigatorio(configs, "horario_fim_expediente"),
                 Double.parseDouble(getObrigatorio(configs, "deposito_latitude")),
@@ -559,6 +562,41 @@ public class RotaService {
             throw new IllegalStateException("Configuracao obrigatoria ausente: " + chave);
         }
         return valor;
+    }
+
+    private static int resolverCapacidadeVeiculo(Map<String, String> configs) {
+        int capacidadePadrao =
+                parseCapacidadePositiva(getObrigatorio(configs, "capacidade_veiculo"), "capacidade_veiculo");
+        String perfil = configs.getOrDefault("frota_perfil_ativo", "PADRAO");
+        if (perfil == null) {
+            return capacidadePadrao;
+        }
+
+        String perfilNormalizado = perfil.trim().toUpperCase(Locale.ROOT);
+        return switch (perfilNormalizado) {
+            case "MOTO" ->
+                parseCapacidadePositiva(
+                        configs.getOrDefault("capacidade_frota_moto", Integer.toString(capacidadePadrao)),
+                        "capacidade_frota_moto");
+            case "CARRO" ->
+                parseCapacidadePositiva(
+                        configs.getOrDefault("capacidade_frota_carro", Integer.toString(capacidadePadrao)),
+                        "capacidade_frota_carro");
+            case "", "PADRAO", "DEFAULT", "OFF" -> capacidadePadrao;
+            default -> capacidadePadrao;
+        };
+    }
+
+    private static int parseCapacidadePositiva(String valor, String chave) {
+        try {
+            int capacidade = Integer.parseInt(valor);
+            if (capacidade <= 0) {
+                throw new IllegalStateException("Configuracao invalida para " + chave + ": deve ser inteiro > 0");
+            }
+            return capacidade;
+        } catch (NumberFormatException e) {
+            throw new IllegalStateException("Configuracao invalida para " + chave + ": " + valor, e);
+        }
     }
 
     private boolean hasPlanVersionColumns(Connection conn) throws SQLException {

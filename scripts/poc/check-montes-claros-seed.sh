@@ -7,6 +7,7 @@ DB_NAME="${DB_NAME:-agua_viva_oop_test}"
 DB_HOST="${DB_HOST:-localhost}"
 DB_PORT="${DB_PORT:-5435}"
 DB_PASSWORD="${DB_PASSWORD:-postgres}"
+DB_FORCE_CONTAINER="${DB_FORCE_CONTAINER:-0}"
 
 EXPECTED_CLIENTES_MC="${EXPECTED_CLIENTES_MC:-12}"
 EXPECTED_SALDOS_VALE_MC="${EXPECTED_SALDOS_VALE_MC:-4}"
@@ -23,6 +24,7 @@ Variaveis opcionais:
   DB_HOST=localhost
   DB_PORT=5435
   DB_PASSWORD=postgres
+  DB_FORCE_CONTAINER=0
   EXPECTED_CLIENTES_MC=12
   EXPECTED_SALDOS_VALE_MC=4
 
@@ -36,7 +38,7 @@ USAGE
 query_sql() {
   local sql="$1"
 
-  if command -v psql >/dev/null 2>&1; then
+  if [[ "$DB_FORCE_CONTAINER" != "1" ]] && command -v psql >/dev/null 2>&1; then
     PGPASSWORD="$DB_PASSWORD" psql \
       -h "$DB_HOST" \
       -p "$DB_PORT" \

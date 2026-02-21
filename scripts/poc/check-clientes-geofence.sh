@@ -9,6 +9,7 @@ DB_NAME="${DB_NAME:-agua_viva_oop_test}"
 DB_HOST="${DB_HOST:-localhost}"
 DB_PORT="${DB_PORT:-5435}"
 DB_PASSWORD="${DB_PASSWORD:-postgres}"
+DB_FORCE_CONTAINER="${DB_FORCE_CONTAINER:-0}"
 
 CLIENTES_BBOX="${CLIENTES_BBOX:--43.9600,-16.8200,-43.7800,-16.6200}"
 GEOFENCE_SUMMARY_FILE="${GEOFENCE_SUMMARY_FILE:-$ROOT_DIR/artifacts/poc/geofence-summary.json}"
@@ -32,6 +33,7 @@ Variaveis opcionais:
   DB_HOST=localhost
   DB_PORT=5435
   DB_PASSWORD=postgres
+  DB_FORCE_CONTAINER=0
 
 Comportamento:
   - Valida todos os clientes contra geofence operacional.
@@ -84,7 +86,7 @@ parse_bbox() {
 query_sql() {
   local sql="$1"
 
-  if command -v psql >/dev/null 2>&1; then
+  if [[ "$DB_FORCE_CONTAINER" != "1" ]] && command -v psql >/dev/null 2>&1; then
     PGPASSWORD="$DB_PASSWORD" psql \
       -h "$DB_HOST" \
       -p "$DB_PORT" \

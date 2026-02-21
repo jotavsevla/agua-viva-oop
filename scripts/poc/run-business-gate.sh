@@ -241,7 +241,7 @@ wait_for_execucao_with_rota() {
 is_required_check() {
   local id="$1"
   case "$id" in
-    R01|R02|R03|R04|R05|R06|R07|R08|R09|R10|R11|R12|R13|R14|R15|R16|R17|R18|R19|R23|R24|R25|R26|R27|R28)
+    R01|R02|R03|R04|R05|R06|R07|R08|R09|R10|R11|R12|R13|R14|R15|R16|R17|R18|R19|R23|R24|R25|R26|R27|R28|R29|R30|R31)
       echo "true"
       ;;
     *)
@@ -407,6 +407,9 @@ if [[ "$START_EXIT" -ne 0 ]]; then
   record_check "R26" "Feed de jobs de replanejamento consistente e limitado" "SKIPPED" "$START_LOG" "Bootstrap falhou"
   record_check "R27" "Detalhe de job correlaciona plan_version com rotas e pedidos" "SKIPPED" "$START_LOG" "Bootstrap falhou"
   record_check "R28" "Clientes e deposito dentro da geofence operacional" "SKIPPED" "$START_LOG" "Bootstrap falhou"
+  record_check "R29" "Cenario oficial 1/2/N entregadores com capacidade igual/diferente" "SKIPPED" "$START_LOG" "Bootstrap falhou"
+  record_check "R30" "Perfil de frota MOTO/CARRO parametriza capacidade sem alterar regra core" "SKIPPED" "$START_LOG" "Bootstrap falhou"
+  record_check "R31" "SLA minimo operacional (pedido->rota, rota->inicio)" "SKIPPED" "$START_LOG" "Bootstrap falhou"
 
   log "Bootstrap do ambiente falhou (exit=$START_EXIT). Evidencia completa em: $START_LOG"
   if [[ -s "$START_LOG" ]]; then
@@ -1217,6 +1220,60 @@ RETURNING id;" | extract_single_value)"
     fi
   else
     record_check "R28" "Clientes e deposito dentro da geofence operacional" "FAIL" "$check_dir/reset.log" "Falha ao resetar estado."
+  fi
+
+  # R29
+  check_dir="$(new_check_dir R29)"
+  set +e
+  (
+    cd "$ROOT_DIR"
+    API_BASE="$API_BASE" DB_CONTAINER="$DB_CONTAINER" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
+      DB_HOST="${DB_HOST:-localhost}" DB_PORT="${DB_PORT:-5435}" DB_PASSWORD="${DB_PASSWORD:-postgres}" \
+      SUMMARY_FILE="$check_dir/entregadores-summary.json" \
+      scripts/poc/check-cenario-entregadores.sh
+  ) > "$check_dir/entregadores.log" 2>&1
+  r29_exit="$?"
+  set -e
+  if [[ "$r29_exit" -eq 0 ]]; then
+    record_check "R29" "Cenario oficial 1/2/N entregadores com capacidade igual/diferente" "PASS" "$check_dir/entregadores-summary.json" "Cenario oficial validou escala de entregadores com asserts por capacidade."
+  else
+    record_check "R29" "Cenario oficial 1/2/N entregadores com capacidade igual/diferente" "FAIL" "$check_dir/entregadores.log" "Falha no cenario oficial de 1/2/N entregadores."
+  fi
+
+  # R30
+  check_dir="$(new_check_dir R30)"
+  set +e
+  (
+    cd "$ROOT_DIR"
+    API_BASE="$API_BASE" DB_CONTAINER="$DB_CONTAINER" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
+      DB_HOST="${DB_HOST:-localhost}" DB_PORT="${DB_PORT:-5435}" DB_PASSWORD="${DB_PASSWORD:-postgres}" \
+      SUMMARY_FILE="$check_dir/frota-perfil-summary.json" \
+      scripts/poc/check-frota-perfil.sh
+  ) > "$check_dir/frota-perfil.log" 2>&1
+  r30_exit="$?"
+  set -e
+  if [[ "$r30_exit" -eq 0 ]]; then
+    record_check "R30" "Perfil de frota MOTO/CARRO parametriza capacidade sem alterar regra core" "PASS" "$check_dir/frota-perfil-summary.json" "Perfil de frota validou capacidade por configuracao mantendo solver unico."
+  else
+    record_check "R30" "Perfil de frota MOTO/CARRO parametriza capacidade sem alterar regra core" "FAIL" "$check_dir/frota-perfil.log" "Falha ao validar perfil de frota MOTO/CARRO."
+  fi
+
+  # R31
+  check_dir="$(new_check_dir R31)"
+  set +e
+  (
+    cd "$ROOT_DIR"
+    API_BASE="$API_BASE" DB_CONTAINER="$DB_CONTAINER" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
+      DB_HOST="${DB_HOST:-localhost}" DB_PORT="${DB_PORT:-5435}" DB_PASSWORD="${DB_PASSWORD:-postgres}" \
+      SUMMARY_FILE="$check_dir/sla-operacional-summary.json" \
+      scripts/poc/check-sla-operacional.sh
+  ) > "$check_dir/sla-operacional.log" 2>&1
+  r31_exit="$?"
+  set -e
+  if [[ "$r31_exit" -eq 0 ]]; then
+    record_check "R31" "SLA minimo operacional (pedido->rota, rota->inicio)" "PASS" "$check_dir/sla-operacional-summary.json" "SLA minimo validado com relatorio por rodada."
+  else
+    record_check "R31" "SLA minimo operacional (pedido->rota, rota->inicio)" "FAIL" "$check_dir/sla-operacional.log" "Falha no SLA minimo operacional."
   fi
 fi
 

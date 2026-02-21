@@ -90,6 +90,9 @@ class RotaServiceTest {
         solverStub.clearDynamicSolveHandler();
         limparBanco();
         atualizarConfiguracao("capacidade_veiculo", "5");
+        atualizarConfiguracao("frota_perfil_ativo", "PADRAO");
+        atualizarConfiguracao("capacidade_frota_moto", "2");
+        atualizarConfiguracao("capacidade_frota_carro", "5");
     }
 
     @AfterEach
@@ -736,6 +739,86 @@ class RotaServiceTest {
             }
             assertEquals(2, linhas);
         }
+    }
+
+    @Test
+    void deveAplicarPerfilMotoNaCapacidadeDoSolver() throws Exception {
+        int atendenteId = criarAtendenteId("atendente-perfil-moto@teste.com");
+        int entregador = criarEntregadorId("entregador-perfil-moto@teste.com", true);
+        int cliente = criarClienteComSaldo("(38) 99999-7791", 10);
+
+        atualizarConfiguracao("capacidade_veiculo", "9");
+        atualizarConfiguracao("frota_perfil_ativo", "MOTO");
+        atualizarConfiguracao("capacidade_frota_moto", "2");
+        atualizarConfiguracao("capacidade_frota_carro", "6");
+
+        Pedido pedido = pedidoRepository.save(new Pedido(cliente, 1, JanelaTipo.ASAP, null, null, atendenteId));
+
+        java.util.concurrent.atomic.AtomicReference<String> payloadSolver =
+                new java.util.concurrent.atomic.AtomicReference<>("");
+        solverStub.setDynamicSolveHandler(requestBody -> {
+            payloadSolver.set(requestBody);
+            return """
+                    {
+                      "rotas": [
+                        {
+                          "entregador_id": %d,
+                          "numero_no_dia": 1,
+                          "paradas": [
+                            {"ordem": 1, "pedido_id": %d, "lat": -16.7310, "lon": -43.8710, "hora_prevista": "09:15"}
+                          ]
+                        }
+                      ],
+                      "nao_atendidos": []
+                    }
+                    """.formatted(entregador, pedido.getId());
+        });
+
+        PlanejamentoResultado resultado = criarService().planejarRotasPendentes();
+
+        assertEquals(1, resultado.rotasCriadas());
+        assertTrue(payloadSolver.get().contains("\"capacidade_veiculo\":2"));
+        assertTrue(payloadSolver.get().contains("\"capacidades_entregadores\":[2]"));
+    }
+
+    @Test
+    void deveUsarCapacidadePadraoQuandoPerfilFrotaForInvalido() throws Exception {
+        int atendenteId = criarAtendenteId("atendente-perfil-invalido@teste.com");
+        int entregador = criarEntregadorId("entregador-perfil-invalido@teste.com", true);
+        int cliente = criarClienteComSaldo("(38) 99999-7792", 10);
+
+        atualizarConfiguracao("capacidade_veiculo", "4");
+        atualizarConfiguracao("frota_perfil_ativo", "INVALIDO");
+        atualizarConfiguracao("capacidade_frota_moto", "1");
+        atualizarConfiguracao("capacidade_frota_carro", "7");
+
+        Pedido pedido = pedidoRepository.save(new Pedido(cliente, 1, JanelaTipo.ASAP, null, null, atendenteId));
+
+        java.util.concurrent.atomic.AtomicReference<String> payloadSolver =
+                new java.util.concurrent.atomic.AtomicReference<>("");
+        solverStub.setDynamicSolveHandler(requestBody -> {
+            payloadSolver.set(requestBody);
+            return """
+                    {
+                      "rotas": [
+                        {
+                          "entregador_id": %d,
+                          "numero_no_dia": 1,
+                          "paradas": [
+                            {"ordem": 1, "pedido_id": %d, "lat": -16.7310, "lon": -43.8710, "hora_prevista": "09:20"}
+                          ]
+                        }
+                      ],
+                      "nao_atendidos": []
+                    }
+                    """.formatted(entregador, pedido.getId());
+        });
+
+        PlanejamentoResultado resultado = criarService().planejarRotasPendentes();
+
+        assertEquals(1, resultado.rotasCriadas());
+        assertTrue(payloadSolver.get().contains("\"capacidade_veiculo\":4"));
+        assertTrue(payloadSolver.get().contains("\"capacidades_entregadores\":[4]"));
     }
 
     @Test
@@ -1699,9 +1782,12 @@ class RotaServiceTest {
 
     private void atualizarConfiguracao(String chave, String valor) throws Exception {
         try (Connection conn = factory.getConnection();
-                PreparedStatement stmt = conn.prepareStatement("UPDATE configuracoes SET valor = ? WHERE chave = ?")) {
-            stmt.setString(1, valor);
-            stmt.setString(2, chave);
+                PreparedStatement stmt = conn.prepareStatement(
+                        "INSERT INTO configuracoes (chave, valor, descricao) VALUES (?, ?, ?) "
+                                + "ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor, atualizado_em = CURRENT_TIMESTAMP")) {
+            stmt.setString(1, chave);
+            stmt.setString(2, valor);
+            stmt.setString(3, "Configuracao de teste");
             stmt.executeUpdate();
         }
     }
