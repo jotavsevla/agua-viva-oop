@@ -812,13 +812,15 @@ else
 
     set +e
     psql_exec "INSERT INTO rotas (entregador_id, data, numero_no_dia, status) VALUES (${ENTREGADOR_BASE_ID}, CURRENT_DATE, 101, 'PLANEJADA');
-INSERT INTO rotas (entregador_id, data, numero_no_dia, status) VALUES (${ENTREGADOR_BASE_ID}, CURRENT_DATE, 102, 'PLANEJADA');"
+INSERT INTO rotas (entregador_id, data, numero_no_dia, status) VALUES (${ENTREGADOR_BASE_ID}, CURRENT_DATE, 102, 'PLANEJADA');" \
+      >/dev/null 2>"$check_dir/dup14-error.log"
     dup14_exit="$?"
     set -e
 
     set +e
     psql_exec "INSERT INTO rotas (entregador_id, data, numero_no_dia, status) VALUES (${ENTREGADOR_BASE_ID}, CURRENT_DATE, 201, 'EM_ANDAMENTO');
-INSERT INTO rotas (entregador_id, data, numero_no_dia, status) VALUES (${ENTREGADOR_BASE_ID}, CURRENT_DATE, 202, 'EM_ANDAMENTO');"
+INSERT INTO rotas (entregador_id, data, numero_no_dia, status) VALUES (${ENTREGADOR_BASE_ID}, CURRENT_DATE, 202, 'EM_ANDAMENTO');" \
+      >/dev/null 2>"$check_dir/dup15-error.log"
     dup15_exit="$?"
     set -e
 
@@ -827,6 +829,12 @@ INSERT INTO rotas (entregador_id, data, numero_no_dia, status) VALUES (${ENTREGA
       echo "index15=$index15"
       echo "dup14_exit=$dup14_exit"
       echo "dup15_exit=$dup15_exit"
+      if [[ -s "$check_dir/dup14-error.log" ]]; then
+        echo "dup14_error=$(tr '\n' ' ' < "$check_dir/dup14-error.log" | sed 's/[[:space:]]\+/ /g')"
+      fi
+      if [[ -s "$check_dir/dup15-error.log" ]]; then
+        echo "dup15_error=$(tr '\n' ' ' < "$check_dir/dup15-error.log" | sed 's/[[:space:]]\+/ /g')"
+      fi
     } > "$check_dir/evidence.txt"
 
     if [[ "$index14" -ge 1 && "$dup14_exit" -ne 0 ]]; then

@@ -119,12 +119,22 @@ wait_for_execucao_com_rota() {
   local pedido_id="$1"
   local max_attempts="${2:-20}"
   local wait_seconds="${3:-1}"
-  local tentativa response rota
+  local tentativa response rota rota_primaria camada
 
   for tentativa in $(seq 1 "$max_attempts"); do
     response="$(api_request GET "/api/pedidos/${pedido_id}/execucao")"
-    rota="$(echo "$response" | jq -r '.rotaId // .rotaPrimariaId // 0')"
-    if [[ "$rota" != "0" && "$rota" != "null" && -n "$rota" ]]; then
+    rota_primaria="$(echo "$response" | jq -r '.rotaPrimariaId // 0')"
+    rota="$(echo "$response" | jq -r '.rotaId // 0')"
+    camada="$(echo "$response" | jq -r '.camada // ""')"
+
+    if [[ "$rota_primaria" != "0" && "$rota_primaria" != "null" && -n "$rota_primaria" ]]; then
+      printf '%s' "$response"
+      return 0
+    fi
+
+    # Enquanto estiver em camada secundaria confirmada, aguarda promocao para primaria
+    # para evitar 409 ao iniciar rota com uma entrega ainda transiente.
+    if [[ "$rota" != "0" && "$rota" != "null" && -n "$rota" && "$camada" != "SECUNDARIA_CONFIRMADA" ]]; then
       printf '%s' "$response"
       return 0
     fi
