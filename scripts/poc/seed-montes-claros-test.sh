@@ -10,6 +10,7 @@ DB_NAME="${DB_NAME:-agua_viva_oop_test}"
 DB_HOST="${DB_HOST:-localhost}"
 DB_PORT="${DB_PORT:-5435}"
 DB_PASSWORD="${DB_PASSWORD:-postgres}"
+DB_FORCE_CONTAINER="${DB_FORCE_CONTAINER:-0}"
 CLIENTES_BBOX="${CLIENTES_BBOX:--43.9600,-16.8200,-43.7800,-16.6200}"
 GEOFENCE_SUMMARY_FILE="${GEOFENCE_SUMMARY_FILE:-$ROOT_DIR/artifacts/poc/geofence-summary.json}"
 
@@ -25,12 +26,14 @@ Variaveis opcionais:
   DB_HOST=localhost
   DB_PORT=5435
   DB_PASSWORD=postgres
+  DB_FORCE_CONTAINER=0
   CLIENTES_BBOX=-43.9600,-16.8200,-43.7800,-16.6200
   GEOFENCE_SUMMARY_FILE=artifacts/poc/geofence-summary.json
 
 Comportamento:
   - Se houver `psql` local, aplica seed via conexao TCP.
   - Se nao houver `psql`, usa fallback com `docker exec` no container do Postgres.
+  - Defina `DB_FORCE_CONTAINER=1` para forcar caminho via container.
   - Ao final valida consistencia do seed e geofence operacional.
 USAGE
 }
@@ -54,7 +57,7 @@ fi
 
 echo "[seed-montes-claros-test] Aplicando seed em ${DB_NAME}"
 
-if command -v psql >/dev/null 2>&1; then
+if [[ "$DB_FORCE_CONTAINER" != "1" ]] && command -v psql >/dev/null 2>&1; then
   PGPASSWORD="$DB_PASSWORD" psql \
     -h "$DB_HOST" \
     -p "$DB_PORT" \
@@ -71,12 +74,12 @@ else
 fi
 
 DB_CONTAINER="$DB_CONTAINER" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
-DB_HOST="$DB_HOST" DB_PORT="$DB_PORT" DB_PASSWORD="$DB_PASSWORD" \
+DB_HOST="$DB_HOST" DB_PORT="$DB_PORT" DB_PASSWORD="$DB_PASSWORD" DB_FORCE_CONTAINER="$DB_FORCE_CONTAINER" \
 "$ROOT_DIR/scripts/poc/check-montes-claros-seed.sh"
 
 DB_CONTAINER="$DB_CONTAINER" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
 DB_HOST="$DB_HOST" DB_PORT="$DB_PORT" DB_PASSWORD="$DB_PASSWORD" \
-CLIENTES_BBOX="$CLIENTES_BBOX" GEOFENCE_SUMMARY_FILE="$GEOFENCE_SUMMARY_FILE" \
+DB_FORCE_CONTAINER="$DB_FORCE_CONTAINER" CLIENTES_BBOX="$CLIENTES_BBOX" GEOFENCE_SUMMARY_FILE="$GEOFENCE_SUMMARY_FILE" \
 "$ROOT_DIR/scripts/poc/check-clientes-geofence.sh"
 
 echo "[seed-montes-claros-test] Seed aplicado e validado com sucesso (consistencia + geofence)."
