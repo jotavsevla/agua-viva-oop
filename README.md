@@ -75,6 +75,12 @@ Regras do gate oficial:
 2. Em `strict`, etapas obrigatorias do E2E (Playwright + suite + promocoes) sao mandatórias.
 3. Evidencias sao consolidadas em `artifacts/poc/business-gate-<timestamp>/business-summary.json`.
 
+Checks operacionais adicionados nesta rodada (milestone `operação tempo real inicial`):
+
+1. `scripts/poc/check-cenario-entregadores.sh` (cenario oficial `1/2/N` com asserts por capacidade).
+2. `scripts/poc/check-frota-perfil.sh` (perfil `MOTO/CARRO` parametriza capacidade sem alterar regra core).
+3. `scripts/poc/check-sla-operacional.sh` (relatorio por rodada para `pedido->rota` e `rota->inicio`).
+
 ### Demo Guiada Unica (M3-I0)
 
 Roteiro unico para demonstracao executiva do loop operacional, com pacote fechado de evidencias por cenario:

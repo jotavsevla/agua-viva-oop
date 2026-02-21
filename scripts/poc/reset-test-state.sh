@@ -44,6 +44,15 @@ TRUNCATE TABLE
 RESTART IDENTITY CASCADE;
 
 UPDATE configuracoes SET valor = '5' WHERE chave = 'capacidade_veiculo';
+INSERT INTO configuracoes (chave, valor, descricao)
+VALUES
+  ('frota_perfil_ativo', 'PADRAO', 'Perfil de frota ativo: PADRAO|MOTO|CARRO'),
+  ('capacidade_frota_moto', '2', 'Capacidade por entregador para perfil MOTO'),
+  ('capacidade_frota_carro', '5', 'Capacidade por entregador para perfil CARRO')
+ON CONFLICT (chave) DO NOTHING;
+UPDATE configuracoes SET valor = 'PADRAO' WHERE chave = 'frota_perfil_ativo';
+UPDATE configuracoes SET valor = '2' WHERE chave = 'capacidade_frota_moto';
+UPDATE configuracoes SET valor = '5' WHERE chave = 'capacidade_frota_carro';
 
 INSERT INTO users (nome, email, senha_hash, papel, ativo)
 VALUES
