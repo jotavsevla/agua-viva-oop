@@ -90,12 +90,14 @@ def _solve_internal(req: SolverRequest, cancel_checker) -> SolverResponse:
     points: list[tuple[float, float]] = [(req.deposito.lat, req.deposito.lon)]
     demands = [0]
     time_windows: list[tuple[int, int]] = [(0, work_day_s)]
+    priorities = [0]
     pedido_map: dict[int, Pedido] = {}
 
     for i, p in enumerate(req.pedidos):
         node = i + 1
         points.append((p.lat, p.lon))
         demands.append(p.galoes)
+        priorities.append(p.prioridade)
         pedido_map[node] = p
 
         if p.janela_tipo == "HARD" and p.janela_inicio and p.janela_fim:
@@ -119,6 +121,7 @@ def _solve_internal(req: SolverRequest, cancel_checker) -> SolverResponse:
         num_drivers=len(req.entregadores),
         vehicle_capacity=req.capacidade_veiculo,
         vehicle_capacities=req.capacidades_entregadores,
+        priorities=priorities,
         cancel_checker=cancel_checker,
     )
 

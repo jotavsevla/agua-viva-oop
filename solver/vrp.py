@@ -25,6 +25,7 @@ def solve(
     num_drivers: int,
     vehicle_capacity: int,
     vehicle_capacities: list[int] | None = None,
+    priorities: list[int] | None = None,
     max_seconds: int = 5,
     cancel_checker: Callable[[], bool] | None = None,
 ) -> tuple[list[tuple[int, list[tuple[int, int]]]], list[int]]:
@@ -58,6 +59,8 @@ def solve(
         raise ValueError("vehicle_capacities deve ter o mesmo tamanho de num_drivers")
     if capacities_by_driver is None:
         capacities_by_driver = [vehicle_capacity] * num_drivers
+    if priorities is not None and len(priorities) != n:
+        raise ValueError("priorities deve ter o mesmo tamanho de duration_matrix")
 
     manager = pywrapcp.RoutingIndexManager(n, num_vehicles, 0)
     routing = pywrapcp.RoutingModel(manager)
@@ -106,8 +109,9 @@ def solve(
     )
 
     # --- Permitir dropar nos com penalidade (quando inviavel) ---
-    penalty = 100_000
     for i in range(1, n):
+        prioridade = priorities[i] if priorities is not None else 2
+        penalty = 1_000_000 if prioridade <= 1 else 100_000
         routing.AddDisjunction([manager.NodeToIndex(i)], penalty)
 
     # --- Estrategia de busca ---
