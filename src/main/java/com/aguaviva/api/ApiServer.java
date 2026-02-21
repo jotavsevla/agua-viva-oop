@@ -646,7 +646,19 @@ public final class ApiServer {
         if (idempotente) {
             return;
         }
-        if (!DispatchEventTypes.policyForEvent(eventType).replaneja()) {
+        boolean replanejaPorEvento =
+                DispatchEventTypes.policyForEvent(eventType).replaneja();
+        boolean replanejaPorRiscoJanelaHard = false;
+
+        if (!replanejaPorEvento && DispatchEventTypes.PEDIDO_ENTREGUE.equals(eventType)) {
+            try {
+                replanejaPorRiscoJanelaHard = replanejamentoWorkerService.existePedidoHardEmRisco();
+            } catch (Exception e) {
+                System.err.println("Falha ao avaliar risco de janela HARD: " + e.getMessage());
+            }
+        }
+
+        if (!replanejaPorEvento && !replanejaPorRiscoJanelaHard) {
             return;
         }
 

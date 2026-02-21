@@ -79,6 +79,12 @@ class PasswordTest {
         assertFalse(password.matches("senhaErrada"));
     }
 
+    @Test
+    void deveRetornarFalseQuandoMatchesReceberNull() {
+        Password password = Password.fromPlainText("senha123");
+        assertFalse(password.matches(null));
+    }
+
     // ========================================================================
     // Reconstrucao via fromHash (para o Repository)
     // ========================================================================
@@ -137,6 +143,27 @@ class PasswordTest {
         Password p2 = Password.fromPlainText("senha123");
 
         assertNotEquals(p1, p2, "Hashes diferentes (salt) = objetos diferentes");
+    }
+
+    @Test
+    void passwordsComHashesDiferentesDevemTerHashCodesDiferentes() {
+        Password p1 = Password.fromHash("hash-a");
+        Password p2 = Password.fromHash("hash-b");
+
+        assertNotEquals(p1.hashCode(), p2.hashCode());
+    }
+
+    @Test
+    void passwordDeveSerIgualASiMesmo() {
+        Password password = Password.fromPlainText("senha123");
+        assertEquals(password, password);
+    }
+
+    @Test
+    void passwordNaoDeveSerIgualANuloOuOutroTipo() {
+        Password password = Password.fromPlainText("senha123");
+        assertNotEquals(password, null);
+        assertNotEquals(password, "nao-password");
     }
 
     @Test

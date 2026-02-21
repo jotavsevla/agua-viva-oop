@@ -9,6 +9,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.sql.Types;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -85,7 +86,8 @@ class ReplanejamentoWorkerServiceTest {
     private void limparEventos() throws Exception {
         try (Connection conn = factory.getConnection();
                 Statement stmt = conn.createStatement()) {
-            stmt.execute("TRUNCATE TABLE dispatch_events RESTART IDENTITY");
+            stmt.execute(
+                    "TRUNCATE TABLE dispatch_events, entregas, rotas, movimentacao_vales, saldo_vales, pedidos, clientes, users RESTART IDENTITY CASCADE");
         }
     }
 
@@ -170,6 +172,18 @@ class ReplanejamentoWorkerServiceTest {
         assertEquals(1, resultado.eventosProcessados());
         assertEquals(0, replanejamentoCalls.get());
         assertEquals(1, contarProcessados());
+    }
+
+    @Test
+    void deveReplanejarSemEventosQuandoHouverPedidoHardEmRisco() throws Exception {
+        inserirPedidoHardEmRisco();
+
+        ReplanejamentoWorkerResultado resultado = workerService.processarPendentes(0, 100);
+
+        assertTrue(resultado.replanejou());
+        assertEquals(0, resultado.eventosProcessados());
+        assertEquals(1, replanejamentoCalls.get());
+        assertEquals(CapacidadePolicy.REMANESCENTE, lastCapacidadePolicy.get());
     }
 
     @Test
@@ -281,6 +295,45 @@ class ReplanejamentoWorkerServiceTest {
             stmt.setString(1, eventType);
             stmt.setInt(2, secondsAgo);
             stmt.executeUpdate();
+        }
+    }
+
+    private void inserirPedidoHardEmRisco() throws Exception {
+        int userId;
+        int clienteId;
+
+        try (Connection conn = factory.getConnection();
+                PreparedStatement stmtUser = conn.prepareStatement(
+                        "INSERT INTO users (nome, email, senha_hash, papel, ativo) VALUES (?, ?, ?, ?, true) RETURNING id");
+                PreparedStatement stmtCliente = conn.prepareStatement(
+                        "INSERT INTO clientes (nome, telefone, tipo, endereco) VALUES (?, ?, ?, ?) RETURNING id");
+                PreparedStatement stmtPedido = conn.prepareStatement(
+                        "INSERT INTO pedidos (cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por) "
+                                + "VALUES (?, ?, ?, (CURRENT_TIME - INTERVAL '30 minute')::time, (CURRENT_TIME + INTERVAL '5 minute')::time, ?, ?)")) {
+            stmtUser.setString(1, "Atendente Worker");
+            stmtUser.setString(2, "worker-hard-risco@teste.com");
+            stmtUser.setString(3, "$2a$10$abcdefghijklmnopqrstuv");
+            stmtUser.setObject(4, "atendente", Types.OTHER);
+            try (ResultSet rs = stmtUser.executeQuery()) {
+                rs.next();
+                userId = rs.getInt("id");
+            }
+
+            stmtCliente.setString(1, "Cliente HARD");
+            stmtCliente.setString(2, "38999997777");
+            stmtCliente.setObject(3, "PF", Types.OTHER);
+            stmtCliente.setString(4, "Rua Janela Hard");
+            try (ResultSet rs = stmtCliente.executeQuery()) {
+                rs.next();
+                clienteId = rs.getInt("id");
+            }
+
+            stmtPedido.setInt(1, clienteId);
+            stmtPedido.setInt(2, 1);
+            stmtPedido.setObject(3, "HARD", Types.OTHER);
+            stmtPedido.setObject(4, "PENDENTE", Types.OTHER);
+            stmtPedido.setInt(5, userId);
+            stmtPedido.executeUpdate();
         }
     }
 

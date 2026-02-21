@@ -48,6 +48,13 @@ class UserTest {
         assertTrue(user.isAtivo());
     }
 
+    @Test
+    void deveCriarUsuarioInativoQuandoCampoAtivoForFalse() {
+        User user =
+                new User(1, "Maria", "maria@email.com", senhaValida(), UserPapel.ATENDENTE, "(11) 99999-0000", false);
+        assertFalse(user.isAtivo());
+    }
+
     // ========================================================================
     // Validacao de invariantes (construtor rejeita dados invalidos)
     // ========================================================================
@@ -184,6 +191,15 @@ class UserTest {
         assertFalse(user.verificarSenha("senhaErrada"));
     }
 
+    @Test
+    void deveExporSenhaHashParaPersistencia() {
+        Password password = senhaValida();
+        User user = new User("Joao", "joao@email.com", password, UserPapel.ADMIN);
+
+        assertEquals(password.toHash(), user.toSenhaHash());
+        assertFalse(user.toSenhaHash().isBlank());
+    }
+
     // ========================================================================
     // Identidade (equals / hashCode / toString)
     // ========================================================================
@@ -203,6 +219,7 @@ class UserTest {
         User u2 = new User(2, "Joao", "joao@email.com", senhaValida(), UserPapel.ADMIN, null, true);
 
         assertNotEquals(u1, u2);
+        assertNotEquals(u1.hashCode(), u2.hashCode());
     }
 
     @Test
@@ -211,6 +228,19 @@ class UserTest {
         User u2 = new User("Joao", "joao@email.com", senhaValida(), UserPapel.ADMIN);
 
         assertNotEquals(u1, u2);
+    }
+
+    @Test
+    void usuarioDeveSerIgualASiMesmo() {
+        User user = new User(1, "Joao", "joao@email.com", senhaValida(), UserPapel.ADMIN, null, true);
+        assertEquals(user, user);
+    }
+
+    @Test
+    void usuarioNaoDeveSerIgualANuloOuOutroTipo() {
+        User user = new User(1, "Joao", "joao@email.com", senhaValida(), UserPapel.ADMIN, null, true);
+        assertNotEquals(user, null);
+        assertNotEquals(user, "nao-user");
     }
 
     @Test

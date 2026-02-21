@@ -124,16 +124,20 @@ public class OperacaoReplanejamentoService {
                 long planVersion = rs.getLong("plan_version");
                 LocalDateTime iniciadoEm = rs.getObject("iniciado_em", LocalDateTime.class);
                 LocalDateTime finalizadoEm = rs.getObject("finalizado_em", LocalDateTime.class);
+                String jobId = rs.getString("job_id");
 
                 List<RotaImpactadaResumo> rotasImpactadas = List.of();
                 List<PedidoImpactadoResumo> pedidosImpactados = List.of();
-                if (hasPlanVersionColumns(conn)) {
-                    rotasImpactadas = buscarRotasImpactadas(conn, planVersion);
-                    pedidosImpactados = buscarPedidosImpactados(conn, planVersion);
+                if (hasJobIdColumns(conn)) {
+                    rotasImpactadas = buscarRotasImpactadasPorJobId(conn, jobId);
+                    pedidosImpactados = buscarPedidosImpactadosPorJobId(conn, jobId);
+                } else if (hasPlanVersionColumns(conn)) {
+                    rotasImpactadas = buscarRotasImpactadasPorPlanVersion(conn, planVersion);
+                    pedidosImpactados = buscarPedidosImpactadosPorPlanVersion(conn, planVersion);
                 }
 
                 return new SolverJobDetalhe(
-                        rs.getString("job_id"),
+                        jobId,
                         planVersion,
                         rs.getString("status"),
                         rs.getBoolean("cancel_requested"),
@@ -149,7 +153,8 @@ public class OperacaoReplanejamentoService {
         }
     }
 
-    private List<RotaImpactadaResumo> buscarRotasImpactadas(Connection conn, long planVersion) throws SQLException {
+    private List<RotaImpactadaResumo> buscarRotasImpactadasPorPlanVersion(Connection conn, long planVersion)
+            throws SQLException {
         String sql = "SELECT r.id AS rota_id, r.entregador_id, r.status::text AS status_rota, "
                 + "CASE WHEN r.status::text = 'EM_ANDAMENTO' THEN 'PRIMARIA' ELSE 'SECUNDARIA' END AS camada, "
                 + "COUNT(e.id) AS total_entregas "
@@ -175,7 +180,34 @@ public class OperacaoReplanejamentoService {
         return rotas;
     }
 
-    private List<PedidoImpactadoResumo> buscarPedidosImpactados(Connection conn, long planVersion) throws SQLException {
+    private List<RotaImpactadaResumo> buscarRotasImpactadasPorJobId(Connection conn, String jobId) throws SQLException {
+        String sql = "SELECT r.id AS rota_id, r.entregador_id, r.status::text AS status_rota, "
+                + "CASE WHEN r.status::text = 'EM_ANDAMENTO' THEN 'PRIMARIA' ELSE 'SECUNDARIA' END AS camada, "
+                + "COUNT(e.id) AS total_entregas "
+                + "FROM rotas r "
+                + "LEFT JOIN entregas e ON e.rota_id = r.id "
+                + "WHERE r.job_id = ? "
+                + "GROUP BY r.id, r.entregador_id, r.status "
+                + "ORDER BY r.id DESC";
+        List<RotaImpactadaResumo> rotas = new ArrayList<>();
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, jobId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    rotas.add(new RotaImpactadaResumo(
+                            rs.getInt("rota_id"),
+                            rs.getInt("entregador_id"),
+                            rs.getString("status_rota"),
+                            rs.getString("camada"),
+                            rs.getInt("total_entregas")));
+                }
+            }
+        }
+        return rotas;
+    }
+
+    private List<PedidoImpactadoResumo> buscarPedidosImpactadosPorPlanVersion(Connection conn, long planVersion)
+            throws SQLException {
         String sql = "SELECT p.id AS pedido_id, e.id AS entrega_id, r.id AS rota_id, "
                 + "p.status::text AS status_pedido, e.status::text AS status_entrega "
                 + "FROM entregas e "
@@ -186,6 +218,32 @@ public class OperacaoReplanejamentoService {
         List<PedidoImpactadoResumo> pedidos = new ArrayList<>();
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setLong(1, planVersion);
+            try (ResultSet rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    pedidos.add(new PedidoImpactadoResumo(
+                            rs.getInt("pedido_id"),
+                            rs.getInt("entrega_id"),
+                            rs.getInt("rota_id"),
+                            rs.getString("status_pedido"),
+                            rs.getString("status_entrega")));
+                }
+            }
+        }
+        return pedidos;
+    }
+
+    private List<PedidoImpactadoResumo> buscarPedidosImpactadosPorJobId(Connection conn, String jobId)
+            throws SQLException {
+        String sql = "SELECT p.id AS pedido_id, e.id AS entrega_id, r.id AS rota_id, "
+                + "p.status::text AS status_pedido, e.status::text AS status_entrega "
+                + "FROM entregas e "
+                + "JOIN pedidos p ON p.id = e.pedido_id "
+                + "JOIN rotas r ON r.id = e.rota_id "
+                + "WHERE e.job_id = ? "
+                + "ORDER BY e.id DESC";
+        List<PedidoImpactadoResumo> pedidos = new ArrayList<>();
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, jobId);
             try (ResultSet rs = stmt.executeQuery()) {
                 while (rs.next()) {
                     pedidos.add(new PedidoImpactadoResumo(
@@ -226,6 +284,10 @@ public class OperacaoReplanejamentoService {
 
     private boolean hasPlanVersionColumns(Connection conn) throws SQLException {
         return hasColumn(conn, "rotas", "plan_version") && hasColumn(conn, "entregas", "plan_version");
+    }
+
+    private boolean hasJobIdColumns(Connection conn) throws SQLException {
+        return hasColumn(conn, "rotas", "job_id") && hasColumn(conn, "entregas", "job_id");
     }
 
     private boolean hasTable(Connection conn, String tableName) throws SQLException {

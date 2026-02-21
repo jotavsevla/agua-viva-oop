@@ -120,6 +120,14 @@ class ClienteTest {
     }
 
     @Test
+    void deveAceitarCoordenadasNosLimitesDoIntervalo() {
+        assertDoesNotThrow(() -> new Cliente(
+                "Joao", "123", ClienteTipo.PF, "Rua A", new BigDecimal("-90"), new BigDecimal("-180"), null));
+        assertDoesNotThrow(() ->
+                new Cliente("Joao", "123", ClienteTipo.PF, "Rua A", new BigDecimal("90"), new BigDecimal("180"), null));
+    }
+
+    @Test
     void deveNormalizarCamposTextuais() {
         Cliente cliente = new Cliente(
                 "  Joao  ", "  12345  ", ClienteTipo.PF, "  Rua A, 100  ", latValida(), lonValida(), "  Portao azul  ");
@@ -150,11 +158,33 @@ class ClienteTest {
     }
 
     @Test
+    void clientesComIdsDiferentesNaoDevemSerIguais() {
+        Cliente c1 = new Cliente(1, "A", "111", ClienteTipo.PF, "Rua 1", null, null, null);
+        Cliente c2 = new Cliente(2, "B", "222", ClienteTipo.PJ, "Rua 2", null, null, null);
+
+        assertNotEquals(c1, c2);
+        assertNotEquals(c1.hashCode(), c2.hashCode());
+    }
+
+    @Test
     void clientesSemIdNaoDevemSerIguaisEntreSi() {
         Cliente c1 = new Cliente("A", "111", ClienteTipo.PF, "Rua 1");
         Cliente c2 = new Cliente("A", "111", ClienteTipo.PF, "Rua 1");
 
         assertNotEquals(c1, c2);
+    }
+
+    @Test
+    void clienteDeveSerIgualASiMesmo() {
+        Cliente cliente = new Cliente(1, "A", "111", ClienteTipo.PF, "Rua 1", null, null, null);
+        assertEquals(cliente, cliente);
+    }
+
+    @Test
+    void clienteNaoDeveSerIgualANuloOuOutroTipo() {
+        Cliente cliente = new Cliente(1, "A", "111", ClienteTipo.PF, "Rua 1", null, null, null);
+        assertNotEquals(cliente, null);
+        assertNotEquals(cliente, "nao-cliente");
     }
 
     @Test

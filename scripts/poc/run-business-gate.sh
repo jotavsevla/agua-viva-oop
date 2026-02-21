@@ -1153,6 +1153,14 @@ RETURNING id;" | extract_single_value)"
   r27_entregador_id="$(psql_query "INSERT INTO users (nome, email, senha_hash, papel, ativo)
 VALUES ('Entregador BG R27', 'bg.r27.entregador.${RANDOM}@aguaviva.local', 'hash-r27', 'entregador', true)
 RETURNING id;" | extract_single_value)"
+  r27_has_job_id="$(psql_query "SELECT CASE
+  WHEN EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'rotas' AND column_name = 'job_id'
+  ) AND EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'entregas' AND column_name = 'job_id'
+  ) THEN 1 ELSE 0 END;" | extract_single_value)"
   r27_ok=0
 
   if [[ -n "$r27_entregador_id" && -n "$r27_atendente_id" ]]; then
@@ -1166,12 +1174,21 @@ RETURNING id;" | extract_single_value)"
 FROM rotas
 WHERE entregador_id = ${r27_entregador_id}
   AND data = CURRENT_DATE;" | extract_single_value)"
-    r27_rota_id="$(psql_query "INSERT INTO rotas (entregador_id, data, numero_no_dia, status, plan_version)
+    if [[ "$r27_has_job_id" == "1" ]]; then
+      r27_rota_id="$(psql_query "INSERT INTO rotas (entregador_id, data, numero_no_dia, status, plan_version, job_id)
+VALUES (${r27_entregador_id}, CURRENT_DATE, ${r27_numero_rota}, 'PLANEJADA', ${r27_plan_version}, '${r27_job_id}')
+RETURNING id;" | extract_single_value)"
+      r27_entrega_id="$(psql_query "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, status, plan_version, job_id)
+VALUES (${r27_pedido_id}, ${r27_rota_id}, 1, 'PENDENTE', ${r27_plan_version}, '${r27_job_id}')
+RETURNING id;" | extract_single_value)"
+    else
+      r27_rota_id="$(psql_query "INSERT INTO rotas (entregador_id, data, numero_no_dia, status, plan_version)
 VALUES (${r27_entregador_id}, CURRENT_DATE, ${r27_numero_rota}, 'PLANEJADA', ${r27_plan_version})
 RETURNING id;" | extract_single_value)"
-    r27_entrega_id="$(psql_query "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, status, plan_version)
+      r27_entrega_id="$(psql_query "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, status, plan_version)
 VALUES (${r27_pedido_id}, ${r27_rota_id}, 1, 'PENDENTE', ${r27_plan_version})
 RETURNING id;" | extract_single_value)"
+    fi
     psql_exec "INSERT INTO solver_jobs
       (job_id, plan_version, status, cancel_requested, solicitado_em, iniciado_em, finalizado_em, erro, request_payload, response_payload)
     VALUES
@@ -1207,6 +1224,7 @@ RETURNING id;" | extract_single_value)"
     echo "r27_status=$r27_status"
     echo "r27_job_id=$r27_job_id"
     echo "r27_plan_version=$r27_plan_version"
+    echo "r27_has_job_id=$r27_has_job_id"
     echo "r27_entregador_id=$r27_entregador_id"
     echo "r27_atendente_id=$r27_atendente_id"
     echo "r27_cliente_id=${r27_cliente_id:-}"
