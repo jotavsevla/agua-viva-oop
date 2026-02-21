@@ -31,7 +31,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 
 public class RotaService {
@@ -40,7 +39,6 @@ public class RotaService {
     static final long PLANEJAMENTO_LOCK_KEY = 61001L;
     private static final int MAX_SOLVER_JOBS_CANCELAMENTO = 8;
 
-    private final AtomicLong lastRequestedPlanVersion = new AtomicLong(0);
     private final AtomicReference<String> activeJobId = new AtomicReference<>();
 
     private final SolverClient solverClient;
@@ -104,15 +102,16 @@ public class RotaService {
                     return new PlanejamentoResultado(0, 0, 0);
                 }
 
-                long planVersion = lastRequestedPlanVersion.incrementAndGet();
+                solverJobsEnabled = hasSolverJobsSchema(conn);
+                boolean planVersionEnabled = hasPlanVersionColumns(conn);
+                boolean jobIdEnabled = hasJobIdColumns(conn);
+                long planVersion = (solverJobsEnabled || planVersionEnabled) ? nextPlanVersion(conn) : 1L;
                 currentJobId = buildJobId(planVersion);
                 String previousJobId = activeJobId.getAndSet(currentJobId);
                 if (previousJobId != null && !previousJobId.equals(currentJobId)) {
                     solverClient.cancelBestEffort(previousJobId);
                 }
 
-                solverJobsEnabled = hasSolverJobsSchema(conn);
-                boolean planVersionEnabled = hasPlanVersionColumns(conn);
                 ConfiguracaoRoteirizacao cfg = carregarConfiguracao(conn);
                 List<Integer> entregadoresAtivos = buscarEntregadoresAtivos(conn);
                 if (entregadoresAtivos.isEmpty()) {
@@ -169,11 +168,18 @@ public class RotaService {
 
                 for (RotaSolver rota : solverResponse.getRotas()) {
                     int rotaId = inserirRota(
-                            conn, rota.getEntregadorId(), rota.getNumeroNoDia(), planVersion, planVersionEnabled);
+                            conn,
+                            rota.getEntregadorId(),
+                            rota.getNumeroNoDia(),
+                            planVersion,
+                            planVersionEnabled,
+                            currentJobId,
+                            jobIdEnabled);
                     rotasCriadas++;
 
                     for (Parada parada : rota.getParadas()) {
-                        inserirEntrega(conn, parada, rotaId, planVersion, planVersionEnabled);
+                        inserirEntrega(
+                                conn, parada, rotaId, planVersion, planVersionEnabled, currentJobId, jobIdEnabled);
                         confirmarPedidoSeNecessario(conn, pedidosPorId.get(parada.getPedidoId()));
                         entregasCriadas++;
                     }
@@ -350,11 +356,27 @@ public class RotaService {
     }
 
     private int inserirRota(
-            Connection conn, int entregadorId, int numeroNoDiaSugerido, long planVersion, boolean planVersionEnabled)
+            Connection conn,
+            int entregadorId,
+            int numeroNoDiaSugerido,
+            long planVersion,
+            boolean planVersionEnabled,
+            String jobId,
+            boolean jobIdEnabled)
             throws SQLException {
-        String sql = planVersionEnabled
-                ? "INSERT INTO rotas (entregador_id, data, numero_no_dia, status, plan_version) VALUES (?, CURRENT_DATE, ?, ?, ?)"
-                : "INSERT INTO rotas (entregador_id, data, numero_no_dia, status) VALUES (?, CURRENT_DATE, ?, ?)";
+        String sql;
+        if (planVersionEnabled && jobIdEnabled) {
+            sql =
+                    "INSERT INTO rotas (entregador_id, data, numero_no_dia, status, plan_version, job_id) VALUES (?, CURRENT_DATE, ?, ?, ?, ?)";
+        } else if (planVersionEnabled) {
+            sql =
+                    "INSERT INTO rotas (entregador_id, data, numero_no_dia, status, plan_version) VALUES (?, CURRENT_DATE, ?, ?, ?)";
+        } else if (jobIdEnabled) {
+            sql =
+                    "INSERT INTO rotas (entregador_id, data, numero_no_dia, status, job_id) VALUES (?, CURRENT_DATE, ?, ?, ?)";
+        } else {
+            sql = "INSERT INTO rotas (entregador_id, data, numero_no_dia, status) VALUES (?, CURRENT_DATE, ?, ?)";
+        }
 
         for (int tentativa = 1; tentativa <= 5; tentativa++) {
             int numeroNoDia = reservarNumeroNoDia(conn, entregadorId, numeroNoDiaSugerido);
@@ -363,8 +385,13 @@ public class RotaService {
                 stmt.setInt(1, entregadorId);
                 stmt.setInt(2, numeroNoDia);
                 stmt.setObject(3, "PLANEJADA", Types.OTHER);
-                if (planVersionEnabled) {
+                if (planVersionEnabled && jobIdEnabled) {
                     stmt.setLong(4, planVersion);
+                    stmt.setString(5, jobId);
+                } else if (planVersionEnabled) {
+                    stmt.setLong(4, planVersion);
+                } else if (jobIdEnabled) {
+                    stmt.setString(4, jobId);
                 }
                 stmt.executeUpdate();
 
@@ -424,11 +451,28 @@ public class RotaService {
     }
 
     private void inserirEntrega(
-            Connection conn, Parada parada, int rotaId, long planVersion, boolean planVersionEnabled)
+            Connection conn,
+            Parada parada,
+            int rotaId,
+            long planVersion,
+            boolean planVersionEnabled,
+            String jobId,
+            boolean jobIdEnabled)
             throws SQLException {
-        String sql = planVersionEnabled
-                ? "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, hora_prevista, status, plan_version) VALUES (?, ?, ?, ?, ?, ?)"
-                : "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, hora_prevista, status) VALUES (?, ?, ?, ?, ?)";
+        String sql;
+        if (planVersionEnabled && jobIdEnabled) {
+            sql =
+                    "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, hora_prevista, status, plan_version, job_id) VALUES (?, ?, ?, ?, ?, ?, ?)";
+        } else if (planVersionEnabled) {
+            sql =
+                    "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, hora_prevista, status, plan_version) VALUES (?, ?, ?, ?, ?, ?)";
+        } else if (jobIdEnabled) {
+            sql =
+                    "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, hora_prevista, status, job_id) VALUES (?, ?, ?, ?, ?, ?)";
+        } else {
+            sql =
+                    "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, hora_prevista, status) VALUES (?, ?, ?, ?, ?)";
+        }
 
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, parada.getPedidoId());
@@ -436,8 +480,13 @@ public class RotaService {
             stmt.setInt(3, parada.getOrdem());
             stmt.setObject(4, toLocalDateTime(parada.getHoraPrevista()));
             stmt.setObject(5, "PENDENTE", Types.OTHER);
-            if (planVersionEnabled) {
+            if (planVersionEnabled && jobIdEnabled) {
                 stmt.setLong(6, planVersion);
+                stmt.setString(7, jobId);
+            } else if (planVersionEnabled) {
+                stmt.setLong(6, planVersion);
+            } else if (jobIdEnabled) {
+                stmt.setString(6, jobId);
             }
             stmt.executeUpdate();
         }
@@ -601,6 +650,24 @@ public class RotaService {
 
     private boolean hasPlanVersionColumns(Connection conn) throws SQLException {
         return hasColumn(conn, "rotas", "plan_version") && hasColumn(conn, "entregas", "plan_version");
+    }
+
+    private boolean hasJobIdColumns(Connection conn) throws SQLException {
+        return hasColumn(conn, "rotas", "job_id") && hasColumn(conn, "entregas", "job_id");
+    }
+
+    private long nextPlanVersion(Connection conn) throws SQLException {
+        try (Statement stmt = conn.createStatement()) {
+            stmt.execute("CREATE SEQUENCE IF NOT EXISTS solver_plan_version_seq START WITH 1 INCREMENT BY 1");
+        }
+
+        try (PreparedStatement stmt = conn.prepareStatement("SELECT nextval('solver_plan_version_seq')");
+                ResultSet rs = stmt.executeQuery()) {
+            if (!rs.next()) {
+                throw new SQLException("Falha ao obter nextval de solver_plan_version_seq");
+            }
+            return rs.getLong(1);
+        }
     }
 
     private boolean hasSolverJobsSchema(Connection conn) throws SQLException {

@@ -123,11 +123,33 @@ class PedidoTest {
     }
 
     @Test
+    void pedidosComIdsDiferentesNaoDevemSerIguais() {
+        Pedido p1 = new Pedido(1, 1, 2, JanelaTipo.ASAP, null, null, PedidoStatus.PENDENTE, 10);
+        Pedido p2 = new Pedido(2, 1, 2, JanelaTipo.ASAP, null, null, PedidoStatus.PENDENTE, 10);
+
+        assertNotEquals(p1, p2);
+        assertNotEquals(p1.hashCode(), p2.hashCode());
+    }
+
+    @Test
     void pedidosSemIdNaoDevemSerIguaisEntreSi() {
         Pedido p1 = new Pedido(1, 1, JanelaTipo.ASAP, null, null, 10);
         Pedido p2 = new Pedido(1, 1, JanelaTipo.ASAP, null, null, 10);
 
         assertNotEquals(p1, p2);
+    }
+
+    @Test
+    void pedidoDeveSerIgualASiMesmo() {
+        Pedido pedido = new Pedido(1, 1, 2, JanelaTipo.ASAP, null, null, PedidoStatus.PENDENTE, 10);
+        assertEquals(pedido, pedido);
+    }
+
+    @Test
+    void pedidoNaoDeveSerIgualANuloOuOutroTipo() {
+        Pedido pedido = new Pedido(1, 1, 2, JanelaTipo.ASAP, null, null, PedidoStatus.PENDENTE, 10);
+        assertNotEquals(pedido, null);
+        assertNotEquals(pedido, "nao-pedido");
     }
 
     @Test

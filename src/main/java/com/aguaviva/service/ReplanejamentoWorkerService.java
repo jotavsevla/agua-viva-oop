@@ -15,8 +15,12 @@ import java.util.function.Supplier;
 public class ReplanejamentoWorkerService {
 
     private static final long ADVISORY_LOCK_KEY = 114_011L;
-    private static final int MAX_TENTATIVAS_LOCK_OCUPADO = 20;
+    // Em cenarios com solver frio/lento, o lock pode ficar ocupado por varios segundos.
+    // Mantemos retentativa mais longa para evitar deixar eventos pendentes sem processamento.
+    private static final int MAX_TENTATIVAS_LOCK_OCUPADO = 60;
     private static final long RETRY_LOCK_SLEEP_MS = 75L;
+    private static final long RETRY_LOCK_SLEEP_MAX_MS = 500L;
+    private static final int HARD_WINDOW_RISCO_HORIZONTE_MINUTOS = 30;
 
     private final ConnectionFactory connectionFactory;
     private final Function<CapacidadePolicy, PlanejamentoResultado> replanejamentoExecutor;
@@ -99,6 +103,14 @@ public class ReplanejamentoWorkerService {
         return new ReplanejamentoWorkerResultado(0, false, 0, 0, 0);
     }
 
+    public boolean existePedidoHardEmRisco() {
+        try (Connection conn = connectionFactory.getConnection()) {
+            return existePedidoHardEmRisco(conn, HARD_WINDOW_RISCO_HORIZONTE_MINUTOS);
+        } catch (SQLException e) {
+            throw new IllegalStateException("Falha ao consultar risco de janela HARD", e);
+        }
+    }
+
     private WorkerAttempt processarUmaTentativa(int debounceSegundos, int limiteEventos) {
         try (Connection conn = connectionFactory.getConnection()) {
             conn.setAutoCommit(false);
@@ -112,7 +124,8 @@ public class ReplanejamentoWorkerService {
 
                 List<DispatchEventRef> eventos =
                         buscarEventosPendentesComDebounce(conn, debounceSegundos, limiteEventos);
-                if (eventos.isEmpty()) {
+                boolean hardWindowEmRisco = existePedidoHardEmRisco(conn, HARD_WINDOW_RISCO_HORIZONTE_MINUTOS);
+                if (eventos.isEmpty() && !hardWindowEmRisco) {
                     conn.commit();
                     return WorkerAttempt.withResult(new ReplanejamentoWorkerResultado(0, false, 0, 0, 0));
                 }
@@ -121,11 +134,13 @@ public class ReplanejamentoWorkerService {
                         ReplanejamentoPolicyMatrix.consolidate(eventos.stream()
                                 .map(DispatchEventRef::eventType)
                                 .toList());
-                boolean deveReplanejar = politicaLote.replaneja();
+                boolean deveReplanejar = hardWindowEmRisco || politicaLote.replaneja();
+                CapacidadePolicy capacidadePolicy =
+                        hardWindowEmRisco ? CapacidadePolicy.REMANESCENTE : politicaLote.capacidadePolicy();
 
                 PlanejamentoResultado planejamento = new PlanejamentoResultado(0, 0, 0);
                 if (deveReplanejar) {
-                    planejamento = replanejamentoExecutor.apply(politicaLote.capacidadePolicy());
+                    planejamento = replanejamentoExecutor.apply(capacidadePolicy);
                 }
 
                 marcarEventosProcessados(conn, eventos);
@@ -151,7 +166,7 @@ public class ReplanejamentoWorkerService {
     private boolean aguardarRetryLock(int tentativa) {
         try {
             long backoff = RETRY_LOCK_SLEEP_MS * Math.max(1L, tentativa);
-            Thread.sleep(Math.min(backoff, 400L));
+            Thread.sleep(Math.min(backoff, RETRY_LOCK_SLEEP_MAX_MS));
             return true;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -205,6 +220,62 @@ public class ReplanejamentoWorkerService {
             Array sqlArray = conn.createArrayOf("bigint", ids);
             stmt.setArray(1, sqlArray);
             stmt.executeUpdate();
+        }
+    }
+
+    private boolean existePedidoHardEmRisco(Connection conn, int horizonteMinutos) throws SQLException {
+        if (horizonteMinutos < 0) {
+            throw new IllegalArgumentException("horizonteMinutos nao pode ser negativo");
+        }
+        if (!hasTable(conn, "pedidos")
+                || !hasTable(conn, "entregas")
+                || !hasColumn(conn, "pedidos", "janela_tipo")
+                || !hasColumn(conn, "pedidos", "janela_fim")
+                || !hasColumn(conn, "pedidos", "status")
+                || !hasColumn(conn, "entregas", "pedido_id")
+                || !hasColumn(conn, "entregas", "status")) {
+            return false;
+        }
+
+        String sql = "SELECT 1 "
+                + "FROM pedidos p "
+                + "WHERE p.status::text IN ('PENDENTE', 'CONFIRMADO') "
+                + "AND p.janela_tipo::text = 'HARD' "
+                + "AND p.janela_fim IS NOT NULL "
+                + "AND p.janela_fim <= ((CURRENT_TIMESTAMP + (? * INTERVAL '1 minute'))::time) "
+                + "AND NOT EXISTS ("
+                + "    SELECT 1 FROM entregas e "
+                + "    WHERE e.pedido_id = p.id "
+                + "    AND e.status::text IN ('PENDENTE', 'EM_EXECUCAO')"
+                + ") "
+                + "LIMIT 1";
+
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setInt(1, horizonteMinutos);
+            try (ResultSet rs = stmt.executeQuery()) {
+                return rs.next();
+            }
+        }
+    }
+
+    private boolean hasTable(Connection conn, String table) throws SQLException {
+        String sql = "SELECT 1 FROM information_schema.tables WHERE table_name = ?";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, table);
+            try (ResultSet rs = stmt.executeQuery()) {
+                return rs.next();
+            }
+        }
+    }
+
+    private boolean hasColumn(Connection conn, String table, String column) throws SQLException {
+        String sql = "SELECT 1 FROM information_schema.columns WHERE table_name = ? AND column_name = ?";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, table);
+            stmt.setString(2, column);
+            try (ResultSet rs = stmt.executeQuery()) {
+                return rs.next();
+            }
         }
     }
 

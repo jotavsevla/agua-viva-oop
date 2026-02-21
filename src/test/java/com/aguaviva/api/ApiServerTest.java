@@ -1138,8 +1138,8 @@ class ApiServerTest {
         int pedidoId = criarPedidoDireto(clienteId, atendenteId, "CONFIRMADO", 1);
         long planVersion = 91L;
         String jobId = "job-detalhe-91";
-        int rotaId = criarRotaComPlanVersion(entregadorId, "PLANEJADA", planVersion, 1);
-        int entregaId = criarEntregaComPlanVersion(pedidoId, rotaId, 1, "PENDENTE", planVersion);
+        int rotaId = criarRotaComPlanVersion(entregadorId, "PLANEJADA", planVersion, 1, jobId);
+        int entregaId = criarEntregaComPlanVersion(pedidoId, rotaId, 1, "PENDENTE", planVersion, jobId);
         inserirSolverJob(
                 jobId,
                 planVersion,
@@ -1902,18 +1902,26 @@ class ApiServerTest {
         }
     }
 
-    private int criarRotaComPlanVersion(int entregadorId, String status, long planVersion, int numeroNoDia)
-            throws Exception {
-        try (Connection conn = factory.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(
-                        "INSERT INTO rotas (entregador_id, data, numero_no_dia, status, plan_version) VALUES (?, CURRENT_DATE, ?, ?, ?) RETURNING id")) {
-            stmt.setInt(1, entregadorId);
-            stmt.setInt(2, numeroNoDia);
-            stmt.setObject(3, status, java.sql.Types.OTHER);
-            stmt.setLong(4, planVersion);
-            try (ResultSet rs = stmt.executeQuery()) {
-                rs.next();
-                return rs.getInt(1);
+    private int criarRotaComPlanVersion(
+            int entregadorId, String status, long planVersion, int numeroNoDia, String jobId) throws Exception {
+        try (Connection conn = factory.getConnection()) {
+            boolean hasJobId = hasColumn(conn, "rotas", "job_id");
+            String sql = hasJobId
+                    ? "INSERT INTO rotas (entregador_id, data, numero_no_dia, status, plan_version, job_id) VALUES (?, CURRENT_DATE, ?, ?, ?, ?) RETURNING id"
+                    : "INSERT INTO rotas (entregador_id, data, numero_no_dia, status, plan_version) VALUES (?, CURRENT_DATE, ?, ?, ?) RETURNING id";
+
+            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                stmt.setInt(1, entregadorId);
+                stmt.setInt(2, numeroNoDia);
+                stmt.setObject(3, status, java.sql.Types.OTHER);
+                stmt.setLong(4, planVersion);
+                if (hasJobId) {
+                    stmt.setString(5, jobId);
+                }
+                try (ResultSet rs = stmt.executeQuery()) {
+                    rs.next();
+                    return rs.getInt(1);
+                }
             }
         }
     }
@@ -1932,19 +1940,37 @@ class ApiServerTest {
         }
     }
 
-    private int criarEntregaComPlanVersion(int pedidoId, int rotaId, int ordemNaRota, String status, long planVersion)
-            throws Exception {
-        try (Connection conn = factory.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(
-                        "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, status, plan_version) VALUES (?, ?, ?, ?, ?) RETURNING id")) {
-            stmt.setInt(1, pedidoId);
-            stmt.setInt(2, rotaId);
-            stmt.setInt(3, ordemNaRota);
-            stmt.setObject(4, status, java.sql.Types.OTHER);
-            stmt.setLong(5, planVersion);
+    private int criarEntregaComPlanVersion(
+            int pedidoId, int rotaId, int ordemNaRota, String status, long planVersion, String jobId) throws Exception {
+        try (Connection conn = factory.getConnection()) {
+            boolean hasJobId = hasColumn(conn, "entregas", "job_id");
+            String sql = hasJobId
+                    ? "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, status, plan_version, job_id) VALUES (?, ?, ?, ?, ?, ?) RETURNING id"
+                    : "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, status, plan_version) VALUES (?, ?, ?, ?, ?) RETURNING id";
+            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+                stmt.setInt(1, pedidoId);
+                stmt.setInt(2, rotaId);
+                stmt.setInt(3, ordemNaRota);
+                stmt.setObject(4, status, java.sql.Types.OTHER);
+                stmt.setLong(5, planVersion);
+                if (hasJobId) {
+                    stmt.setString(6, jobId);
+                }
+                try (ResultSet rs = stmt.executeQuery()) {
+                    rs.next();
+                    return rs.getInt(1);
+                }
+            }
+        }
+    }
+
+    private boolean hasColumn(Connection conn, String table, String column) throws Exception {
+        String sql = "SELECT 1 FROM information_schema.columns WHERE table_name = ? AND column_name = ?";
+        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, table);
+            stmt.setString(2, column);
             try (ResultSet rs = stmt.executeQuery()) {
-                rs.next();
-                return rs.getInt(1);
+                return rs.next();
             }
         }
     }
