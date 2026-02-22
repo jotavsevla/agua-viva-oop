@@ -7,28 +7,16 @@ O objetivo e estudar e aplicar **Orientacao a Objetos verdadeira** em Java,
 com **PostgreSQL isolado em Docker** (SQL puro, sem ORM) e um **solver Python**
 que resolve roteamento de veiculos com restricoes reais.
 
+## Versao Oficial de Java
+
+Este projeto usa **Java 21.x (LTS)**.
+O build valida essa faixa via Maven Enforcer (`[21,22)`) e falha fora dela.
+
 ## Escopo Publico
 
 Este `README.md` e a referencia publica para terceiros.
-Ele resume contexto, arquitetura, contratos e como executar o projeto.
-Guia operacional detalhado, testes por tipo, padroes de docs e estilo ficam em `docs/`.
-Politica completa de publico x interno: `docs/DOCUMENTACAO-PADROES.md`.
-
-## Mapa de documentacao interna (temas exclusivos)
-
-Documentos abaixo sao internos (uso local da equipe) e seguem padrao tematico.
-
-- Padroes de documentacao: `docs/DOCUMENTACAO-PADROES.md`
-- Status tecnico interno: `docs/ESTADO-ATUAL.md`
-- Ambientes frontend por papel (UI/UX): `docs/AMBIENTES-FRONTEND-POR-PAPEL.md`
-- Gate operacional PoC: `docs/GATE_POC_OPERACIONAL.md`
-- Runbook do ambiente de teste: `docs/RUNBOOK_OPERACAO_TESTE.md`
-- Testes Java: `docs/TESTES-JAVA.md`
-- Testes Solver (Python): `docs/TESTES-SOLVER-PYTHON.md`
-- Testes UI unitarios (JS): `docs/TESTES-UI-JS.md`
-- Testes E2E (Playwright): `docs/TESTES-E2E-PLAYWRIGHT.md`
-- Estilo e formatacao (`spotless:check`): `docs/ESTILO-E-FORMATACAO.md`
-- Versionamento, branch, commit e PR: `GIT-E-PADROES.md`
+Ele resume contexto, arquitetura, contratos e como executar o projeto em clone limpo.
+Nao depende de documentos privados, caminhos locais ou arquivos fora do controle de versao.
 
 ## Memoria Tecnica Recente (PoC Operacional)
 
@@ -272,8 +260,6 @@ FROM metricas_brutas mb JOIN users u ON u.id = mb.entregador_id;
 
 ## Arquitetura
 
-![Diagrama de arquitetura](docs/.assets/arquitetura.svg)
-
 ### Camadas com separacao rigida
 
 **Domain** (`domain/`) — Java puro. Zero imports de `java.sql`.
@@ -371,7 +357,7 @@ reconstroi quem e quem na resposta.
 
 ## Banco de Dados
 
-Schema com **15 migrations SQL** — PostgreSQL com enums nativos, indices parciais,
+Schema com migrations SQL versionadas — PostgreSQL com enums nativos, indices parciais,
 constraints de negocio, views com CTEs, window functions e funcoes SQL.
 
 | Migration | Tabela                | Descricao                                 |
@@ -408,15 +394,20 @@ a integracao completa desse fluxo no service segue em andamento.
 
 O projeto usa suites separadas por tipo de teste para evitar mistura de contexto.
 
-- Java (unitario + integracao): `docs/TESTES-JAVA.md`
-- Solver Python (pytest): `docs/TESTES-SOLVER-PYTHON.md`
-- UI JS unitario (node:test): `docs/TESTES-UI-JS.md`
-- E2E Playwright: `docs/TESTES-E2E-PLAYWRIGHT.md`
-
-Comando rapido (rodar Java no projeto raiz):
+Comandos rapidos por escopo (na raiz do projeto):
 
 ```bash
+# Java completo (sem filtro)
 mvn test
+
+# Java unitario
+mvn -Ptests-unit test
+
+# Java integracao
+mvn -Ptests-integration test
+
+# Testes de teste (mutation)
+mvn -Pmutation-tests pitest:mutationCoverage
 ```
 
 ---
@@ -597,7 +588,23 @@ source ~/.zshrc
 java -version
 ```
 
-### Subir banco e aplicar schema completo (001-015)
+### Bootstrap de dependencias (build)
+
+```bash
+# Java/Maven
+mvn -q -DskipTests dependency:go-offline
+
+# Solver Python
+python3 -m venv solver/.venv
+source solver/.venv/bin/activate
+pip install -r solver/requirements.txt
+deactivate
+
+# UI (opcional para prototipo/e2e)
+npm --prefix produto-ui/prototipo ci
+```
+
+### Subir banco e aplicar schema completo (001+)
 
 ```bash
 docker compose up -d postgres-oop-dev postgres-oop-test
@@ -610,8 +617,10 @@ CONTAINER_NAME=postgres-oop-test POSTGRES_DB=agua_viva_oop_test ./apply-migratio
 ### Compilar e testar (Java)
 
 ```bash
-# valida Java 21 logo no comeco (fase validate)
+# valida Java 21 logo no comeco (fase validate) + suite Java completa
 mvn test
+mvn -Ptests-unit test
+mvn -Ptests-integration test
 mvn clean compile  # compilar sem testes
 ```
 
