@@ -14,6 +14,7 @@ import com.aguaviva.domain.user.UserPapel;
 import com.aguaviva.repository.ClienteRepository;
 import com.aguaviva.repository.ConnectionFactory;
 import com.aguaviva.repository.UserRepository;
+import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -96,26 +97,22 @@ class AtendimentoTelefonicoServiceTest {
     }
 
     @Test
-    void deveCriarClienteMinimoEPedidoPendenteQuandoTelefoneNaoExiste() throws Exception {
+    void deveRejeitarPedidoQuandoTelefoneNaoPossuiClienteCadastradoComEnderecoValido() throws Exception {
         int atendenteId = criarAtendenteId("telefone1@teste.com");
 
-        AtendimentoTelefonicoResultado resultado =
-                service.registrarPedido("call-001", "+55 (38) 9 9876-1234", 2, atendenteId);
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.registrarPedido("call-001", "+55 (38) 9 9876-1234", 2, atendenteId));
 
-        assertTrue(resultado.clienteCriado());
-        assertFalse(resultado.idempotente());
-        assertEquals("5538998761234", resultado.telefoneNormalizado());
-        assertEquals(1, contarLinhas("clientes"));
-        assertEquals(1, contarLinhas("pedidos"));
-        assertEquals("PENDENTE", statusPedido(resultado.pedidoId()));
-        assertEquals("call-001", externalCallIdPedido(resultado.pedidoId()));
+        assertTrue(ex.getMessage().contains("Cliente nao cadastrado"));
+        assertEquals(0, contarLinhas("clientes"));
+        assertEquals(0, contarLinhas("pedidos"));
     }
 
     @Test
     void deveCriarPedidoComMetodoValeQuandoClienteTemSaldoSuficiente() throws Exception {
         int atendenteId = criarAtendenteId("telefone1b@teste.com");
-        Cliente cliente = clienteRepository.save(
-                new Cliente("Cliente com vale", "(38) 99888-1101", ClienteTipo.PF, "Rua Vale, 10"));
+        Cliente cliente = criarClienteComGeo("Cliente com vale", "(38) 99888-1101", "Rua Vale, 10");
         inserirSaldoVale(cliente.getId(), 5);
 
         AtendimentoTelefonicoResultado resultado =
@@ -129,8 +126,7 @@ class AtendimentoTelefonicoServiceTest {
     @Test
     void deveRejeitarPedidoComMetodoValeQuandoClienteNaoTemSaldoSuficiente() throws Exception {
         int atendenteId = criarAtendenteId("telefone1c@teste.com");
-        Cliente cliente = clienteRepository.save(
-                new Cliente("Cliente sem saldo", "(38) 99888-1102", ClienteTipo.PF, "Rua Vale, 20"));
+        Cliente cliente = criarClienteComGeo("Cliente sem saldo", "(38) 99888-1102", "Rua Vale, 20");
         inserirSaldoVale(cliente.getId(), 1);
 
         IllegalArgumentException ex = assertThrows(
@@ -144,7 +140,7 @@ class AtendimentoTelefonicoServiceTest {
     @Test
     void deveRejeitarPedidoComMetodoValeQuandoClienteNaoPossuiSaldoCadastrado() throws Exception {
         int atendenteId = criarAtendenteId("telefone1d@teste.com");
-        clienteRepository.save(new Cliente("Cliente sem saldo", "(38) 99888-1103", ClienteTipo.PF, "Rua Vale, 30"));
+        criarClienteComGeo("Cliente sem saldo", "(38) 99888-1103", "Rua Vale, 30");
 
         IllegalArgumentException ex = assertThrows(
                 IllegalArgumentException.class,
@@ -157,8 +153,7 @@ class AtendimentoTelefonicoServiceTest {
     @Test
     void deveReaproveitarClienteExistentePorTelefoneNormalizado() throws Exception {
         int atendenteId = criarAtendenteId("telefone2@teste.com");
-        Cliente cliente = clienteRepository.save(
-                new Cliente("Cliente ja cadastrado", "(38) 99876-1234", ClienteTipo.PF, "Rua A, 100"));
+        Cliente cliente = criarClienteComGeo("Cliente ja cadastrado", "(38) 99876-1234", "Rua A, 100");
 
         AtendimentoTelefonicoResultado resultado = service.registrarPedido("call-002", "38 99876 1234", 1, atendenteId);
 
@@ -172,6 +167,7 @@ class AtendimentoTelefonicoServiceTest {
     @Test
     void deveSerIdempotenteQuandoExternalCallIdForRepetido() throws Exception {
         int atendenteId = criarAtendenteId("telefone3@teste.com");
+        criarClienteComGeo("Cliente idempotente", "(38) 99999-5001", "Rua D, 10");
 
         AtendimentoTelefonicoResultado primeira =
                 service.registrarPedido("call-003", "(38) 99999-5001", 1, atendenteId);
@@ -206,8 +202,7 @@ class AtendimentoTelefonicoServiceTest {
     @Test
     void deveRetornarPedidoAtivoQuandoAtendimentoManualEncontrarPedidoAberto() throws Exception {
         int atendenteId = criarAtendenteId("telefone5@teste.com");
-        Cliente cliente =
-                clienteRepository.save(new Cliente("Cliente manual", "(38) 99876-8001", ClienteTipo.PF, "Rua B, 12"));
+        Cliente cliente = criarClienteComGeo("Cliente manual", "(38) 99876-8001", "Rua B, 12");
         int pedidoExistenteId = inserirPedido(cliente.getId(), atendenteId, "PENDENTE", "call-manual-001");
 
         AtendimentoTelefonicoResultado resultado = service.registrarPedidoManual("(38) 99876-8001", 2, atendenteId);
@@ -222,8 +217,7 @@ class AtendimentoTelefonicoServiceTest {
     @Test
     void deveCriarPedidoQuandoAtendimentoManualNaoEncontrarPedidoAtivo() throws Exception {
         int atendenteId = criarAtendenteId("telefone6@teste.com");
-        Cliente cliente = clienteRepository.save(
-                new Cliente("Cliente historico", "(38) 99876-8002", ClienteTipo.PF, "Rua C, 30"));
+        Cliente cliente = criarClienteComGeo("Cliente historico", "(38) 99876-8002", "Rua C, 30");
         inserirPedido(cliente.getId(), atendenteId, "ENTREGUE", "call-manual-002");
 
         AtendimentoTelefonicoResultado resultado = service.registrarPedidoManual("(38) 99876-8002", 1, atendenteId);
@@ -239,8 +233,7 @@ class AtendimentoTelefonicoServiceTest {
     @Test
     void deveRejeitarAtendimentoManualComMetodoValeSemSaldoSuficiente() throws Exception {
         int atendenteId = criarAtendenteId("telefone7@teste.com");
-        Cliente cliente = clienteRepository.save(
-                new Cliente("Cliente manual sem saldo", "(38) 99888-1104", ClienteTipo.PF, "Rua Vale, 40"));
+        Cliente cliente = criarClienteComGeo("Cliente manual sem saldo", "(38) 99888-1104", "Rua Vale, 40");
         inserirSaldoVale(cliente.getId(), 0);
 
         IllegalArgumentException ex = assertThrows(
@@ -258,6 +251,17 @@ class AtendimentoTelefonicoServiceTest {
             rs.next();
             return rs.getInt(1);
         }
+    }
+
+    private Cliente criarClienteComGeo(String nome, String telefone, String endereco) throws Exception {
+        return clienteRepository.save(new Cliente(
+                nome,
+                telefone,
+                ClienteTipo.PF,
+                endereco,
+                BigDecimal.valueOf(-16.72),
+                BigDecimal.valueOf(-43.86),
+                null));
     }
 
     private String statusPedido(int pedidoId) throws Exception {

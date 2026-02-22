@@ -40,6 +40,7 @@ public final class ApiServer {
     private static final String CORS_ALLOW_ORIGIN = "*";
     private static final String CORS_ALLOW_HEADERS = "Content-Type";
     private static final String CORS_ALLOW_METHODS = "GET,POST,OPTIONS";
+    private static final String TEST_VERBOSE_PROPERTY = "aguaviva.test.verbose";
 
     private final Gson gson = new GsonBuilder().serializeNulls().create();
     private final AtendimentoTelefonicoService atendimentoTelefonicoService;
@@ -53,6 +54,7 @@ public final class ApiServer {
     private final OperacaoEventosService operacaoEventosService;
     private final OperacaoMapaService operacaoMapaService;
     private final OperacaoReplanejamentoService operacaoReplanejamentoService;
+    private final boolean startupLogsEnabled;
 
     private ApiServer(
             AtendimentoTelefonicoService atendimentoTelefonicoService,
@@ -65,7 +67,8 @@ public final class ApiServer {
             OperacaoPainelService operacaoPainelService,
             OperacaoEventosService operacaoEventosService,
             OperacaoMapaService operacaoMapaService,
-            OperacaoReplanejamentoService operacaoReplanejamentoService) {
+            OperacaoReplanejamentoService operacaoReplanejamentoService,
+            boolean startupLogsEnabled) {
         this.atendimentoTelefonicoService = Objects.requireNonNull(atendimentoTelefonicoService);
         this.execucaoEntregaService = Objects.requireNonNull(execucaoEntregaService);
         this.eventoOperacionalIdempotenciaService = Objects.requireNonNull(eventoOperacionalIdempotenciaService);
@@ -77,6 +80,7 @@ public final class ApiServer {
         this.operacaoEventosService = Objects.requireNonNull(operacaoEventosService);
         this.operacaoMapaService = Objects.requireNonNull(operacaoMapaService);
         this.operacaoReplanejamentoService = Objects.requireNonNull(operacaoReplanejamentoService);
+        this.startupLogsEnabled = startupLogsEnabled;
     }
 
     public static void startFromEnv() throws IOException {
@@ -115,7 +119,8 @@ public final class ApiServer {
                 operacaoPainelService,
                 operacaoEventosService,
                 operacaoMapaService,
-                operacaoReplanejamentoService);
+                operacaoReplanejamentoService,
+                true);
         app.start(port);
     }
 
@@ -133,13 +138,15 @@ public final class ApiServer {
         server.start();
 
         int resolvedPort = server.getAddress().getPort();
-        System.out.println("API online na porta " + resolvedPort);
-        System.out.println("Endpoints: /health, /api/atendimento/pedidos, /api/eventos, /api/replanejamento/run, "
-                + "/api/pedidos/{pedidoId}/timeline, /api/pedidos/{pedidoId}/execucao, "
-                + "/api/entregadores/{entregadorId}/roteiro, "
-                + "/api/operacao/painel, /api/operacao/eventos, /api/operacao/mapa, "
-                + "/api/operacao/replanejamento/jobs, /api/operacao/replanejamento/jobs/{jobId}, "
-                + "/api/operacao/rotas/prontas/iniciar");
+        if (startupLogsEnabled) {
+            System.out.println("API online na porta " + resolvedPort);
+            System.out.println("Endpoints: /health, /api/atendimento/pedidos, /api/eventos, /api/replanejamento/run, "
+                    + "/api/pedidos/{pedidoId}/timeline, /api/pedidos/{pedidoId}/execucao, "
+                    + "/api/entregadores/{entregadorId}/roteiro, "
+                    + "/api/operacao/painel, /api/operacao/eventos, /api/operacao/mapa, "
+                    + "/api/operacao/replanejamento/jobs, /api/operacao/replanejamento/jobs/{jobId}, "
+                    + "/api/operacao/rotas/prontas/iniciar");
+        }
         return new RunningServer(server, resolvedPort);
     }
 
@@ -584,7 +591,8 @@ public final class ApiServer {
                 operacaoPainelService,
                 operacaoEventosService,
                 operacaoMapaService,
-                operacaoReplanejamentoService);
+                operacaoReplanejamentoService,
+                Boolean.getBoolean(TEST_VERBOSE_PROPERTY));
         return app.start(port);
     }
 

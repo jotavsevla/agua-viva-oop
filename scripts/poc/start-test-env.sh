@@ -18,6 +18,7 @@ POSTGRES_PORT="${POSTGRES_PORT:-5435}"
 POSTGRES_DB="${POSTGRES_DB:-agua_viva_oop_test}"
 POSTGRES_USER="${POSTGRES_USER:-postgres}"
 POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-postgres}"
+API_MAVEN_ARGS="${API_MAVEN_ARGS:--Denforcer.skip=true -DskipTests}"
 
 LOG_DIR="${LOG_DIR:-$ROOT_DIR/artifacts/poc/runtime}"
 mkdir -p "$LOG_DIR"
@@ -38,6 +39,35 @@ wait_http() {
   while true; do
     if curl -fsS "$url" >/dev/null 2>&1; then
       return 0
+    fi
+    now="$(date +%s)"
+    if (( now - start >= timeout )); then
+      echo "Timeout aguardando ${label}: ${url}" >&2
+      return 1
+    fi
+    sleep 1
+  done
+}
+
+wait_http_or_process_exit() {
+  local url="$1"
+  local label="$2"
+  local timeout="${3:-90}"
+  local pid="$4"
+  local log_file="$5"
+  local start now
+  start="$(date +%s)"
+  while true; do
+    if curl -fsS "$url" >/dev/null 2>&1; then
+      return 0
+    fi
+    if [[ -n "$pid" ]] && ! kill -0 "$pid" >/dev/null 2>&1; then
+      echo "Processo de ${label} encerrou antes de responder ${url} (pid=$pid)" >&2
+      if [[ -n "$log_file" && -f "$log_file" ]]; then
+        echo "Tail do log de ${label} (${log_file}):" >&2
+        tail -n 200 "$log_file" >&2
+      fi
+      return 1
     fi
     now="$(date +%s)"
     if (( now - start >= timeout )); then
@@ -81,6 +111,8 @@ if curl -fsS "$API_BASE/health" >/dev/null 2>&1; then
   echo "[start-test-env] API ja online em $API_BASE"
 else
   echo "[start-test-env] Subindo API em $API_BASE"
+  echo "[start-test-env] Maven args API: ${API_MAVEN_ARGS}"
+  read -r -a API_MAVEN_ARGS_ARRAY <<< "$API_MAVEN_ARGS"
   API_LOG_FILE="$LOG_DIR/api-${API_PORT}.log"
   nohup env \
     POSTGRES_HOST="$POSTGRES_HOST" \
@@ -90,12 +122,19 @@ else
     POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
     SOLVER_URL="$SOLVER_URL" \
     API_PORT="$API_PORT" \
-    mvn -DskipTests compile exec:java -Dexec.mainClass=com.aguaviva.App -Dexec.args=api \
+    mvn "${API_MAVEN_ARGS_ARRAY[@]}" compile exec:java -Dexec.mainClass=com.aguaviva.App -Dexec.args=api \
     > "$API_LOG_FILE" 2>&1 &
   API_PID=$!
 fi
 
-if ! wait_http "$API_BASE/health" "api" "$API_HEALTH_TIMEOUT_SECONDS"; then
+if [[ -n "${API_PID:-}" ]]; then
+  wait_http_or_process_exit "$API_BASE/health" "api" "$API_HEALTH_TIMEOUT_SECONDS" "$API_PID" "${API_LOG_FILE:-}" \
+    || API_BOOTSTRAP_OK=0
+else
+  wait_http "$API_BASE/health" "api" "$API_HEALTH_TIMEOUT_SECONDS" || API_BOOTSTRAP_OK=0
+fi
+
+if [[ "${API_BOOTSTRAP_OK:-1}" -ne 1 ]]; then
   echo "[start-test-env] Falha ao subir API. Timeout=${API_HEALTH_TIMEOUT_SECONDS}s"
   if [[ -n "${API_PID:-}" ]] && ! kill -0 "$API_PID" >/dev/null 2>&1; then
     echo "[start-test-env] Processo da API encerrou antes de responder /health (pid=$API_PID)"
