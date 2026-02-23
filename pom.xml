@@ -17,6 +17,8 @@
         <maven.compiler.source>21</maven.compiler.source>
         <maven.compiler.target>21</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <pitest.version>1.17.2</pitest.version>
+        <pitest.junit5.plugin.version>1.2.2</pitest.junit5.plugin.version>
     </properties>
 
     <dependencies>
@@ -62,6 +64,12 @@
             <version>5.11.3</version>
             <scope>test</scope>
         </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-simple</artifactId>
+            <version>1.7.36</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>
@@ -100,6 +108,11 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <version>3.5.2</version>
+                <configuration>
+                    <systemPropertyVariables>
+                        <org.slf4j.simpleLogger.defaultLogLevel>warn</org.slf4j.simpleLogger.defaultLogLevel>
+                    </systemPropertyVariables>
+                </configuration>
             </plugin>
             <plugin>
                 <groupId>org.ec4j.maven</groupId>
@@ -161,4 +174,58 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <profile>
+            <id>tests-unit</id>
+            <properties>
+                <groups>unit</groups>
+            </properties>
+        </profile>
+        <profile>
+            <id>tests-integration</id>
+            <properties>
+                <groups>integration</groups>
+            </properties>
+        </profile>
+        <profile>
+            <id>tests-java-scopes</id>
+            <properties>
+                <groups>unit,integration</groups>
+            </properties>
+        </profile>
+        <profile>
+            <id>mutation-tests</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.pitest</groupId>
+                        <artifactId>pitest-maven</artifactId>
+                        <version>${pitest.version}</version>
+                        <configuration>
+                            <targetClasses>
+                                <param>com.aguaviva.domain.*</param>
+                            </targetClasses>
+                            <targetTests>
+                                <param>com.aguaviva.domain.*Test</param>
+                            </targetTests>
+                            <mutationThreshold>95</mutationThreshold>
+                            <coverageThreshold>95</coverageThreshold>
+                            <outputFormats>
+                                <param>HTML</param>
+                                <param>XML</param>
+                            </outputFormats>
+                        </configuration>
+                        <dependencies>
+                            <dependency>
+                                <groupId>org.pitest</groupId>
+                                <artifactId>pitest-junit5-plugin</artifactId>
+                                <version>${pitest.junit5.plugin.version}</version>
+                            </dependency>
+                        </dependencies>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>
