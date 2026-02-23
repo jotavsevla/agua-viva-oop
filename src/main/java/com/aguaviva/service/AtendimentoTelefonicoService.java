@@ -163,6 +163,7 @@ public class AtendimentoTelefonicoService {
 
         try (Connection conn = connectionFactory.getConnection()) {
             conn.setAutoCommit(false);
+            boolean transacaoFinalizada = false;
             try {
                 lockPorTelefone(conn, telefoneNormalizado);
                 assertAtendenteExiste(conn, atendenteId);
@@ -207,9 +208,16 @@ public class AtendimentoTelefonicoService {
                     }
                 }
 
-                validarClienteElegivelParaPedido(clienteResolucao.cadastro());
-                validarCoberturaMoc(conn, clienteResolucao.cadastro());
-                validarElegibilidadeVale(conn, clienteId, quantidadeGaloes, metodoPagamentoNormalizado);
+                try {
+                    validarClienteElegivelParaPedido(clienteResolucao.cadastro());
+                    validarCoberturaMoc(conn, clienteResolucao.cadastro());
+                    validarElegibilidadeVale(conn, clienteId, quantidadeGaloes, metodoPagamentoNormalizado);
+                } catch (IllegalArgumentException regraNegocioEx) {
+                    // Mantem o cadastro capturado/atualizado mesmo quando a criacao do pedido e rejeitada.
+                    conn.commit();
+                    transacaoFinalizada = true;
+                    throw regraNegocioEx;
+                }
 
                 InsertPedidoResult insert;
                 if (externalCallIdLegacy != null) {
@@ -246,6 +254,7 @@ public class AtendimentoTelefonicoService {
                         atendimentoRequestHash);
 
                 conn.commit();
+                transacaoFinalizada = true;
                 return new AtendimentoTelefonicoResultado(
                         insert.pedidoId(),
                         insert.clienteId(),
@@ -253,7 +262,9 @@ public class AtendimentoTelefonicoService {
                         clienteResolucao.clienteCriado(),
                         insert.idempotente());
             } catch (Exception e) {
-                conn.rollback();
+                if (!transacaoFinalizada) {
+                    conn.rollback();
+                }
                 throw e;
             } finally {
                 conn.setAutoCommit(true);
