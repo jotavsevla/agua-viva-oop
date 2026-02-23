@@ -1,5 +1,11 @@
 {
+  "origemCanal": "MANUAL",
+  "manualRequestId": "manual-20260222-0001",
   "telefone": "(38) 99876-1234",
   "quantidadeGaloes": 2,
-  "atendenteId": 1
+  "atendenteId": 1,
+  "nomeCliente": "Cliente Manual",
+  "endereco": "Rua Exemplo, 123, Montes Claros - MG",
+  "latitude": -16.731,
+  "longitude": -43.871
 }

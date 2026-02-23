@@ -1,5 +1,6 @@
 {
-  "externalCallId": "call-001",
+  "origemCanal": "TELEFONIA_FIXO",
+  "sourceEventId": "call-001",
   "telefone": "(38) 99876-1234",
   "quantidadeGaloes": 2,
   "atendenteId": 1

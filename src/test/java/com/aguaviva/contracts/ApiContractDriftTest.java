@@ -5,8 +5,10 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
+@Tag("unit")
 class ApiContractDriftTest {
 
     private static final Path OPENAPI_PATH = Path.of("contracts", "v1", "openapi.yaml");
@@ -63,6 +65,13 @@ class ApiContractDriftTest {
 
         assertAll(
                 () -> assertTrue(openApi.contains("externalEventId:"), "Contrato deve mapear externalEventId"),
+                () -> assertTrue(openApi.contains("sourceEventId:"), "Contrato deve mapear sourceEventId"),
+                () -> assertTrue(openApi.contains("manualRequestId:"), "Contrato deve mapear manualRequestId"),
+                () -> assertTrue(openApi.contains("origemCanal:"), "Contrato deve mapear origemCanal"),
+                () -> assertTrue(openApi.contains("Idempotency-Key"), "Contrato deve mapear header Idempotency-Key"),
+                () -> assertTrue(
+                        openApi.contains("X-Idempotency-Key"),
+                        "Contrato deve mapear header X-Idempotency-Key"),
                 () -> assertTrue(openApi.contains("actorEntregadorId:"), "Contrato deve mapear actorEntregadorId"),
                 () -> assertTrue(openApi.contains("eventType:"), "Contrato deve mapear eventType"),
                 () -> assertTrue(openApi.contains("idempotente:"), "Contrato deve mapear flag idempotente"),

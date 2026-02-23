@@ -13,8 +13,10 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Collectors;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
+@Tag("unit")
 class ContractsV1Test {
 
     private static final Path CONTRACTS_V1_DIR = Path.of("contracts", "v1");
@@ -58,6 +60,21 @@ class ContractsV1Test {
                         openApi.contains("externalEventId:"),
                         "Contrato deve mapear chave de idempotencia externalEventId"),
                 () -> assertTrue(
+                        openApi.contains("sourceEventId:"),
+                        "Contrato deve mapear chave omnichannel sourceEventId"),
+                () -> assertTrue(
+                        openApi.contains("manualRequestId:"),
+                        "Contrato deve mapear chave de idempotencia manualRequestId"),
+                () -> assertTrue(
+                        openApi.contains("origemCanal:"),
+                        "Contrato deve mapear origemCanal no atendimento omnichannel"),
+                () -> assertTrue(
+                        openApi.contains("Idempotency-Key"),
+                        "Contrato deve mapear header Idempotency-Key para atendimento manual"),
+                () -> assertTrue(
+                        openApi.contains("X-Idempotency-Key"),
+                        "Contrato deve mapear header X-Idempotency-Key para atendimento manual"),
+                () -> assertTrue(
                         openApi.contains("actorEntregadorId:"),
                         "Contrato deve mapear actorEntregadorId para ownership operacional"),
                 () -> assertTrue(
@@ -82,6 +99,7 @@ class ContractsV1Test {
         Set<String> esperados = Set.of(
                 DispatchEventTypes.PEDIDO_CRIADO,
                 DispatchEventTypes.ROTA_INICIADA,
+                DispatchEventTypes.ROTA_CONCLUIDA,
                 DispatchEventTypes.PEDIDO_ENTREGUE,
                 DispatchEventTypes.PEDIDO_FALHOU,
                 DispatchEventTypes.PEDIDO_CANCELADO);
@@ -95,6 +113,7 @@ class ContractsV1Test {
         assertEquals(
                 Set.of(
                         DispatchEventTypes.PEDIDO_CRIADO,
+                        DispatchEventTypes.ROTA_CONCLUIDA,
                         DispatchEventTypes.PEDIDO_FALHOU,
                         DispatchEventTypes.PEDIDO_CANCELADO),
                 triggersReplanejamento,
@@ -106,6 +125,7 @@ class ContractsV1Test {
                         evento -> evento.get("event_type").getAsString(),
                         evento -> evento.get("trigger_kind").getAsString()));
         assertEquals("PRIMARIO", triggerKindPorEvento.get(DispatchEventTypes.PEDIDO_CRIADO));
+        assertEquals("SECUNDARIO", triggerKindPorEvento.get(DispatchEventTypes.ROTA_CONCLUIDA));
         assertEquals("SECUNDARIO", triggerKindPorEvento.get(DispatchEventTypes.PEDIDO_FALHOU));
         assertEquals("SECUNDARIO", triggerKindPorEvento.get(DispatchEventTypes.PEDIDO_CANCELADO));
         assertEquals("NONE", triggerKindPorEvento.get(DispatchEventTypes.PEDIDO_ENTREGUE));
@@ -118,6 +138,8 @@ class ContractsV1Test {
 
         String[] exemplosObrigatorios = new String[] {
             "atendimento-pedido.request.json",
+            "atendimento-pedido-manual.request.json",
+            "poc-atendimento.request.json",
             "atendimento-pedido.response.json",
             "evento-operacional.request.json",
             "evento-operacional.response.json",

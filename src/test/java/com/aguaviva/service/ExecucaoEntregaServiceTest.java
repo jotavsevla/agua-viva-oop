@@ -27,8 +27,10 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
+@Tag("integration")
 class ExecucaoEntregaServiceTest {
 
     private static ConnectionFactory factory;
@@ -208,6 +210,7 @@ class ExecucaoEntregaServiceTest {
         assertEquals("ENTREGUE", statusPedido(pedidoId));
         assertEquals("CONCLUIDA", statusRota(rotaId));
         assertEquals(1, contarEventos(DispatchEventTypes.PEDIDO_ENTREGUE));
+        assertEquals(1, contarEventos(DispatchEventTypes.ROTA_CONCLUIDA));
     }
 
     @Test
@@ -330,6 +333,7 @@ class ExecucaoEntregaServiceTest {
         assertEquals("ENTREGUE", statusEntrega(entregaId));
         assertEquals("ENTREGUE", statusPedido(pedidoId));
         assertEquals(1, contarEventos(DispatchEventTypes.PEDIDO_ENTREGUE));
+        assertEquals(1, contarEventos(DispatchEventTypes.ROTA_CONCLUIDA));
     }
 
     @Test
@@ -408,6 +412,31 @@ class ExecucaoEntregaServiceTest {
         assertEquals("EM_ANDAMENTO", statusRota(rotaPlanejada1));
         assertEquals("EM_EXECUCAO", statusEntrega(entrega1));
         assertEquals("EM_ROTA", statusPedido(pedido1));
+    }
+
+    @Test
+    void naoDeveAutoIniciarProximaRotaQuandoRotaAtualConcluir() throws Exception {
+        int atendenteId = criarAtendenteId("exec9b@teste.com");
+        int entregadorId = criarEntregadorId("ent9b@teste.com");
+        int clienteExecucao = criarClienteId("(38) 99999-9115");
+        int clientePlanejado = criarClienteId("(38) 99999-9116");
+
+        int pedidoExecucao = criarPedido(clienteExecucao, atendenteId, PedidoStatus.EM_ROTA);
+        int pedidoPlanejado = criarPedido(clientePlanejado, atendenteId, PedidoStatus.CONFIRMADO);
+        int rotaEmAndamento = criarRota(entregadorId, "EM_ANDAMENTO", 1);
+        int rotaPlanejada = criarRota(entregadorId, "PLANEJADA", 2);
+        int entregaExecucao = criarEntrega(pedidoExecucao, rotaEmAndamento, "EM_EXECUCAO");
+        int entregaPlanejada = criarEntrega(pedidoPlanejado, rotaPlanejada, "PENDENTE");
+
+        ExecucaoEntregaResultado resultado = execucaoService.registrarPedidoEntregue(entregaExecucao);
+
+        assertFalse(resultado.idempotente());
+        assertEquals("CONCLUIDA", statusRota(rotaEmAndamento));
+        assertEquals("PLANEJADA", statusRota(rotaPlanejada));
+        assertEquals("PENDENTE", statusEntrega(entregaPlanejada));
+        assertEquals("CONFIRMADO", statusPedido(pedidoPlanejado));
+        assertEquals(0, contarEventos(DispatchEventTypes.ROTA_INICIADA));
+        assertEquals(1, contarEventos(DispatchEventTypes.ROTA_CONCLUIDA));
     }
 
     @Test

@@ -1,7 +1,9 @@
 {
-  "externalCallId": "poc-feliz-20260214-0001",
+  "origemCanal": "WHATSAPP",
+  "sourceEventId": "poc-feliz-20260214-0001",
   "telefone": "(38) 99876-9901",
   "quantidadeGaloes": 1,
   "atendenteId": 1,
-  "metodoPagamento": "PIX"
+  "metodoPagamento": "PIX",
+  "janelaTipo": "FLEXIVEL"
 }

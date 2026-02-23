@@ -19,7 +19,9 @@ public final class ReplanejamentoPolicyMatrix {
             DispatchEventTypes.PEDIDO_ENTREGUE,
             NONE,
             DispatchEventTypes.ROTA_INICIADA,
-            NONE);
+            NONE,
+            DispatchEventTypes.ROTA_CONCLUIDA,
+            new ReplanejamentoEventPolicy(ReplanejamentoTriggerKind.SECUNDARIO, CapacidadePolicy.REMANESCENTE));
 
     private ReplanejamentoPolicyMatrix() {}
 

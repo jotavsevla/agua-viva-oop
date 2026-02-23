@@ -19,12 +19,16 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
+@Tag("integration")
 class AtendimentoTelefonicoServiceTest {
 
     private static ConnectionFactory factory;
@@ -65,6 +69,19 @@ class AtendimentoTelefonicoServiceTest {
             stmt.execute("ALTER TABLE pedidos DROP CONSTRAINT IF EXISTS uk_pedidos_external_call_id");
             stmt.execute("DROP INDEX IF EXISTS uk_pedidos_external_call_id");
             stmt.execute("ALTER TABLE pedidos ADD CONSTRAINT uk_pedidos_external_call_id UNIQUE (external_call_id)");
+            stmt.execute("CREATE TABLE IF NOT EXISTS atendimentos_idempotencia ("
+                    + "origem_canal VARCHAR(32) NOT NULL, "
+                    + "source_event_id VARCHAR(128) NOT NULL, "
+                    + "pedido_id INTEGER NOT NULL, "
+                    + "cliente_id INTEGER NOT NULL, "
+                    + "telefone_normalizado VARCHAR(15) NOT NULL, "
+                    + "criado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+                    + "PRIMARY KEY (origem_canal, source_event_id))");
+            stmt.execute("ALTER TABLE atendimentos_idempotencia ADD COLUMN IF NOT EXISTS request_hash VARCHAR(64)");
+            stmt.execute("INSERT INTO configuracoes (chave, valor, descricao) VALUES ("
+                    + "'cobertura_bbox', '-43.9600,-16.8200,-43.7800,-16.6200', "
+                    + "'Cobertura operacional de atendimento em bbox') "
+                    + "ON CONFLICT (chave) DO NOTHING");
             stmt.execute("DO $$ BEGIN "
                     + "IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'dispatch_event_status') "
                     + "THEN CREATE TYPE dispatch_event_status AS ENUM ('PENDENTE', 'PROCESSADO'); "
@@ -87,7 +104,7 @@ class AtendimentoTelefonicoServiceTest {
         try (Connection conn = factory.getConnection();
                 Statement stmt = conn.createStatement()) {
             stmt.execute(
-                    "TRUNCATE TABLE sessions, entregas, rotas, movimentacao_vales, saldo_vales, pedidos, clientes, users RESTART IDENTITY CASCADE");
+                    "TRUNCATE TABLE atendimentos_idempotencia, dispatch_events, sessions, entregas, rotas, movimentacao_vales, saldo_vales, pedidos, clientes, users RESTART IDENTITY CASCADE");
         }
     }
 
@@ -97,15 +114,41 @@ class AtendimentoTelefonicoServiceTest {
     }
 
     @Test
-    void deveRejeitarPedidoQuandoTelefoneNaoPossuiClienteCadastradoComEnderecoValido() throws Exception {
+    void deveCriarCadastroPendenteQuandoTelefoneNaoPossuiClienteERejeitarPedidoAteCompletarCadastro() throws Exception {
         int atendenteId = criarAtendenteId("telefone1@teste.com");
 
         IllegalArgumentException ex = assertThrows(
                 IllegalArgumentException.class,
                 () -> service.registrarPedido("call-001", "+55 (38) 9 9876-1234", 2, atendenteId));
 
-        assertTrue(ex.getMessage().contains("Cliente nao cadastrado"));
-        assertEquals(0, contarLinhas("clientes"));
+        assertTrue(ex.getMessage().contains("Cliente sem endereco valido"));
+        assertEquals(1, contarLinhas("clientes"));
+        assertEquals(0, contarLinhas("pedidos"));
+    }
+
+    @Test
+    void deveMitigarDuplicidadePorTelefoneNormalizadoPorUnicidadeOuPreferenciaPorCadastroElegivel() throws Exception {
+        int atendenteId = criarAtendenteId("telefone-dup@teste.com");
+        Cliente cadastroInvalido = clienteRepository.save(
+                new Cliente("Cliente legado", "(38) 99876-9551", ClienteTipo.PF, "Endereco pendente"));
+
+        try {
+            Cliente cadastroElegivel =
+                    criarClienteComGeo("Cliente elegivel", "38 99876 9551", "Rua Resolvida, 99");
+            AtendimentoTelefonicoResultado resultado = service.registrarPedidoManual("(38) 99876-9551", 1, atendenteId);
+            assertEquals(cadastroElegivel.getId(), resultado.clienteId());
+            assertEquals(1, contarLinhas("pedidos"));
+            return;
+        } catch (IllegalArgumentException ex) {
+            // Se o indice de telefone normalizado estiver ativo, a duplicidade e bloqueada na gravacao.
+            assertTrue(ex.getMessage().contains("Telefone ja cadastrado"));
+        }
+
+        IllegalArgumentException exAtendimento = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.registrarPedidoManual("(38) 99876-9551", 1, atendenteId));
+        assertTrue(exAtendimento.getMessage().contains("Cliente sem endereco valido"));
+        assertEquals(cadastroInvalido.getId(), idClientePorTelefoneNormalizado("38998769551"));
         assertEquals(0, contarLinhas("pedidos"));
     }
 
@@ -121,6 +164,46 @@ class AtendimentoTelefonicoServiceTest {
         assertFalse(resultado.idempotente());
         assertEquals(cliente.getId(), resultado.clienteId());
         assertEquals("VALE", metodoPagamentoPedido(resultado.pedidoId()));
+    }
+
+    @Test
+    void deveCriarPedidoHardQuandoJanelaValidaForInformada() throws Exception {
+        int atendenteId = criarAtendenteId("telefone-hard@teste.com");
+        criarClienteComGeo("Cliente hard", "(38) 99888-1201", "Rua Janela, 10");
+
+        AtendimentoTelefonicoResultado resultado = service.registrarPedido(
+                "call-hard-001", "(38) 99888-1201", 1, atendenteId, "PIX", "HARD", "09:00", "11:00");
+
+        assertEquals("HARD", janelaTipoPedido(resultado.pedidoId()));
+        assertEquals("09:00:00", janelaInicioPedido(resultado.pedidoId()));
+        assertEquals("11:00:00", janelaFimPedido(resultado.pedidoId()));
+    }
+
+    @Test
+    void deveMapearJanelaFlexivelParaAsap() throws Exception {
+        int atendenteId = criarAtendenteId("telefone-flex@teste.com");
+        criarClienteComGeo("Cliente flexivel", "(38) 99888-1202", "Rua Janela, 11");
+
+        AtendimentoTelefonicoResultado resultado = service.registrarPedido(
+                "call-flex-001", "(38) 99888-1202", 1, atendenteId, "PIX", "FLEXIVEL", null, null);
+
+        assertEquals("ASAP", janelaTipoPedido(resultado.pedidoId()));
+        assertNull(janelaInicioPedido(resultado.pedidoId()));
+        assertNull(janelaFimPedido(resultado.pedidoId()));
+    }
+
+    @Test
+    void deveRejeitarJanelaHardQuandoHorarioNaoForCompleto() throws Exception {
+        int atendenteId = criarAtendenteId("telefone-hard-invalido@teste.com");
+        criarClienteComGeo("Cliente hard invalido", "(38) 99888-1203", "Rua Janela, 12");
+
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.registrarPedido(
+                        "call-hard-002", "(38) 99888-1203", 1, atendenteId, "PIX", "HARD", "09:00", null));
+
+        assertTrue(ex.getMessage().contains("janelaTipo=HARD"));
+        assertEquals(0, contarLinhas("pedidos"));
     }
 
     @Test
@@ -171,7 +254,7 @@ class AtendimentoTelefonicoServiceTest {
 
         AtendimentoTelefonicoResultado primeira =
                 service.registrarPedido("call-003", "(38) 99999-5001", 1, atendenteId);
-        AtendimentoTelefonicoResultado segunda = service.registrarPedido("call-003", "(38) 99999-5001", 3, atendenteId);
+        AtendimentoTelefonicoResultado segunda = service.registrarPedido("call-003", "(38) 99999-5001", 1, atendenteId);
 
         assertFalse(primeira.idempotente());
         assertTrue(segunda.idempotente());
@@ -179,6 +262,225 @@ class AtendimentoTelefonicoServiceTest {
         assertEquals(primeira.clienteId(), segunda.clienteId());
         assertEquals(1, contarLinhas("pedidos"));
         assertEquals(1, contarLinhas("clientes"));
+    }
+
+    @Test
+    void deveRejeitarCanalAutomaticoSemSourceEventId() throws Exception {
+        int atendenteId = criarAtendenteId("telefone-auto-sem-source@teste.com");
+        criarClienteComGeo("Cliente auto", "(38) 99999-5010", "Rua Auto, 1");
+
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.registrarPedidoOmnichannel(
+                        "WHATSAPP",
+                        null,
+                        null,
+                        "(38) 99999-5010",
+                        1,
+                        atendenteId,
+                        "PIX",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null));
+
+        assertTrue(ex.getMessage().contains("sourceEventId obrigatorio"));
+        assertEquals(0, contarLinhas("pedidos"));
+    }
+
+    @Test
+    void deveRejeitarManualRequestIdEmCanalAutomatico() throws Exception {
+        int atendenteId = criarAtendenteId("telefone-auto-manual-key@teste.com");
+        criarClienteComGeo("Cliente auto", "(38) 99999-5011", "Rua Auto, 2");
+
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.registrarPedidoOmnichannel(
+                        "BINA_FIXO",
+                        "bina-evt-001",
+                        "manual-req-nao-permitido",
+                        "(38) 99999-5011",
+                        1,
+                        atendenteId,
+                        "PIX",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null));
+
+        assertTrue(ex.getMessage().contains("manualRequestId so pode ser usado com origemCanal=MANUAL"));
+        assertEquals(0, contarLinhas("pedidos"));
+    }
+
+    @Test
+    void deveRejeitarSourceEventIdNoCanalManual() throws Exception {
+        int atendenteId = criarAtendenteId("telefone-manual-source-event@teste.com");
+
+        IllegalArgumentException ex = assertThrows(
+                IllegalArgumentException.class,
+                () -> service.registrarPedidoOmnichannel(
+                        "MANUAL",
+                        "manual-source-event-001",
+                        null,
+                        "(38) 99999-5015",
+                        1,
+                        atendenteId,
+                        "PIX",
+                        null,
+                        null,
+                        null,
+                        "Cliente Manual Fonte",
+                        "Rua Manual, 15",
+                        -16.7310,
+                        -43.8710));
+
+        assertTrue(ex.getMessage().contains("sourceEventId nao pode ser usado com origemCanal=MANUAL"));
+        assertEquals(0, contarLinhas("pedidos"));
+    }
+
+    @Test
+    void deveGerarExternalCallIdLegacyDeterministicoQuandoSourceEventIdLongoEmCanalAutomatico() throws Exception {
+        int atendenteId = criarAtendenteId("telefone-auto-source-longo@teste.com");
+        Cliente cliente = criarClienteComGeo("Cliente source longo", "(38) 99999-5012", "Rua Auto, 3");
+        String sourceEventIdLongo = IntStream.range(0, 110)
+                .mapToObj(i -> "x")
+                .collect(Collectors.joining());
+
+        AtendimentoTelefonicoResultado primeira = service.registrarPedidoOmnichannel(
+                "WHATSAPP",
+                sourceEventIdLongo,
+                null,
+                "(38) 99999-5012",
+                1,
+                atendenteId,
+                "PIX",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null);
+        AtendimentoTelefonicoResultado segunda = service.registrarPedidoOmnichannel(
+                "WHATSAPP",
+                sourceEventIdLongo,
+                null,
+                "(38) 99999-5012",
+                1,
+                atendenteId,
+                "PIX",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null);
+
+        assertEquals(cliente.getId(), primeira.clienteId());
+        assertEquals(primeira.pedidoId(), segunda.pedidoId());
+        assertFalse(primeira.idempotente());
+        assertTrue(segunda.idempotente());
+        assertEquals(1, contarLinhas("pedidos"));
+        assertEquals(1, contarLinhas("atendimentos_idempotencia"));
+
+        String externalCallId = externalCallIdPedido(primeira.pedidoId());
+        assertTrue(externalCallId != null && externalCallId.length() == 64);
+    }
+
+    @Test
+    void deveRejeitarReusoDeSourceEventIdComPayloadDivergenteNoMesmoCanal() throws Exception {
+        int atendenteId = criarAtendenteId("telefone-auto-divergente@teste.com");
+        criarClienteComGeo("Cliente diverge", "(38) 99999-5013", "Rua Auto, 4");
+
+        AtendimentoTelefonicoResultado primeira = service.registrarPedidoOmnichannel(
+                "WHATSAPP",
+                "wa-div-001",
+                null,
+                "(38) 99999-5013",
+                1,
+                atendenteId,
+                "PIX",
+                null,
+                null,
+                null,
+                null,
+                null,
+                null,
+                null);
+
+        IllegalStateException ex = assertThrows(
+                IllegalStateException.class,
+                () -> service.registrarPedidoOmnichannel(
+                        "WHATSAPP",
+                        "wa-div-001",
+                        null,
+                        "(38) 99999-5013",
+                        2,
+                        atendenteId,
+                        "PIX",
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null));
+
+        assertTrue(ex.getMessage().contains("payload divergente"));
+        assertEquals(1, contarLinhas("pedidos"));
+        assertEquals(1, contarLinhas("atendimentos_idempotencia"));
+        assertFalse(primeira.idempotente());
+    }
+
+    @Test
+    void deveRejeitarReusoDeManualRequestIdComPayloadDivergenteNoCanalManual() throws Exception {
+        int atendenteId = criarAtendenteId("telefone-manual-divergente@teste.com");
+
+        AtendimentoTelefonicoResultado primeira = service.registrarPedidoOmnichannel(
+                "MANUAL",
+                null,
+                "manual-div-001",
+                "(38) 99999-5014",
+                1,
+                atendenteId,
+                "PIX",
+                null,
+                null,
+                null,
+                "Cliente Manual Divergente",
+                "Rua Manual, 14",
+                -16.7310,
+                -43.8710);
+
+        IllegalStateException ex = assertThrows(
+                IllegalStateException.class,
+                () -> service.registrarPedidoOmnichannel(
+                        "MANUAL",
+                        null,
+                        "manual-div-001",
+                        "(38) 99999-5014",
+                        2,
+                        atendenteId,
+                        "PIX",
+                        null,
+                        null,
+                        null,
+                        "Cliente Manual Divergente",
+                        "Rua Manual, 14",
+                        -16.7310,
+                        -43.8710));
+
+        assertTrue(ex.getMessage().contains("payload divergente"));
+        assertEquals(1, contarLinhas("pedidos"));
+        assertEquals(1, contarLinhas("atendimentos_idempotencia"));
+        assertFalse(primeira.idempotente());
     }
 
     @Test
@@ -212,6 +514,26 @@ class AtendimentoTelefonicoServiceTest {
         assertEquals(cliente.getId(), resultado.clienteId());
         assertEquals(pedidoExistenteId, resultado.pedidoId());
         assertEquals(1, contarLinhas("pedidos"));
+    }
+
+    @Test
+    void deveRetornarPedidoAtivoNoManualMesmoQuandoCadastroFicarSemGeoOuEnderecoValido() throws Exception {
+        int atendenteId = criarAtendenteId("telefone5b@teste.com");
+        Cliente cliente = criarClienteComGeo("Cliente degradado", "(38) 99876-8003", "Rua D, 42");
+        int pedidoExistenteId = inserirPedido(cliente.getId(), atendenteId, "PENDENTE", "call-manual-003");
+
+        try (Connection conn = factory.getConnection();
+                PreparedStatement stmt =
+                        conn.prepareStatement("UPDATE clientes SET endereco = ?, latitude = NULL, longitude = NULL WHERE id = ?")) {
+            stmt.setString(1, "Endereco pendente");
+            stmt.setInt(2, cliente.getId());
+            stmt.executeUpdate();
+        }
+
+        AtendimentoTelefonicoResultado resultado = service.registrarPedidoManual("(38) 99876-8003", 1, atendenteId);
+        assertTrue(resultado.idempotente());
+        assertEquals(pedidoExistenteId, resultado.pedidoId());
+        assertEquals(cliente.getId(), resultado.clienteId());
     }
 
     @Test
@@ -253,6 +575,18 @@ class AtendimentoTelefonicoServiceTest {
         }
     }
 
+    private int idClientePorTelefoneNormalizado(String telefoneNormalizado) throws Exception {
+        try (Connection conn = factory.getConnection();
+                PreparedStatement stmt = conn.prepareStatement(
+                        "SELECT id FROM clientes WHERE regexp_replace(telefone, '[^0-9]', '', 'g') = ? ORDER BY id DESC LIMIT 1")) {
+            stmt.setString(1, telefoneNormalizado);
+            try (ResultSet rs = stmt.executeQuery()) {
+                rs.next();
+                return rs.getInt(1);
+            }
+        }
+    }
+
     private Cliente criarClienteComGeo(String nome, String telefone, String endereco) throws Exception {
         return clienteRepository.save(new Cliente(
                 nome,
@@ -290,6 +624,39 @@ class AtendimentoTelefonicoServiceTest {
         try (Connection conn = factory.getConnection();
                 PreparedStatement stmt =
                         conn.prepareStatement("SELECT metodo_pagamento::text FROM pedidos WHERE id = ?")) {
+            stmt.setInt(1, pedidoId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                rs.next();
+                return rs.getString(1);
+            }
+        }
+    }
+
+    private String janelaTipoPedido(int pedidoId) throws Exception {
+        try (Connection conn = factory.getConnection();
+                PreparedStatement stmt = conn.prepareStatement("SELECT janela_tipo::text FROM pedidos WHERE id = ?")) {
+            stmt.setInt(1, pedidoId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                rs.next();
+                return rs.getString(1);
+            }
+        }
+    }
+
+    private String janelaInicioPedido(int pedidoId) throws Exception {
+        try (Connection conn = factory.getConnection();
+                PreparedStatement stmt = conn.prepareStatement("SELECT janela_inicio::text FROM pedidos WHERE id = ?")) {
+            stmt.setInt(1, pedidoId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                rs.next();
+                return rs.getString(1);
+            }
+        }
+    }
+
+    private String janelaFimPedido(int pedidoId) throws Exception {
+        try (Connection conn = factory.getConnection();
+                PreparedStatement stmt = conn.prepareStatement("SELECT janela_fim::text FROM pedidos WHERE id = ?")) {
             stmt.setInt(1, pedidoId);
             try (ResultSet rs = stmt.executeQuery()) {
                 rs.next();
