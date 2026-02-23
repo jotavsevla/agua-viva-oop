@@ -4,6 +4,7 @@ const OPERATIONAL_AUTO_REFRESH_MS = 5000;
 let operationalRefreshTimerId = null;
 let operationalRefreshInFlight = false;
 let deferredViewRender = false;
+let cityMapInstances = [];
 
 function readStoredApiBase() {
   try {
@@ -129,6 +130,7 @@ const appState = {
   painel: null,
   eventosOperacionais: [],
   mapaOperacional: null,
+  frotaRoteiros: [],
   apiResults: {
     atendimento: null,
     timeline: null,
@@ -141,7 +143,10 @@ const appState = {
       telefone: "(38) 99876-1234",
       quantidadeGaloes: 2,
       atendenteId: 1,
-      metodoPagamento: "PIX"
+      metodoPagamento: "PIX",
+      janelaTipo: "FLEXIVEL",
+      janelaInicio: "",
+      janelaFim: ""
     },
     eventoRequest: {
       externalEventId: "",
@@ -178,6 +183,7 @@ const metricsRoot = document.getElementById("metrics");
 const clock = document.getElementById("clock");
 const apiInput = document.getElementById("api-base");
 const apiConnectButton = document.getElementById("api-connect");
+const apiResetButton = document.getElementById("api-reset");
 const apiStatus = document.getElementById("api-status");
 
 apiInput.value = appState.api.baseUrl;
@@ -320,6 +326,11 @@ function renderGuidedRunBox() {
 
 function updateApiStatus() {
   if (appState.api.connected) {
+    if (appState.api.lastError) {
+      apiStatus.className = "pill warn";
+      apiStatus.textContent = `API: conectada (parcial) · auto ${Math.round(OPERATIONAL_AUTO_REFRESH_MS / 1000)}s`;
+      return;
+    }
     apiStatus.className = "pill ok";
     apiStatus.textContent = `API: conectada · auto ${Math.round(OPERATIONAL_AUTO_REFRESH_MS / 1000)}s`;
     return;
@@ -341,8 +352,20 @@ function applyApiBaseFromInput() {
     return;
   }
   appState.api.baseUrl = nextBase;
+  persistApiBase(nextBase);
+}
+
+function persistApiBase(baseUrl) {
   try {
-    window.localStorage.setItem(API_BASE_STORAGE_KEY, nextBase);
+    window.localStorage.setItem(API_BASE_STORAGE_KEY, baseUrl);
+  } catch (_) {
+    // Sem persistencia local.
+  }
+}
+
+function clearStoredApiBase() {
+  try {
+    window.localStorage.removeItem(API_BASE_STORAGE_KEY);
   } catch (_) {
     // Sem persistencia local.
   }
@@ -370,14 +393,32 @@ async function requestApi(path, options = {}) {
 
 async function checkHealth() {
   applyApiBaseFromInput();
+  const preferredBase = appState.api.baseUrl;
+  const candidateBases = [preferredBase];
+  if (preferredBase !== DEFAULT_API_BASE) {
+    candidateBases.push(DEFAULT_API_BASE);
+  }
+  const attempts = [];
+
   try {
-    await requestApi("/health");
-    appState.api.connected = true;
-    appState.api.lastError = null;
-    await refreshOperationalReadModels();
-  } catch (error) {
+    for (const base of candidateBases) {
+      appState.api.baseUrl = base;
+      apiInput.value = base;
+      try {
+        await requestApi("/health");
+        await refreshOperationalReadModels();
+        persistApiBase(base);
+        return;
+      } catch (error) {
+        attempts.push(`${base}: ${error?.message || "falha desconhecida"}`);
+      }
+    }
+    appState.api.baseUrl = preferredBase;
+    apiInput.value = preferredBase;
     appState.api.connected = false;
-    appState.api.lastError = error?.message || "Falha ao conectar API";
+    appState.api.lastError = attempts.length > 0
+      ? `Falha ao conectar API (${attempts.join(" | ")})`
+      : "Falha ao conectar API";
   } finally {
     appState.api.lastSyncAt = new Date().toISOString();
     updateApiStatus();
@@ -385,19 +426,99 @@ async function checkHealth() {
   }
 }
 
+function collectEntregadorIdsFromReadModels(painelPayload, mapaPayload) {
+  const ids = new Set();
+  const rotasPainel = painelPayload?.rotas || {};
+  const rotasMapa = Array.isArray(mapaPayload?.rotas) ? mapaPayload.rotas : [];
+
+  [rotasPainel.emAndamento, rotasPainel.planejadas].forEach((list) => {
+    (Array.isArray(list) ? list : []).forEach((item) => {
+      const id = Number(item?.entregadorId || 0);
+      if (Number.isInteger(id) && id > 0) {
+        ids.add(id);
+      }
+    });
+  });
+
+  rotasMapa.forEach((rota) => {
+    const id = Number(rota?.entregadorId || 0);
+    if (Number.isInteger(id) && id > 0) {
+      ids.add(id);
+    }
+  });
+
+  return [...ids].sort((a, b) => a - b);
+}
+
+async function fetchFrotaRoteiros(entregadorIds) {
+  if (!Array.isArray(entregadorIds) || entregadorIds.length === 0) {
+    return [];
+  }
+
+  const roteiros = await Promise.all(
+    entregadorIds.map(async (entregadorId) => {
+      try {
+        const response = await requestApi(`/api/entregadores/${entregadorId}/roteiro`);
+        return response.payload;
+      } catch (error) {
+        return {
+          entregadorId,
+          rota: null,
+          cargaRemanescente: 0,
+          paradasPendentesExecucao: [],
+          paradasConcluidas: [],
+          erro: error?.message || "Falha ao consultar roteiro"
+        };
+      }
+    })
+  );
+
+  return roteiros.sort((a, b) => Number(a?.entregadorId || 0) - Number(b?.entregadorId || 0));
+}
+
 async function refreshOperationalReadModels() {
-  const [painelResponse, eventosResponse, mapaResponse] = await Promise.all([
+  const [painelResult, eventosResult, mapaResult] = await Promise.allSettled([
     requestApi("/api/operacao/painel"),
     requestApi("/api/operacao/eventos?limite=50"),
     requestApi("/api/operacao/mapa")
   ]);
-  appState.painel = painelResponse.payload;
-  appState.eventosOperacionais = Array.isArray(eventosResponse.payload?.eventos)
-    ? eventosResponse.payload.eventos
-    : [];
-  appState.mapaOperacional = mapaResponse.payload || null;
+
+  const partialErrors = [];
+  let loadedReadModels = 0;
+
+  if (painelResult.status === "fulfilled") {
+    appState.painel = painelResult.value.payload;
+    loadedReadModels += 1;
+  } else {
+    partialErrors.push(`painel: ${painelResult.reason?.message || "falha"}`);
+  }
+
+  if (eventosResult.status === "fulfilled") {
+    appState.eventosOperacionais = Array.isArray(eventosResult.value.payload?.eventos)
+      ? eventosResult.value.payload.eventos
+      : [];
+    loadedReadModels += 1;
+  } else {
+    partialErrors.push(`eventos: ${eventosResult.reason?.message || "falha"}`);
+  }
+
+  if (mapaResult.status === "fulfilled") {
+    appState.mapaOperacional = mapaResult.value.payload || null;
+    loadedReadModels += 1;
+  } else {
+    partialErrors.push(`mapa: ${mapaResult.reason?.message || "falha"}`);
+  }
+
+  if (loadedReadModels === 0) {
+    throw new Error(`Falha ao sincronizar read models (${partialErrors.join(" | ")})`);
+  }
+
+  const entregadorIds = collectEntregadorIdsFromReadModels(appState.painel, appState.mapaOperacional);
+  appState.frotaRoteiros = await fetchFrotaRoteiros(entregadorIds);
   appState.api.connected = true;
-  appState.api.lastError = null;
+  appState.api.lastError = partialErrors.length > 0
+    ? `Read models parciais (${partialErrors.join(" | ")})`
+    : null;
   appState.api.lastSyncAt = new Date().toISOString();
 }
 
@@ -514,7 +635,199 @@ function colorForRota(index) {
   return palette[index % palette.length];
 }
 
+function buildFallbackTrajeto(depositoLat, depositoLon, paradas) {
+  const trajeto = [{ lat: depositoLat, lon: depositoLon }];
+  for (const parada of paradas) {
+    if (parada.lat === null || parada.lon === null) {
+      continue;
+    }
+    trajeto.push({ lat: parada.lat, lon: parada.lon });
+  }
+  if (paradas.length > 0) {
+    trajeto.push({ lat: depositoLat, lon: depositoLon });
+  }
+  return trajeto;
+}
+
+function destroyCityMaps() {
+  if (!Array.isArray(cityMapInstances) || cityMapInstances.length === 0) {
+    return;
+  }
+  cityMapInstances.forEach((map) => {
+    try {
+      map.remove();
+    } catch (_) {
+      // Ignora erro de cleanup.
+    }
+  });
+  cityMapInstances = [];
+}
+
+function initCityMaps() {
+  const L = window.L;
+  if (!L || !(viewRoot instanceof HTMLElement)) {
+    return;
+  }
+
+  const mapNodes = viewRoot.querySelectorAll(".city-map[data-city-map]");
+  mapNodes.forEach((node) => {
+    const payloadRaw = node.getAttribute("data-city-map");
+    if (!payloadRaw) {
+      return;
+    }
+
+    let payload;
+    try {
+      payload = JSON.parse(payloadRaw);
+    } catch (_) {
+      return;
+    }
+
+    const depositoLat = toFiniteCoordinate(payload?.deposito?.lat);
+    const depositoLon = toFiniteCoordinate(payload?.deposito?.lon);
+    if (depositoLat === null || depositoLon === null) {
+      return;
+    }
+
+    const map = L.map(node, {
+      zoomControl: true,
+      attributionControl: true
+    });
+    cityMapInstances.push(map);
+
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: "&copy; OpenStreetMap"
+    }).addTo(map);
+
+    const depositoLatLng = [depositoLat, depositoLon];
+    const allLatLngs = [depositoLatLng];
+
+    L.circleMarker(depositoLatLng, {
+      radius: 8,
+      color: "#4fc9dd",
+      fillColor: "#4fc9dd",
+      fillOpacity: 0.9,
+      weight: 2
+    })
+      .addTo(map)
+      .bindTooltip("DEP");
+
+    const rotas = Array.isArray(payload?.rotas) ? payload.rotas : [];
+    rotas.forEach((rota, index) => {
+      const color = colorForRota(index);
+      const paradas = Array.isArray(rota?.paradas) ? rota.paradas : [];
+      const stopLatLngs = [];
+
+      paradas.forEach((parada) => {
+        const lat = toFiniteCoordinate(parada?.lat);
+        const lon = toFiniteCoordinate(parada?.lon);
+        if (lat === null || lon === null) {
+          return;
+        }
+        const latLng = [lat, lon];
+        allLatLngs.push(latLng);
+        stopLatLngs.push(latLng);
+
+        const statusTone = toneForEntregaStatus(parada?.statusEntrega);
+        const markerColor = statusTone === "ok"
+          ? "#52d39c"
+          : statusTone === "danger"
+            ? "#ef6d62"
+            : statusTone === "warn"
+              ? "#f4b740"
+              : color;
+        const pedidoId = Number(parada?.pedidoId || 0);
+        const entregaId = Number(parada?.entregaId || 0);
+        const statusEntrega = String(parada?.statusEntrega || "-");
+        const rotaId = Number(rota?.rotaId || 0);
+
+        L.circleMarker(latLng, {
+          radius: 7,
+          color: markerColor,
+          fillColor: markerColor,
+          fillOpacity: 0.92,
+          weight: 2
+        })
+          .addTo(map)
+          .bindTooltip(`#${pedidoId > 0 ? pedidoId : "?"}`)
+          .bindPopup(
+            `Pedido #${pedidoId > 0 ? pedidoId : "?"}<br>` +
+            `Entrega ${entregaId > 0 ? entregaId : "-"}<br>` +
+            `Status: ${statusEntrega}<br>` +
+            `Rota: R${rotaId > 0 ? rotaId : "?"}`
+          );
+      });
+
+      let polylinePoints = [];
+      const trajeto = Array.isArray(rota?.trajeto) ? rota.trajeto : [];
+      trajeto.forEach((ponto) => {
+        const lat = toFiniteCoordinate(ponto?.lat);
+        const lon = toFiniteCoordinate(ponto?.lon);
+        if (lat === null || lon === null) {
+          return;
+        }
+        const latLng = [lat, lon];
+        polylinePoints.push(latLng);
+      });
+
+      if (polylinePoints.length < 2) {
+        polylinePoints = [depositoLatLng, ...stopLatLngs];
+        if (stopLatLngs.length > 0) {
+          polylinePoints.push(depositoLatLng);
+        }
+      }
+
+      if (polylinePoints.length > 1) {
+        allLatLngs.push(...polylinePoints);
+        L.polyline(polylinePoints, {
+          color,
+          weight: 4,
+          opacity: 0.78
+        }).addTo(map);
+      }
+    });
+
+    if (allLatLngs.length > 1) {
+      map.fitBounds(allLatLngs, { padding: [24, 24], maxZoom: 15 });
+    } else {
+      map.setView(depositoLatLng, 13);
+    }
+    window.setTimeout(() => map.invalidateSize(), 0);
+  });
+}
+
+function stableHashSeed(value) {
+  const text = String(value || "");
+  let hash = 2166136261;
+  for (let i = 0; i < text.length; i += 1) {
+    hash ^= text.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
+function offsetMapPoint(basePoint, key) {
+  const seed = stableHashSeed(key);
+  const angle = (seed % 360) * (Math.PI / 180);
+  const radius = 0.85 + ((seed >>> 5) % 30) / 100;
+  const shiftedX = clampPercent(basePoint.x + Math.cos(angle) * radius);
+  const shiftedY = clampPercent(basePoint.y + Math.sin(angle) * radius);
+  return { x: shiftedX, y: shiftedY };
+}
+
 function renderMapaOperacional() {
+  if (!appState.api.connected && !appState.mapaOperacional) {
+    return `
+      <section class="notice error">
+        <h3>Mapa operacional indisponivel</h3>
+        <p>A API nao respondeu em <span class="mono">${escapeHtml(appState.api.baseUrl)}</span>.</p>
+        <p>Confirme a API base (normalmente <span class="mono">${escapeHtml(DEFAULT_API_BASE)}</span>) e clique em "Testar conexao".</p>
+        ${appState.api.lastError ? `<p class="mono">${escapeHtml(appState.api.lastError)}</p>` : ""}
+      </section>
+    `;
+  }
+
   const mapa = mapaOrDefault();
   const depositoLat = toFiniteCoordinate(mapa?.deposito?.lat);
   const depositoLon = toFiniteCoordinate(mapa?.deposito?.lon);
@@ -543,52 +856,64 @@ function renderMapaOperacional() {
         }))
         .filter((parada) => parada.lat !== null && parada.lon !== null)
         .sort((a, b) => a.ordemNaRota - b.ordemNaRota);
-      for (const parada of paradas) {
-        points.push({ lat: parada.lat, lon: parada.lon });
+      const trajetoRaw = Array.isArray(rota?.trajeto) ? rota.trajeto : [];
+      let trajeto = trajetoRaw
+        .map((ponto) => ({
+          lat: toFiniteCoordinate(ponto?.lat),
+          lon: toFiniteCoordinate(ponto?.lon)
+        }))
+        .filter((ponto) => ponto.lat !== null && ponto.lon !== null);
+      if (trajeto.length < 2) {
+        trajeto = buildFallbackTrajeto(depositoLat, depositoLon, paradas);
+      }
+      for (const ponto of trajeto) {
+        points.push({ lat: ponto.lat, lon: ponto.lon });
       }
       return {
         rotaId: Number(rota?.rotaId || 0),
         entregadorId: Number(rota?.entregadorId || 0),
         statusRota: String(rota?.statusRota || ""),
         camada: String(rota?.camada || ""),
-        paradas
+        paradas,
+        trajeto
       };
     })
-    .filter((rota) => rota.paradas.length > 0);
-
-  if (rotas.length === 0) {
-    return `
-      <section class="notice">
-        <p>Nenhuma rota com coordenadas disponiveis para hoje.</p>
-      </section>
-    `;
-  }
+    .filter((rota) => Number.isInteger(rota.rotaId) && rota.rotaId > 0);
 
   const bounds = buildMapBounds(points);
   const depositoPoint = projectMapPoint(bounds, depositoLat, depositoLon);
+  const cityMapPayload = escapeAttr(JSON.stringify({
+    deposito: { lat: depositoLat, lon: depositoLon },
+    rotas
+  }));
 
   const renderedRotas = rotas.map((rota, index) => {
     const color = colorForRota(index);
-    const polylinePoints = [
-      `${depositoPoint.x.toFixed(2)},${depositoPoint.y.toFixed(2)}`,
-      ...rota.paradas.map((parada) => {
-        const point = projectMapPoint(bounds, parada.lat, parada.lon);
-        return `${point.x.toFixed(2)},${point.y.toFixed(2)}`;
-      })
-    ].join(" ");
+    const polylinePoints = rota.trajeto.map((ponto) => {
+      const point = projectMapPoint(bounds, ponto.lat, ponto.lon);
+      return `${point.x.toFixed(2)},${point.y.toFixed(2)}`;
+    });
+    const polylinePointsValue = polylinePoints.join(" ");
 
     const markers = rota.paradas
       .map((parada) => {
-        const point = projectMapPoint(bounds, parada.lat, parada.lon);
+        const basePoint = projectMapPoint(bounds, parada.lat, parada.lon);
+        const point = offsetMapPoint(
+          basePoint,
+          `${rota.rotaId}-${rota.entregadorId}-${parada.pedidoId}-${parada.entregaId}-${parada.ordemNaRota}`
+        );
         const tone = toneForEntregaStatus(parada.statusEntrega);
-        const title = `Pedido ${parada.pedidoId} · Entrega ${parada.entregaId} · ${parada.statusEntrega}`;
+        const title = `Pedido ${parada.pedidoId} · Entrega ${parada.entregaId} · ${parada.statusEntrega} · Rota ${rota.rotaId}`;
+        const markerLabel = Number.isInteger(parada.pedidoId) && parada.pedidoId > 0
+          ? `#${parada.pedidoId}`
+          : `P${parada.ordemNaRota}`;
         return `
           <div
-            class="stop ${tone}"
+            class="stop ${tone} pedido-stop"
             style="left:${point.x.toFixed(2)}%;top:${point.y.toFixed(2)}%;"
             title="${escapeAttr(title)}"
           >
-            P${escapeHtml(String(parada.ordemNaRota))}
+            ${escapeHtml(markerLabel)}
           </div>
         `;
       })
@@ -596,15 +921,56 @@ function renderMapaOperacional() {
 
     const legendTone = rota.statusRota === "EM_ANDAMENTO" ? "info" : "warn";
     const legendText = `R${rota.rotaId} · E${rota.entregadorId} · ${rota.camada}`;
+    const hasAnyParada = rota.paradas.length > 0;
+    const hasRoutePath = polylinePoints.length > 1;
 
     return {
-      path: `<polyline points="${polylinePoints}" fill="none" stroke="${color}" stroke-width="2.8" opacity="0.92" stroke-linecap="round" stroke-linejoin="round"></polyline>`,
+      path: hasRoutePath
+        ? `<polyline points="${polylinePointsValue}" fill="none" stroke="${color}" stroke-width="2.8" opacity="0.92" stroke-linecap="round" stroke-linejoin="round"></polyline>`
+        : "",
       markers,
       legend: `<span class="pill ${legendTone} mono">${escapeHtml(legendText)}</span>`
     };
   });
 
+  const pedidosNoMapa = rotas
+    .flatMap((rota) => rota.paradas.map((parada) => ({
+      pedidoId: parada.pedidoId,
+      rotaId: rota.rotaId,
+      ordemNaRota: parada.ordemNaRota,
+      statusEntrega: parada.statusEntrega
+    })))
+    .sort((a, b) => Number(a.pedidoId) - Number(b.pedidoId));
+
+  const resumoPontos = pedidosNoMapa
+    .map((item) => {
+      const tone = toneForEntregaStatus(item.statusEntrega);
+      const pedidoLabel = Number.isInteger(item.pedidoId) && item.pedidoId > 0 ? `#${item.pedidoId}` : "#?";
+      const resumo = `${pedidoLabel} · R${item.rotaId} · P${item.ordemNaRota}`;
+      return `<span class="pill ${tone} mono">${escapeHtml(resumo)}</span>`;
+    })
+    .join("");
+
+  const hasStops = pedidosNoMapa.length > 0;
+  const legendHtml = renderedRotas.length > 0
+    ? renderedRotas.map((rota) => rota.legend).join("")
+    : `<span class="pill warn mono">Sem rotas mapeadas no momento</span>`;
+  const mapOrdersHtml = hasStops
+    ? `<div class="map-orders-pills">${resumoPontos}</div>`
+    : `<p class="ops-empty">Sem pontos de pedidos com coordenadas no momento.</p>`;
+
   return `
+    <div class="city-map-box">
+      <div class="city-map-head">
+        <p class="mono">Mapa da cidade (OpenStreetMap)</p>
+        <span class="pill info mono">Camada real</span>
+      </div>
+      <div class="city-map" data-city-map="${cityMapPayload}"></div>
+    </div>
+    <div class="city-map-head" style="margin-top: 0.75rem;">
+      <p class="mono">Mapa esquematico operacional</p>
+      <span class="pill warn mono">Camada de apoio</span>
+    </div>
     <div class="map-box">
       <div class="map-grid"></div>
       <svg class="map-route" viewBox="0 0 100 100" preserveAspectRatio="none" aria-label="rotas operacionais">
@@ -618,8 +984,13 @@ function renderMapaOperacional() {
         DEP
       </div>
       ${renderedRotas.map((rota) => rota.markers).join("")}
+      ${!hasStops ? '<div class="map-empty-overlay"><span class="pill warn mono">Sem paradas com coordenadas</span></div>' : ""}
     </div>
-    <div class="map-legend">${renderedRotas.map((rota) => rota.legend).join("")}</div>
+    <div class="map-legend">${legendHtml}</div>
+    <div class="map-orders-list">
+      <p class="mono">Pontos de pedidos no mapa: ${escapeHtml(String(pedidosNoMapa.length))}</p>
+      ${mapOrdersHtml}
+    </div>
   `;
 }
 
@@ -681,6 +1052,197 @@ function buildPedidosRowsFromPainel(painel) {
   return rows;
 }
 
+function toCountFromValues(...values) {
+  for (const value of values) {
+    const numeric = Number(value);
+    if (Number.isFinite(numeric)) {
+      return Math.max(0, Math.trunc(numeric));
+    }
+  }
+  return 0;
+}
+
+function buildRotasRowsFromPainel(painel) {
+  const normalizeRota = (item, statusRota) => ({
+    rotaId: Number(item?.rotaId || 0),
+    entregadorId: Number(item?.entregadorId || 0),
+    camada: String(item?.camada || (statusRota === "EM_ANDAMENTO" ? "PRIMARIA" : "SECUNDARIA")),
+    statusRota,
+    pendentes: toCountFromValues(
+      item?.pendentes,
+      item?.pendentesExecucao,
+      item?.entregasPendentes,
+      item?.pendentesEntrega
+    ),
+    emExecucao: toCountFromValues(item?.emExecucao, item?.entregasEmExecucao, item?.em_andamento)
+  });
+
+  const byRotaThenEntregador = (a, b) => {
+    const rotaDiff = Number(a?.rotaId || 0) - Number(b?.rotaId || 0);
+    if (rotaDiff !== 0) {
+      return rotaDiff;
+    }
+    return Number(a?.entregadorId || 0) - Number(b?.entregadorId || 0);
+  };
+
+  const emAndamento = (Array.isArray(painel?.rotas?.emAndamento) ? painel.rotas.emAndamento : [])
+    .map((item) => normalizeRota(item, "EM_ANDAMENTO"))
+    .sort(byRotaThenEntregador);
+
+  const planejadas = (Array.isArray(painel?.rotas?.planejadas) ? painel.rotas.planejadas : [])
+    .map((item) => normalizeRota(item, "PLANEJADA"))
+    .sort(byRotaThenEntregador);
+
+  return { emAndamento, planejadas };
+}
+
+function splitPedidosForVisualBoard(pedidos) {
+  const buckets = {
+    emRota: [],
+    confirmados: [],
+    pendentes: []
+  };
+
+  (Array.isArray(pedidos) ? pedidos : []).forEach((pedido) => {
+    const status = String(pedido?.status || "").toUpperCase();
+    if (status === "EM_ROTA") {
+      buckets.emRota.push(pedido);
+      return;
+    }
+    if (status === "CONFIRMADO") {
+      buckets.confirmados.push(pedido);
+      return;
+    }
+    buckets.pendentes.push(pedido);
+  });
+
+  return buckets;
+}
+
+function renderRotaCardForVisualBoard(rota) {
+  const rotaLabel = Number.isInteger(rota?.rotaId) && rota.rotaId > 0
+    ? `R${rota.rotaId}`
+    : "R?";
+  const entregadorLabel = Number.isInteger(rota?.entregadorId) && rota.entregadorId > 0
+    ? `E${rota.entregadorId}`
+    : "E?";
+  const camada = String(rota?.camada || "-");
+  const pendentes = toCountFromValues(rota?.pendentes);
+  const emExecucao = toCountFromValues(rota?.emExecucao);
+
+  return `
+    <article class="ops-card">
+      <div class="ops-card-head">
+        <p class="ops-card-title mono">${escapeHtml(`${rotaLabel} · ${entregadorLabel}`)}</p>
+        ${statusPill(rota?.statusRota || "-")}
+      </div>
+      <p class="ops-card-meta mono">Camada: ${escapeHtml(camada)}</p>
+      <p class="ops-card-context mono">Pendentes: ${escapeHtml(String(pendentes))} · Em execucao: ${escapeHtml(String(emExecucao))}</p>
+    </article>
+  `;
+}
+
+function renderPedidoCardForVisualBoard(pedido) {
+  const pedidoId = Number(pedido?.pedidoId || 0);
+  const firstEvent = Array.isArray(pedido?.eventos) && pedido.eventos.length > 0 ? pedido.eventos[0] : null;
+  const origem = firstEvent?.origem ? String(firstEvent.origem) : "-";
+  const transicao = firstEvent
+    ? `${String(firstEvent.de || "-")} -> ${String(firstEvent.para || "-")}`
+    : "Sem evento";
+
+  return `
+    <article class="ops-card">
+      <div class="ops-card-head">
+        <p class="ops-card-title mono">#${escapeHtml(String(pedidoId > 0 ? pedidoId : "?"))}</p>
+        ${statusPill(pedido?.status || "-")}
+      </div>
+      <p class="ops-card-meta mono">${escapeHtml(transicao)}</p>
+      <p class="ops-card-context mono">${escapeHtml(origem)}</p>
+    </article>
+  `;
+}
+
+function renderOpsBucket(title, tone, items, renderItem, emptyMessage) {
+  const rows = Array.isArray(items) ? items : [];
+  return `
+    <section class="ops-bucket">
+      <div class="ops-bucket-header">
+        <p>${escapeHtml(title)}</p>
+        ${tonePill(String(rows.length), tone)}
+      </div>
+      ${rows.length > 0
+        ? `<div class="ops-cards">${rows.map((item) => renderItem(item)).join("")}</div>`
+        : `<p class="ops-empty">${escapeHtml(emptyMessage)}</p>`}
+    </section>
+  `;
+}
+
+function renderOperationalSplitBoard(painel) {
+  const rotas = buildRotasRowsFromPainel(painel);
+  const pedidosBuckets = splitPedidosForVisualBoard(buildPedidosRowsFromPainel(painel));
+
+  const totalRotas = rotas.emAndamento.length + rotas.planejadas.length;
+  const totalPedidos = pedidosBuckets.emRota.length + pedidosBuckets.confirmados.length + pedidosBuckets.pendentes.length;
+
+  return `
+    <section class="panel">
+      <div class="panel-header">
+        <h3>Separacao visual operacional: Rotas x Pedidos</h3>
+        <span class="pill info">/api/operacao/painel</span>
+      </div>
+      <div class="ops-split-grid">
+        <article class="ops-lane ops-lane-rotas">
+          <div class="ops-lane-header">
+            <h4>Rotas</h4>
+            ${tonePill(`total ${totalRotas}`, "info")}
+          </div>
+          ${renderOpsBucket(
+            "Em andamento",
+            "info",
+            rotas.emAndamento,
+            renderRotaCardForVisualBoard,
+            "Nenhuma rota em andamento no momento."
+          )}
+          ${renderOpsBucket(
+            "Planejadas",
+            "warn",
+            rotas.planejadas,
+            renderRotaCardForVisualBoard,
+            "Nenhuma rota planejada disponivel."
+          )}
+        </article>
+        <article class="ops-lane ops-lane-pedidos">
+          <div class="ops-lane-header">
+            <h4>Pedidos</h4>
+            ${tonePill(`total ${totalPedidos}`, "warn")}
+          </div>
+          ${renderOpsBucket(
+            "Em rota",
+            "info",
+            pedidosBuckets.emRota,
+            renderPedidoCardForVisualBoard,
+            "Nenhum pedido em rota."
+          )}
+          ${renderOpsBucket(
+            "Confirmados",
+            "warn",
+            pedidosBuckets.confirmados,
+            renderPedidoCardForVisualBoard,
+            "Nenhum pedido confirmado."
+          )}
+          ${renderOpsBucket(
+            "Pendentes",
+            "ok",
+            pedidosBuckets.pendentes,
+            renderPedidoCardForVisualBoard,
+            "Nenhum pedido pendente."
+          )}
+        </article>
+      </div>
+    </section>
+  `;
+}
+
 function renderMetrics() {
   const painel = painelOrDefault();
   const connectionValue = appState.api.connected ? "online" : "offline";
@@ -705,6 +1267,12 @@ function renderMetrics() {
 }
 
 function renderStateShell(content) {
+  // Empty/Error sao modos de demo para simulacao visual.
+  // Nas views operacionais (despacho/frota) sempre priorizamos dados reais.
+  if (appState.view === "despacho" || appState.view === "frota") {
+    return content;
+  }
+
   if (appState.mode === "empty") {
     return `
       <section class="empty-state">
@@ -833,6 +1401,23 @@ function renderPedidos() {
               <option value="VALE" ${atendimentoExample.metodoPagamento === "VALE" ? "selected" : ""}>VALE</option>
             </select>
           </div>
+          <div class="form-row two">
+            <div class="form-row">
+              <label for="janelaTipo">Janela tipo</label>
+              <select id="janelaTipo" name="janelaTipo">
+                <option value="FLEXIVEL" ${atendimentoExample.janelaTipo === "FLEXIVEL" ? "selected" : ""}>FLEXIVEL</option>
+                <option value="HARD" ${atendimentoExample.janelaTipo === "HARD" ? "selected" : ""}>HARD</option>
+              </select>
+            </div>
+            <div class="form-row">
+              <label for="janelaInicio">Janela inicio (HH:mm)</label>
+              <input id="janelaInicio" name="janelaInicio" placeholder="09:00" value="${escapeAttr(atendimentoExample.janelaInicio || "")}" />
+            </div>
+            <div class="form-row">
+              <label for="janelaFim">Janela fim (HH:mm)</label>
+              <input id="janelaFim" name="janelaFim" placeholder="10:30" value="${escapeAttr(atendimentoExample.janelaFim || "")}" />
+            </div>
+          </div>
           <button class="btn" type="submit">Registrar pedido</button>
         </form>
         ${renderResultBox("Resposta atendimento", appState.apiResults.atendimento)}
@@ -944,9 +1529,73 @@ function renderPedidos() {
   `);
 }
 
+function toneForOperationalEvent(eventType) {
+  const normalized = String(eventType || "").toUpperCase();
+  if (normalized.includes("CANCELADO") || normalized.includes("FALHOU")) {
+    return "danger";
+  }
+  if (normalized.includes("ENTREGUE")) {
+    return "ok";
+  }
+  if (normalized.includes("ROTA")) {
+    return "info";
+  }
+  return "warn";
+}
+
+function classifyOperationalEvent(event) {
+  const eventType = String(event?.eventType || "").toUpperCase();
+  const aggregateType = String(event?.aggregateType || "").toUpperCase();
+  if (eventType.startsWith("ROTA_") || aggregateType.includes("ROTA")) {
+    return "rotas";
+  }
+  if (
+    eventType.startsWith("PEDIDO_")
+    || aggregateType.includes("PEDIDO")
+    || aggregateType.includes("ENTREGA")
+  ) {
+    return "pedidos";
+  }
+  return "outros";
+}
+
+function splitOperationalEvents(eventosOperacionais) {
+  const grouped = {
+    rotas: [],
+    pedidos: [],
+    outros: []
+  };
+
+  (Array.isArray(eventosOperacionais) ? eventosOperacionais : []).forEach((event) => {
+    grouped[classifyOperationalEvent(event)].push(event);
+  });
+  return grouped;
+}
+
+function renderOperationalEventRow(event) {
+  const tone = toneForOperationalEvent(event?.eventType);
+  const descricao = `${event.aggregateType || "-"} ${event.aggregateId ?? "-"} · ${event.status || "-"}`;
+  const hora = String(event.createdEm || "").slice(11, 19) || "--:--:--";
+  return `
+    <div class="event-row">
+      <p class="meta mono">${escapeHtml(hora)} · ${escapeHtml(String(event.eventType || "-"))}</p>
+      <p class="title">${tonePill(String(event.eventType || "-"), tone)} ${escapeHtml(descricao)}</p>
+    </div>
+  `;
+}
+
+function renderOperationalEventFeed(events, emptyMessage) {
+  const rows = Array.isArray(events) ? events : [];
+  if (rows.length === 0) {
+    return `<p class="ops-empty">${escapeHtml(emptyMessage)}</p>`;
+  }
+  return `<div class="event-feed">${rows.map((event) => renderOperationalEventRow(event)).join("")}</div>`;
+}
+
 function renderDespacho() {
   const eventoExample = appState.examples.eventoRequest;
   const painel = painelOrDefault();
+  const eventosAgrupados = splitOperationalEvents(appState.eventosOperacionais);
   const entregadoresComRotaPronta = [
     ...new Set(
       (Array.isArray(painel.rotas?.planejadas) ? painel.rotas.planejadas : [])
@@ -955,32 +1604,38 @@ function renderDespacho() {
     )
   ];
 
-  const eventos = appState.eventosOperacionais
-    .map((event) => {
-      const tone = String(event.eventType || "").includes("CANCELADO")
-        ? "danger"
-        : String(event.eventType || "").includes("ENTREGUE")
-          ? "ok"
-          : "info";
-      const descricao = `${event.aggregateType || "-"} ${event.aggregateId ?? "-"} · ${event.status || "-"}`;
-      const hora = String(event.createdEm || "").slice(11, 19) || "--:--:--";
-      return `
-        <div class="event-row">
-          <p class="meta mono">${escapeHtml(hora)} · ${escapeHtml(String(event.eventType || "-"))}</p>
-          <p class="title">${tonePill(String(event.eventType || "-"), tone)} ${escapeHtml(descricao)}</p>
-        </div>
-      `;
-    })
-    .join("");
-
   return renderStateShell(`
-    <div class="panel-grid">
+    ${renderOperationalSplitBoard(painel)}
+    <div class="panel-grid" style="margin-top: 1rem;">
       <section class="panel">
         <div class="panel-header">
           <h3>Eventos operacionais (DB real)</h3>
           <span class="pill info">/api/operacao/eventos</span>
         </div>
-        <div class="event-feed">${eventos || "<p>Nenhum evento operacional encontrado.</p>"}</div>
+        <div class="event-split-grid">
+          <section class="event-lane">
+            <div class="event-lane-header">
+              <p>Rotas</p>
+              ${tonePill(String(eventosAgrupados.rotas.length), "info")}
+            </div>
+            ${renderOperationalEventFeed(eventosAgrupados.rotas, "Nenhum evento de rota encontrado.")}
+          </section>
+          <section class="event-lane">
+            <div class="event-lane-header">
+              <p>Pedidos</p>
+              ${tonePill(String(eventosAgrupados.pedidos.length), "warn")}
+            </div>
+            ${renderOperationalEventFeed(eventosAgrupados.pedidos, "Nenhum evento de pedido encontrado.")}
+          </section>
+        </div>
+        ${eventosAgrupados.outros.length > 0
+          ? `
+            <div class="result-box" style="margin-top: 0.75rem;">
+              <p><strong>Eventos nao classificados</strong></p>
+              ${renderOperationalEventFeed(eventosAgrupados.outros, "Nenhum evento nao classificado.")}
+            </div>
+          `
+          : ""}
       </section>
       <section class="panel">
         <div class="panel-header">
@@ -1084,7 +1739,171 @@ function renderDespacho() {
   `);
 }
 
+function buildFrotaRoteiros() {
+  const painel = painelOrDefault();
+  const roteiroMap = new Map();
+  const rotasPainel = painel.rotas || {};
+
+  const ensureFromPainel = (list) => {
+    (Array.isArray(list) ? list : []).forEach((item) => {
+      const entregadorId = Number(item?.entregadorId || 0);
+      if (!Number.isInteger(entregadorId) || entregadorId <= 0 || roteiroMap.has(entregadorId)) {
+        return;
+      }
+      roteiroMap.set(entregadorId, {
+        entregadorId,
+        rota: null,
+        cargaRemanescente: 0,
+        paradasPendentesExecucao: [],
+        paradasConcluidas: []
+      });
+    });
+  };
+
+  ensureFromPainel(rotasPainel.emAndamento);
+  ensureFromPainel(rotasPainel.planejadas);
+
+  (Array.isArray(appState.frotaRoteiros) ? appState.frotaRoteiros : []).forEach((roteiro) => {
+    const entregadorId = Number(roteiro?.entregadorId || 0);
+    if (!Number.isInteger(entregadorId) || entregadorId <= 0) {
+      return;
+    }
+    roteiroMap.set(entregadorId, roteiro);
+  });
+
+  return [...roteiroMap.values()].sort((a, b) => Number(a?.entregadorId || 0) - Number(b?.entregadorId || 0));
+}
+
+function renderFrota() {
+  const painel = painelOrDefault();
+  const roteiros = buildFrotaRoteiros();
+
+  const resumo = {
+    entregadores: roteiros.length,
+    comRota: 0,
+    emAndamento: 0,
+    planejadas: 0,
+    cargaRemanescente: 0,
+    paradasPendentesExecucao: 0,
+    paradasConcluidas: 0,
+    hardPendentes: 0,
+    asapPendentes: 0
+  };
+
+  (Array.isArray(painel.filas?.pendentesElegiveis) ? painel.filas.pendentesElegiveis : []).forEach((item) => {
+    const janela = String(item?.janelaTipo || "").toUpperCase();
+    if (janela === "HARD") {
+      resumo.hardPendentes += 1;
+    } else {
+      resumo.asapPendentes += 1;
+    }
+  });
+
+  const rows = roteiros
+    .map((roteiro) => {
+      const entregadorId = Number(roteiro?.entregadorId || 0);
+      const rota = roteiro?.rota || null;
+      const rotaStatus = String(rota?.status || "SEM_ROTA");
+      const rotaTone = rotaStatus === "EM_ANDAMENTO" ? "info" : rotaStatus === "PLANEJADA" ? "warn" : "danger";
+      const cargaRemanescente = Number(roteiro?.cargaRemanescente || 0);
+      const pendentes = Array.isArray(roteiro?.paradasPendentesExecucao) ? roteiro.paradasPendentesExecucao : [];
+      const concluidas = Array.isArray(roteiro?.paradasConcluidas) ? roteiro.paradasConcluidas : [];
+      const totalParadas = pendentes.length + concluidas.length;
+      const progresso = totalParadas > 0 ? Math.round((concluidas.length / totalParadas) * 100) : 0;
+      const erroRoteiro = roteiro?.erro ? `<p class="mono">${escapeHtml(String(roteiro.erro))}</p>` : "";
+
+      if (rota && Number(rota?.rotaId || 0) > 0) {
+        resumo.comRota += 1;
+        if (rotaStatus === "EM_ANDAMENTO") {
+          resumo.emAndamento += 1;
+        }
+        if (rotaStatus === "PLANEJADA") {
+          resumo.planejadas += 1;
+        }
+      }
+      resumo.cargaRemanescente += cargaRemanescente;
+      resumo.paradasPendentesExecucao += pendentes.length;
+      resumo.paradasConcluidas += concluidas.length;
+
+      const pendentesHtml = pendentes.slice(0, 4).map((parada) => {
+        const nome = String(parada?.clienteNome || "-");
+        const ordem = Number(parada?.ordemNaRota || 0);
+        const quantidade = Number(parada?.quantidadeGaloes || 0);
+        return `<li class="mono">P${escapeHtml(String(ordem))} · ${escapeHtml(nome)} · ${escapeHtml(String(quantidade))} galao(oes)</li>`;
+      }).join("");
+
+      return `
+        <article class="fleet-row">
+          <div class="fleet-row-header">
+            <h4>Entregador ${escapeHtml(String(entregadorId))}</h4>
+            <span class="pill ${rotaTone} mono">${escapeHtml(rotaStatus)}${rota ? ` · R${escapeHtml(String(rota.rotaId))}` : ""}</span>
+          </div>
+          <p class="fleet-meta">
+            Carga remanescente: <strong>${escapeHtml(String(cargaRemanescente))}</strong> ·
+            Pendentes/execucao: <strong>${escapeHtml(String(pendentes.length))}</strong> ·
+            Concluidas: <strong>${escapeHtml(String(concluidas.length))}</strong>
+          </p>
+          <div class="fleet-progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="${escapeAttr(String(progresso))}">
+            <div class="fleet-progress-fill" style="width:${escapeAttr(String(progresso))}%"></div>
+          </div>
+          ${pendentesHtml ? `<ul class="fleet-stops">${pendentesHtml}</ul>` : '<p class="fleet-empty">Sem paradas pendentes no momento.</p>'}
+          ${erroRoteiro}
+        </article>
+      `;
+    })
+    .join("");
+
+  const kpis = [
+    { label: "Entregadores", value: resumo.entregadores },
+    { label: "Com rota", value: resumo.comRota },
+    { label: "Em andamento", value: resumo.emAndamento },
+    { label: "Planejadas", value: resumo.planejadas },
+    { label: "Carga remanescente", value: resumo.cargaRemanescente },
+    { label: "Paradas em aberto", value: resumo.paradasPendentesExecucao },
+    { label: "Paradas concluidas", value: resumo.paradasConcluidas },
+    { label: "Pendentes HARD", value: resumo.hardPendentes },
+    { label: "Pendentes ASAP", value: resumo.asapPendentes }
+  ]
+    .map((item) => `
+      <article class="frota-kpi">
+        <p class="label">${escapeHtml(item.label)}</p>
+        <p class="value">${escapeHtml(String(item.value))}</p>
+      </article>
+    `)
+    .join("");
+
+  return renderStateShell(`
+    <div class="panel-grid">
+      <section class="panel">
+        <div class="panel-header">
+          <h3>Frota ativa (read model real)</h3>
+          <span class="pill info">/api/entregadores/{id}/roteiro</span>
+        </div>
+        <div class="frota-kpis">${kpis}</div>
+        <div class="fleet-grid" style="margin-top: 1rem;">
+          ${rows || "<p class=\"fleet-empty\">Sem entregadores com roteiro disponivel no momento.</p>"}
+        </div>
+      </section>
+      <section class="panel">
+        <div class="panel-header">
+          <h3>Mapa e camadas operacionais</h3>
+          <span class="pill info">/api/operacao/mapa</span>
+        </div>
+        ${renderMapaOperacional()}
+        <div class="result-box" style="margin-top: 0.75rem;">
+          <p><strong>Resumo de rotas (painel)</strong></p>
+          <pre class="mono">${escapeHtml(JSON.stringify(painel.rotas || {}, null, 2))}</pre>
+        </div>
+      </section>
+    </div>
+  `);
+}
+
 function getViewContent() {
+  if (appState.view === "frota") {
+    viewTitle.textContent = "Frota";
+    return renderFrota();
+  }
   if (appState.view === "despacho") {
     viewTitle.textContent = "Despacho";
     return renderDespacho();
@@ -1147,8 +1966,20 @@ async function handleAtendimentoSubmit(event) {
     atendenteId: Number(formData.get("atendenteId"))
   };
   const metodoPagamento = String(formData.get("metodoPagamento") || "").trim();
+  const janelaTipo = String(formData.get("janelaTipo") || "").trim();
+  const janelaInicio = String(formData.get("janelaInicio") || "").trim();
+  const janelaFim = String(formData.get("janelaFim") || "").trim();
   if (metodoPagamento) {
     payload.metodoPagamento = metodoPagamento;
+  }
+  if (janelaTipo) {
+    payload.janelaTipo = janelaTipo;
+  }
+  if (janelaInicio) {
+    payload.janelaInicio = janelaInicio;
+  }
+  if (janelaFim) {
+    payload.janelaFim = janelaFim;
   }
   if (externalCallId) {
     payload.externalCallId = externalCallId;
@@ -1534,11 +2365,13 @@ function bindViewEvents() {
 }
 
 function render() {
+  destroyCityMaps();
   renderMetrics();
   viewRoot.innerHTML = getViewContent();
   setActiveNav(appState.view);
   setActiveMode(appState.mode);
   bindViewEvents();
+  initCityMaps();
 }
 
 function setView(view) {
@@ -1569,7 +2402,7 @@ function bindStaticEvents() {
 
   window.addEventListener("hashchange", () => {
     const hashView = window.location.hash.replace("#", "");
-    if (["pedidos", "despacho"].includes(hashView)) {
+    if (["pedidos", "despacho", "frota"].includes(hashView)) {
       appState.view = hashView;
       render();
     }
@@ -1578,6 +2411,15 @@ function bindStaticEvents() {
   apiConnectButton.addEventListener("click", () => {
     checkHealth();
   });
+
+  if (apiResetButton) {
+    apiResetButton.addEventListener("click", () => {
+      clearStoredApiBase();
+      appState.api.baseUrl = DEFAULT_API_BASE;
+      apiInput.value = DEFAULT_API_BASE;
+      checkHealth();
+    });
+  }
 
   apiInput.addEventListener("keydown", (event) => {
     if (event.key === "Enter") {
@@ -1620,7 +2462,7 @@ function startOperationalAutoRefresh() {
 
 async function init() {
   const hashView = window.location.hash.replace("#", "");
-  if (["pedidos", "despacho"].includes(hashView)) {
+  if (["pedidos", "despacho", "frota"].includes(hashView)) {
     appState.view = hashView;
   }
 

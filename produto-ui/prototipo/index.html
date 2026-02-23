@@ -10,7 +10,11 @@
       href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;600&display=swap"
       rel="stylesheet"
     />
-    <link rel="stylesheet" href="./styles.css" />
+    <link
+      rel="stylesheet"
+      href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    />
+    <link rel="stylesheet" href="./styles.css?v=20260222-9" />
   </head>
   <body>
     <div class="bg-orb orb-a"></div>
@@ -25,6 +29,7 @@
         <nav class="main-nav">
           <button data-view="pedidos" class="nav-item active">Pedidos</button>
           <button data-view="despacho" class="nav-item">Despacho</button>
+          <button data-view="frota" class="nav-item">Frota</button>
           <a class="nav-item" href="./entregador.html" style="text-decoration:none; display:block;">Pagina entregador</a>
         </nav>
         <div class="legend-box">
@@ -61,6 +66,7 @@
             spellcheck="false"
           />
           <button id="api-connect" class="btn">Testar conexao</button>
+          <button id="api-reset" class="btn">Resetar API</button>
           <span id="api-status" class="pill warn">API: pendente</span>
         </section>
 
@@ -68,6 +74,7 @@
         <section id="view-root" class="view-root" aria-live="polite"></section>
       </main>
     </div>
-    <script src="./app.js" defer></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" defer></script>
+    <script src="./app.js?v=20260222-9" defer></script>
   </body>
 </html>
