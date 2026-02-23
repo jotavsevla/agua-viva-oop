@@ -18,7 +18,7 @@ POSTGRES_PORT="${POSTGRES_PORT:-5435}"
 POSTGRES_DB="${POSTGRES_DB:-agua_viva_oop_test}"
 POSTGRES_USER="${POSTGRES_USER:-postgres}"
 POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-postgres}"
-API_MAVEN_ARGS="${API_MAVEN_ARGS:--Denforcer.skip=true -DskipTests}"
+API_MAVEN_ARGS="${API_MAVEN_ARGS:--DskipTests}"
 
 LOG_DIR="${LOG_DIR:-$ROOT_DIR/artifacts/poc/runtime}"
 mkdir -p "$LOG_DIR"

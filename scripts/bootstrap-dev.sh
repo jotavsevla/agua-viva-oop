@@ -7,7 +7,7 @@ Uso:
   scripts/bootstrap-dev.sh [--skip-java] [--skip-python] [--skip-node]
 
 Bootstrap local de dependencias de build:
-  - Java/Maven: valida Java 21.x e baixa dependencias no repositorio Maven local
+  - Java/Maven: valida Java 25.x e baixa dependencias no repositorio Maven local
   - Python: cria/atualiza solver/.venv e instala solver/requirements.txt
   - Node: instala dependencias do prototipo UI com npm ci
 USAGE
@@ -55,7 +55,7 @@ log() {
 
 if [[ "$SKIP_JAVA" -eq 0 ]]; then
   require_cmd mvn
-  log "Baixando dependencias Maven (inclui validacao de Java 21.x)..."
+  log "Baixando dependencias Maven (inclui validacao de Java 25.x)..."
   (
     cd "$ROOT_DIR"
     mvn -B -DskipTests validate dependency:go-offline
@@ -71,6 +71,13 @@ if [[ "$SKIP_PYTHON" -eq 0 ]]; then
   fi
 
   VENV_DIR="$ROOT_DIR/solver/.venv"
+  if [[ -d "$VENV_DIR" ]]; then
+    if [[ ! -x "$VENV_DIR/bin/python" ]] || ! "$VENV_DIR/bin/python" -c "import sys" >/dev/null 2>&1; then
+      log "Virtualenv existente em solver/.venv parece incompativel; recriando..."
+      rm -rf "$VENV_DIR"
+    fi
+  fi
+
   log "Criando/atualizando virtualenv Python em solver/.venv..."
   python3 -m venv "$VENV_DIR"
   "$VENV_DIR/bin/python" -m pip install --upgrade pip

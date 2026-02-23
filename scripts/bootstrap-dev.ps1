@@ -42,7 +42,7 @@ $RootDir = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
 
 if (-not $SkipJava) {
     Require-Command mvn
-    Write-Log "Baixando dependencias Maven (inclui validacao de Java 21.x)..."
+    Write-Log "Baixando dependencias Maven (inclui validacao de Java 25.x)..."
     Push-Location $RootDir
     try {
         & mvn -B -DskipTests validate dependency:go-offline

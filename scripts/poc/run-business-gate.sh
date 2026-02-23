@@ -350,9 +350,9 @@ infer_java_major() {
 CONTRACT_TEST_MVN_ARGS="${CONTRACT_TEST_MVN_ARGS:-}"
 if [[ -z "$CONTRACT_TEST_MVN_ARGS" ]]; then
   JAVA_MAJOR="$(infer_java_major)"
-  if [[ -n "$JAVA_MAJOR" && "$JAVA_MAJOR" != "21" ]]; then
+  if [[ -n "$JAVA_MAJOR" && "$JAVA_MAJOR" != "25" ]]; then
     CONTRACT_TEST_MVN_ARGS="-Denforcer.skip=true"
-    log "Java ${JAVA_MAJOR} detectado fora da faixa 21.x; contrato rodara com ${CONTRACT_TEST_MVN_ARGS}."
+    log "Java ${JAVA_MAJOR} detectado fora da faixa 25.x; contrato rodara com ${CONTRACT_TEST_MVN_ARGS}."
   fi
 fi
 CONTRACT_TEST_MVN_ARGS_ARRAY=()
