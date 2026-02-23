@@ -10,7 +10,7 @@ A visibilidade do repositorio permanece inalterada.
 
 ## Stack em Uso
 
-- Java 21.x (obrigatorio no build Maven)
+- Java 25.x (obrigatorio no build Maven)
 - Maven
 - PostgreSQL 16 (Docker)
 - Solver Python (FastAPI + OR-Tools)
@@ -74,6 +74,9 @@ Windows (PowerShell):
 scripts/poc/start-test-env.sh
 ```
 
+Observacao: o script sobe a API com enforcer ativo (`mvn -DskipTests ...`).
+Se o Java local nao estiver em 25.x, a subida falha rapido.
+
 Saida esperada:
 
 - API em `http://localhost:8082`
@@ -88,7 +91,25 @@ curl -sS http://localhost:8082/api/operacao/painel | jq '.ambiente'
 curl -sS http://localhost:8082/api/operacao/mapa | jq '{rotas: (.rotas | length), deposito: .deposito}'
 ```
 
-### 3) Rodar API manualmente (se necessario)
+### 3) Validar onboarding em Linux limpo (simulacao de VM)
+
+```bash
+scripts/poc/smoke-clean-linux.sh
+```
+
+Esse smoke sobe um Ubuntu descartavel, instala Java/Maven/Python/Node e executa:
+
+- `scripts/bootstrap-dev.sh`
+- `scripts/poc/start-test-env.sh`
+
+Para rodar em paralelo com um ambiente local ja ativo, personalize portas e project name:
+
+```bash
+COMPOSE_PROJECT_NAME=av_vmtest_ana POSTGRES_TEST_PORT=55435 SOLVER_PORT=18080 API_PORT=18082 UI_PORT=14174 \
+  scripts/poc/smoke-clean-linux.sh
+```
+
+### 4) Rodar API manualmente (se necessario)
 
 ```bash
 SOLVER_URL=http://localhost:8080 API_PORT=8081 \
