@@ -60,8 +60,7 @@ class ContractsV1Test {
                         openApi.contains("externalEventId:"),
                         "Contrato deve mapear chave de idempotencia externalEventId"),
                 () -> assertTrue(
-                        openApi.contains("sourceEventId:"),
-                        "Contrato deve mapear chave omnichannel sourceEventId"),
+                        openApi.contains("sourceEventId:"), "Contrato deve mapear chave omnichannel sourceEventId"),
                 () -> assertTrue(
                         openApi.contains("manualRequestId:"),
                         "Contrato deve mapear chave de idempotencia manualRequestId"),

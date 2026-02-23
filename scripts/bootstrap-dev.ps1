@@ -21,17 +21,17 @@ function Require-Command {
 
 function Invoke-Python {
     param(
-        [Parameter(ValueFromRemainingArguments = $true)]
-        [string[]]$Args
+        [Parameter(Mandatory = $true)]
+        [string[]]$PythonArgs
     )
 
     if (Get-Command python -ErrorAction SilentlyContinue) {
-        & python @Args
+        & python @PythonArgs
         return
     }
 
     if (Get-Command py -ErrorAction SilentlyContinue) {
-        & py -3 @Args
+        & py -3 @PythonArgs
         return
     }
 
@@ -59,7 +59,7 @@ if (-not $SkipPython) {
 
     $VenvDir = Join-Path $RootDir "solver\.venv"
     Write-Log "Criando/atualizando virtualenv Python em solver/.venv..."
-    Invoke-Python -m venv $VenvDir
+    Invoke-Python -PythonArgs @("-m", "venv", $VenvDir)
 
     $VenvPython = Join-Path $VenvDir "Scripts\python.exe"
     & $VenvPython -m pip install --upgrade pip

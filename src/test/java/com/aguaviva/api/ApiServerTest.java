@@ -40,8 +40,6 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -49,6 +47,8 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -390,7 +390,9 @@ class ApiServerTest {
             assertEquals(200, segunda.statusCode());
             assertFalse(bodyPrimeira.get("idempotente").getAsBoolean());
             assertTrue(bodySegunda.get("idempotente").getAsBoolean());
-            assertEquals(bodyPrimeira.get("pedidoId").getAsInt(), bodySegunda.get("pedidoId").getAsInt());
+            assertEquals(
+                    bodyPrimeira.get("pedidoId").getAsInt(),
+                    bodySegunda.get("pedidoId").getAsInt());
             assertEquals(1, contarLinhas("pedidos"));
             assertEquals(1, contarAtendimentosIdempotenciaPorCanalEChave("MANUAL", manualHeaderKey));
         }
@@ -443,7 +445,9 @@ class ApiServerTest {
             assertEquals(200, segunda.statusCode());
             assertFalse(bodyPrimeira.get("idempotente").getAsBoolean());
             assertTrue(bodySegunda.get("idempotente").getAsBoolean());
-            assertEquals(bodyPrimeira.get("pedidoId").getAsInt(), bodySegunda.get("pedidoId").getAsInt());
+            assertEquals(
+                    bodyPrimeira.get("pedidoId").getAsInt(),
+                    bodySegunda.get("pedidoId").getAsInt());
             assertEquals(1, contarLinhas("pedidos"));
             assertEquals(1, contarAtendimentosIdempotenciaPorCanalEChave("MANUAL", manualHeaderKey));
         }
@@ -498,7 +502,9 @@ class ApiServerTest {
             assertEquals(200, segunda.statusCode());
             assertFalse(bodyPrimeira.get("idempotente").getAsBoolean());
             assertTrue(bodySegunda.get("idempotente").getAsBoolean());
-            assertEquals(bodyPrimeira.get("pedidoId").getAsInt(), bodySegunda.get("pedidoId").getAsInt());
+            assertEquals(
+                    bodyPrimeira.get("pedidoId").getAsInt(),
+                    bodySegunda.get("pedidoId").getAsInt());
             assertEquals(1, contarLinhas("pedidos"));
             assertEquals(1, contarAtendimentosIdempotenciaPorCanalEChave("MANUAL", manualHeaderKey));
         }
@@ -590,7 +596,9 @@ class ApiServerTest {
             assertEquals(200, segunda.statusCode());
             assertFalse(bodyPrimeira.get("idempotente").getAsBoolean());
             assertTrue(bodySegunda.get("idempotente").getAsBoolean());
-            assertEquals(bodyPrimeira.get("pedidoId").getAsInt(), bodySegunda.get("pedidoId").getAsInt());
+            assertEquals(
+                    bodyPrimeira.get("pedidoId").getAsInt(),
+                    bodySegunda.get("pedidoId").getAsInt());
             assertEquals(1, contarLinhas("pedidos"));
             assertEquals(1, contarAtendimentosIdempotenciaPorCanalEChave("MANUAL", manualHeaderKey));
         }
@@ -1154,7 +1162,8 @@ class ApiServerTest {
     }
 
     @Test
-    void deveRetornar400QuandoOrigemOmitidaComHeadersIdempotenciaIguaisEDivergentesDoExternalViaHttp() throws Exception {
+    void deveRetornar400QuandoOrigemOmitidaComHeadersIdempotenciaIguaisEDivergentesDoExternalViaHttp()
+            throws Exception {
         int atendenteId = criarAtendenteId("api-origem-omitida-external-duplo-header-div-external@teste.com");
         HttpClient client = HttpClient.newHttpClient();
 
@@ -1228,7 +1237,9 @@ class ApiServerTest {
 
             JsonObject body = GSON.fromJson(resposta.body(), JsonObject.class);
             assertEquals(400, resposta.statusCode());
-            assertTrue(body.get("erro").getAsString().contains("Idempotency-Key e X-Idempotency-Key devem ter o mesmo valor"));
+            assertTrue(body.get("erro")
+                    .getAsString()
+                    .contains("Idempotency-Key e X-Idempotency-Key devem ter o mesmo valor"));
             assertEquals(0, contarLinhas("pedidos"));
         }
     }
@@ -1456,7 +1467,9 @@ class ApiServerTest {
 
             JsonObject body = GSON.fromJson(resposta.body(), JsonObject.class);
             assertEquals(400, resposta.statusCode());
-            assertTrue(body.get("erro").getAsString().contains("manualRequestId so pode ser usado com origemCanal=MANUAL"));
+            assertTrue(body.get("erro")
+                    .getAsString()
+                    .contains("manualRequestId so pode ser usado com origemCanal=MANUAL"));
             assertEquals(0, contarLinhas("pedidos"));
         }
     }
@@ -1786,7 +1799,9 @@ class ApiServerTest {
 
             JsonObject body = GSON.fromJson(resposta.body(), JsonObject.class);
             assertEquals(400, resposta.statusCode());
-            assertTrue(body.get("erro").getAsString().contains("Idempotency-Key e X-Idempotency-Key devem ter o mesmo valor"));
+            assertTrue(body.get("erro")
+                    .getAsString()
+                    .contains("Idempotency-Key e X-Idempotency-Key devem ter o mesmo valor"));
             assertEquals(0, contarLinhas("pedidos"));
         }
     }
@@ -2017,9 +2032,7 @@ class ApiServerTest {
     void devePersistirExternalCallIdHasheadoQuandoSourceEventIdLongoViaHttp() throws Exception {
         int atendenteId = criarAtendenteId("api-omnichannel-source-longo@teste.com");
         HttpClient client = HttpClient.newHttpClient();
-        String sourceEventIdLongo = IntStream.range(0, 110)
-                .mapToObj(i -> "y")
-                .collect(Collectors.joining());
+        String sourceEventIdLongo = IntStream.range(0, 110).mapToObj(i -> "y").collect(Collectors.joining());
 
         try (ApiServer.RunningServer running = ApiServer.startForTests(
                 0,
@@ -3000,8 +3013,7 @@ class ApiServerTest {
                     HttpResponse.BodyHandlers.ofString());
             JsonElement payloadElement = JsonParser.parseString(resposta.body());
             assertTrue(
-                    payloadElement.isJsonObject(),
-                    "Payload do mapa deve ser um objeto JSON. body=" + resposta.body());
+                    payloadElement.isJsonObject(), "Payload do mapa deve ser um objeto JSON. body=" + resposta.body());
             JsonObject payload = payloadElement.getAsJsonObject();
 
             assertEquals(200, resposta.statusCode());
@@ -4018,7 +4030,8 @@ class ApiServerTest {
 
     private String janelaInicioPedido(int pedidoId) throws Exception {
         try (Connection conn = factory.getConnection();
-                PreparedStatement stmt = conn.prepareStatement("SELECT janela_inicio::text FROM pedidos WHERE id = ?")) {
+                PreparedStatement stmt =
+                        conn.prepareStatement("SELECT janela_inicio::text FROM pedidos WHERE id = ?")) {
             stmt.setInt(1, pedidoId);
             try (ResultSet rs = stmt.executeQuery()) {
                 rs.next();

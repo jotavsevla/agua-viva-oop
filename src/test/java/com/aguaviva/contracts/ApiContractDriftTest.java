@@ -70,8 +70,7 @@ class ApiContractDriftTest {
                 () -> assertTrue(openApi.contains("origemCanal:"), "Contrato deve mapear origemCanal"),
                 () -> assertTrue(openApi.contains("Idempotency-Key"), "Contrato deve mapear header Idempotency-Key"),
                 () -> assertTrue(
-                        openApi.contains("X-Idempotency-Key"),
-                        "Contrato deve mapear header X-Idempotency-Key"),
+                        openApi.contains("X-Idempotency-Key"), "Contrato deve mapear header X-Idempotency-Key"),
                 () -> assertTrue(openApi.contains("actorEntregadorId:"), "Contrato deve mapear actorEntregadorId"),
                 () -> assertTrue(openApi.contains("eventType:"), "Contrato deve mapear eventType"),
                 () -> assertTrue(openApi.contains("idempotente:"), "Contrato deve mapear flag idempotente"),

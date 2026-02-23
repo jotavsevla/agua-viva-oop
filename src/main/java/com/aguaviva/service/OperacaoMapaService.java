@@ -148,12 +148,7 @@ public class OperacaoMapaService {
         trajeto.add(new PontoMapaResumo("DEPOSITO", null, null, null, deposito.lat(), deposito.lon()));
         for (ParadaMapaResumo parada : paradas) {
             trajeto.add(new PontoMapaResumo(
-                    "PARADA",
-                    parada.pedidoId(),
-                    parada.entregaId(),
-                    parada.ordemNaRota(),
-                    parada.lat(),
-                    parada.lon()));
+                    "PARADA", parada.pedidoId(), parada.entregaId(), parada.ordemNaRota(), parada.lat(), parada.lon()));
         }
         if (!paradas.isEmpty()) {
             trajeto.add(new PontoMapaResumo("DEPOSITO", null, null, null, deposito.lat(), deposito.lon()));

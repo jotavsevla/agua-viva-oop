@@ -90,7 +90,8 @@ public class AtendimentoTelefonicoService {
 
     public AtendimentoTelefonicoResultado registrarPedidoManual(
             String telefoneInformado, int quantidadeGaloes, int atendenteId, String metodoPagamento) {
-        return registrarPedidoManual(telefoneInformado, quantidadeGaloes, atendenteId, metodoPagamento, null, null, null);
+        return registrarPedidoManual(
+                telefoneInformado, quantidadeGaloes, atendenteId, metodoPagamento, null, null, null);
     }
 
     public AtendimentoTelefonicoResultado registrarPedidoManual(
@@ -139,11 +140,12 @@ public class AtendimentoTelefonicoService {
         String origemCanalNormalizado = normalizeOrigemCanal(origemCanal, sourceEventId, manualRequestId);
         String sourceEventIdNormalizado = normalizeSourceEventIdOpcional(sourceEventId);
         String manualRequestIdNormalizado = normalizeSourceEventIdOpcional(manualRequestId);
-        validarConsistenciaCanalEChaves(
-                origemCanalNormalizado, sourceEventIdNormalizado, manualRequestIdNormalizado);
-        String dedupeKey = resolveDedupeKey(origemCanalNormalizado, sourceEventIdNormalizado, manualRequestIdNormalizado);
+        validarConsistenciaCanalEChaves(origemCanalNormalizado, sourceEventIdNormalizado, manualRequestIdNormalizado);
+        String dedupeKey =
+                resolveDedupeKey(origemCanalNormalizado, sourceEventIdNormalizado, manualRequestIdNormalizado);
         String externalCallIdLegacy = resolveExternalCallIdLegacy(origemCanalNormalizado, sourceEventIdNormalizado);
-        CadastroClienteInput cadastroClienteInput = normalizeCadastroClienteInput(nomeCliente, endereco, latitude, longitude);
+        CadastroClienteInput cadastroClienteInput =
+                normalizeCadastroClienteInput(nomeCliente, endereco, latitude, longitude);
         String atendimentoRequestHash = dedupeKey == null
                 ? null
                 : buildAtendimentoRequestHash(
@@ -302,7 +304,8 @@ public class AtendimentoTelefonicoService {
         }
 
         AtendimentoIdempotenteExistente existente = buscarAtendimentoIdempotente(conn, origemCanal, dedupeKey)
-                .orElseThrow(() -> new SQLException("Registro idempotente de atendimento nao encontrado apos conflito"));
+                .orElseThrow(
+                        () -> new SQLException("Registro idempotente de atendimento nao encontrado apos conflito"));
         validarHashIdempotenciaCompativel(existente.requestHash(), requestHash);
         if (existente.pedidoId() != pedidoId || existente.clienteId() != clienteId) {
             throw new IllegalStateException(
@@ -331,7 +334,8 @@ public class AtendimentoTelefonicoService {
         }
     }
 
-    private void lockPorIdempotenciaAtendimento(Connection conn, String origemCanal, String dedupeKey) throws SQLException {
+    private void lockPorIdempotenciaAtendimento(Connection conn, String origemCanal, String dedupeKey)
+            throws SQLException {
         String sql = "SELECT pg_advisory_xact_lock(hashtext(?))";
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, origemCanal + "|" + dedupeKey);
@@ -352,8 +356,7 @@ public class AtendimentoTelefonicoService {
                     "Schema desatualizado: coluna atendimentos_idempotencia.source_event_id ausente");
         }
         if (!hasColumn(conn, "atendimentos_idempotencia", "pedido_id")) {
-            throw new IllegalStateException(
-                    "Schema desatualizado: coluna atendimentos_idempotencia.pedido_id ausente");
+            throw new IllegalStateException("Schema desatualizado: coluna atendimentos_idempotencia.pedido_id ausente");
         }
         if (!hasColumn(conn, "atendimentos_idempotencia", "request_hash")) {
             throw new IllegalStateException(
@@ -383,7 +386,9 @@ public class AtendimentoTelefonicoService {
                 "janelaInicio",
                 janelaPedido.inicio() == null ? null : janelaPedido.inicio().format(WINDOW_TIME_FORMATTER));
         appendCanonicalField(
-                canonical, "janelaFim", janelaPedido.fim() == null ? null : janelaPedido.fim().format(WINDOW_TIME_FORMATTER));
+                canonical,
+                "janelaFim",
+                janelaPedido.fim() == null ? null : janelaPedido.fim().format(WINDOW_TIME_FORMATTER));
         appendCanonicalField(canonical, "nomeCliente", cadastroClienteInput.nomeCliente());
         appendCanonicalField(canonical, "endereco", cadastroClienteInput.endereco());
         appendCanonicalField(
@@ -448,7 +453,8 @@ public class AtendimentoTelefonicoService {
     }
 
     private ClienteResolucao obterOuCriarClientePorTelefone(
-            Connection conn, String telefoneNormalizado, CadastroClienteInput cadastroClienteInput) throws SQLException {
+            Connection conn, String telefoneNormalizado, CadastroClienteInput cadastroClienteInput)
+            throws SQLException {
         Optional<ClienteCadastro> clienteExistente = buscarClientePorTelefoneNormalizado(conn, telefoneNormalizado);
         if (clienteExistente.isPresent()) {
             ClienteCadastro atualizado =
@@ -461,7 +467,8 @@ public class AtendimentoTelefonicoService {
     }
 
     private ClienteCadastro criarClienteInicial(
-            Connection conn, String telefoneNormalizado, CadastroClienteInput cadastroClienteInput) throws SQLException {
+            Connection conn, String telefoneNormalizado, CadastroClienteInput cadastroClienteInput)
+            throws SQLException {
         String nome = cadastroClienteInput.nomeCliente();
         if (nome == null) {
             String sufixo = telefoneNormalizado.length() <= 4
@@ -509,7 +516,8 @@ public class AtendimentoTelefonicoService {
     }
 
     private ClienteCadastro atualizarCadastroClienteSeInformado(
-            Connection conn, ClienteCadastro clienteAtual, CadastroClienteInput cadastroClienteInput) throws SQLException {
+            Connection conn, ClienteCadastro clienteAtual, CadastroClienteInput cadastroClienteInput)
+            throws SQLException {
         boolean temNome = cadastroClienteInput.nomeCliente() != null;
         boolean temEndereco = cadastroClienteInput.endereco() != null;
         boolean temLatitude = cadastroClienteInput.latitude() != null;
@@ -549,7 +557,8 @@ public class AtendimentoTelefonicoService {
 
     private void validarCoberturaMoc(Connection conn, ClienteCadastro cliente) throws SQLException {
         if (cliente.latitude() == null || cliente.longitude() == null) {
-            throw new IllegalArgumentException("Cliente sem geolocalizacao valida. Atualize cadastro antes de criar pedido");
+            throw new IllegalArgumentException(
+                    "Cliente sem geolocalizacao valida. Atualize cadastro antes de criar pedido");
         }
         CoberturaBbox bbox = carregarCoberturaBbox(conn);
         if (cliente.latitude() < bbox.minLat()
@@ -578,7 +587,8 @@ public class AtendimentoTelefonicoService {
     private CoberturaBbox parseBbox(String raw) {
         String[] parts = raw.split(",");
         if (parts.length != 4) {
-            throw new IllegalStateException("Configuracao cobertura_bbox invalida. Esperado min_lon,min_lat,max_lon,max_lat");
+            throw new IllegalStateException(
+                    "Configuracao cobertura_bbox invalida. Esperado min_lon,min_lat,max_lon,max_lat");
         }
         try {
             double minLon = Double.parseDouble(parts[0].trim());
@@ -836,7 +846,7 @@ public class AtendimentoTelefonicoService {
                 }
             }
         }
-        throw new SQLException("Falha ao criar pedido pendente em atendimento" );
+        throw new SQLException("Falha ao criar pedido pendente em atendimento");
     }
 
     private static String normalizeExternalCallId(String value) {
@@ -875,7 +885,8 @@ public class AtendimentoTelefonicoService {
         };
     }
 
-    private static JanelaPedido normalizeJanelaPedido(String janelaTipoRaw, String janelaInicioRaw, String janelaFimRaw) {
+    private static JanelaPedido normalizeJanelaPedido(
+            String janelaTipoRaw, String janelaInicioRaw, String janelaFimRaw) {
         String janelaTipo = normalizeJanelaTipo(janelaTipoRaw);
         LocalTime janelaInicio = parseOptionalWindowTime(janelaInicioRaw, "janelaInicio");
         LocalTime janelaFim = parseOptionalWindowTime(janelaFimRaw, "janelaFim");

@@ -208,7 +208,8 @@ public final class ApiServer {
                         && externalCallId != null
                         && idempotencyKeyHeader != null
                         && !externalCallId.equals(idempotencyKeyHeader)) {
-                    throw new IllegalArgumentException("Idempotency-Key diverge de externalCallId quando origemCanal for omitida");
+                    throw new IllegalArgumentException(
+                            "Idempotency-Key diverge de externalCallId quando origemCanal for omitida");
                 }
                 if (manualRequestId == null && origemCanalManual) {
                     manualRequestId = idempotencyKeyHeader;
@@ -793,8 +794,10 @@ public final class ApiServer {
     }
 
     private static String resolveIdempotencyKeyHeader(HttpExchange exchange) {
-        String idempotencyKey = normalizeOptionalText(exchange.getRequestHeaders().getFirst("Idempotency-Key"));
-        String idempotencyKeyAlias = normalizeOptionalText(exchange.getRequestHeaders().getFirst("X-Idempotency-Key"));
+        String idempotencyKey =
+                normalizeOptionalText(exchange.getRequestHeaders().getFirst("Idempotency-Key"));
+        String idempotencyKeyAlias =
+                normalizeOptionalText(exchange.getRequestHeaders().getFirst("X-Idempotency-Key"));
         if (idempotencyKey != null && idempotencyKeyAlias != null && !idempotencyKey.equals(idempotencyKeyAlias)) {
             throw new IllegalArgumentException("Idempotency-Key e X-Idempotency-Key devem ter o mesmo valor");
         }

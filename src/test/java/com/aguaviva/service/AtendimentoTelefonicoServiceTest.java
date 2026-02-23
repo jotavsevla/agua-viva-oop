@@ -133,8 +133,7 @@ class AtendimentoTelefonicoServiceTest {
                 new Cliente("Cliente legado", "(38) 99876-9551", ClienteTipo.PF, "Endereco pendente"));
 
         try {
-            Cliente cadastroElegivel =
-                    criarClienteComGeo("Cliente elegivel", "38 99876 9551", "Rua Resolvida, 99");
+            Cliente cadastroElegivel = criarClienteComGeo("Cliente elegivel", "38 99876 9551", "Rua Resolvida, 99");
             AtendimentoTelefonicoResultado resultado = service.registrarPedidoManual("(38) 99876-9551", 1, atendenteId);
             assertEquals(cadastroElegivel.getId(), resultado.clienteId());
             assertEquals(1, contarLinhas("pedidos"));
@@ -145,8 +144,7 @@ class AtendimentoTelefonicoServiceTest {
         }
 
         IllegalArgumentException exAtendimento = assertThrows(
-                IllegalArgumentException.class,
-                () -> service.registrarPedidoManual("(38) 99876-9551", 1, atendenteId));
+                IllegalArgumentException.class, () -> service.registrarPedidoManual("(38) 99876-9551", 1, atendenteId));
         assertTrue(exAtendimento.getMessage().contains("Cliente sem endereco valido"));
         assertEquals(cadastroInvalido.getId(), idClientePorTelefoneNormalizado("38998769551"));
         assertEquals(0, contarLinhas("pedidos"));
@@ -348,9 +346,7 @@ class AtendimentoTelefonicoServiceTest {
     void deveGerarExternalCallIdLegacyDeterministicoQuandoSourceEventIdLongoEmCanalAutomatico() throws Exception {
         int atendenteId = criarAtendenteId("telefone-auto-source-longo@teste.com");
         Cliente cliente = criarClienteComGeo("Cliente source longo", "(38) 99999-5012", "Rua Auto, 3");
-        String sourceEventIdLongo = IntStream.range(0, 110)
-                .mapToObj(i -> "x")
-                .collect(Collectors.joining());
+        String sourceEventIdLongo = IntStream.range(0, 110).mapToObj(i -> "x").collect(Collectors.joining());
 
         AtendimentoTelefonicoResultado primeira = service.registrarPedidoOmnichannel(
                 "WHATSAPP",
@@ -523,8 +519,8 @@ class AtendimentoTelefonicoServiceTest {
         int pedidoExistenteId = inserirPedido(cliente.getId(), atendenteId, "PENDENTE", "call-manual-003");
 
         try (Connection conn = factory.getConnection();
-                PreparedStatement stmt =
-                        conn.prepareStatement("UPDATE clientes SET endereco = ?, latitude = NULL, longitude = NULL WHERE id = ?")) {
+                PreparedStatement stmt = conn.prepareStatement(
+                        "UPDATE clientes SET endereco = ?, latitude = NULL, longitude = NULL WHERE id = ?")) {
             stmt.setString(1, "Endereco pendente");
             stmt.setInt(2, cliente.getId());
             stmt.executeUpdate();
@@ -645,7 +641,8 @@ class AtendimentoTelefonicoServiceTest {
 
     private String janelaInicioPedido(int pedidoId) throws Exception {
         try (Connection conn = factory.getConnection();
-                PreparedStatement stmt = conn.prepareStatement("SELECT janela_inicio::text FROM pedidos WHERE id = ?")) {
+                PreparedStatement stmt =
+                        conn.prepareStatement("SELECT janela_inicio::text FROM pedidos WHERE id = ?")) {
             stmt.setInt(1, pedidoId);
             try (ResultSet rs = stmt.executeQuery()) {
                 rs.next();
