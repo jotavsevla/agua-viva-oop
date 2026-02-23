@@ -278,7 +278,7 @@ Gson com `LOWER_CASE_WITH_UNDERSCORES` converte `capacidadeVeiculo` → `capacid
 Gerencia transacoes e coordena fluxos de negocio:
 - `RotaService` com planejamento transacional, `plan_version`, cancelamento best-effort, preempcao distribuida via `solver_jobs` e trilha de `request_payload`/`response_payload`
 - `PedidoLifecycleService` como porta unica de transicao de status (state machine + lock pessimista)
-- `AtendimentoTelefonicoService` com idempotencia por `external_call_id` e regra de vale no checkout
+- `AtendimentoTelefonicoService` com atendimento omnichannel (`origemCanal`, `sourceEventId`, `manualRequestId`), idempotencia por canal e regra de vale no checkout
 - `ExecucaoEntregaService` para eventos operacionais (`ROTA_INICIADA`, `PEDIDO_ENTREGUE`, `PEDIDO_FALHOU`, `PEDIDO_CANCELADO`) + debito de vale + regra terminal so em `EM_EXECUCAO`
 - `EventoOperacionalIdempotenciaService` com deduplicacao por `external_event_id` + hash de payload
 - `ReplanejamentoWorkerService` com debounce e lock via `pg_try_advisory_xact_lock`
@@ -377,6 +377,10 @@ constraints de negocio, views com CTEs, window functions e funcoes SQL.
 | 013       | idempotencia de eventos | Tabela `eventos_operacionais_idempotencia` com hash de payload |
 | 014       | camada secundaria     | Unicidade de rota `PLANEJADA` por entregador/dia |
 | 015       | camada primaria       | Unicidade de rota `EM_ANDAMENTO` por entregador/dia |
+| 016A      | frota por perfil      | Configuracoes de frota por papel operacional |
+| 016B      | correlacao solver job | Correlacao `rotas.job_id` + sequence `plan_version` |
+| 017       | omnichannel atendimento | Unicidade de telefone normalizado, `atendimentos_idempotencia`, `cobertura_bbox` |
+| 018       | hash de idempotencia atendimento | Coluna `request_hash` em `atendimentos_idempotencia` |
 
 ### Status do pedido
 
@@ -436,7 +440,11 @@ agua-viva/
 │       ├── 012_add_pedido_metodo_pagamento_and_vale_debito_idempotency.sql
 │       ├── 013_create_eventos_operacionais_idempotencia.sql
 │       ├── 014_add_unique_planejada_por_entregador_dia.sql
-│       └── 015_add_unique_em_andamento_por_entregador_dia.sql
+│       ├── 015_add_unique_em_andamento_por_entregador_dia.sql
+│       ├── 016_add_frota_perfil_configuracoes.sql
+│       ├── 016_add_solver_job_id_correlation_and_plan_version_seq.sql
+│       ├── 017_add_omnichannel_atendimento_foundations.sql
+│       └── 018_add_request_hash_to_atendimentos_idempotencia.sql
 ├── contracts/
 │   └── v1/
 │       ├── openapi.yaml                # Contrato OpenAPI congelado (A0)
@@ -710,6 +718,11 @@ Endpoints:
 - `GET /api/operacao/replanejamento/jobs`
 - `GET /api/operacao/replanejamento/jobs/{jobId}`
 
+Notas operacionais desta fase:
+1. Quando a ultima entrega de uma rota termina, o backend publica `ROTA_CONCLUIDA` no outbox (`dispatch_events`).
+2. A proxima rota nao e iniciada automaticamente; o disparo continua manual via `POST /api/operacao/rotas/prontas/iniciar`.
+3. `GET /api/operacao/mapa` retorna `rotas[].trajeto` com o percurso unificado (`DEPOSITO -> PARADAS -> DEPOSITO`), mantendo `rotas[].paradas` por compatibilidade.
+
 ### Contratos compartilhados (A0)
 
 Pacote canonico de handoff A->B em `/contracts/v1`:
@@ -776,7 +789,7 @@ mvn -DskipTests exec:java -Dexec.mainClass=com.aguaviva.App -Dexec.args=api
 | Aspecto         | Next.js (agua-viva)  | Java (agua-viva-oop)          |
 | --------------- | -------------------- | ----------------------------- |
 | Dominio         | Mesmo                | Mesmo                         |
-| Schema do banco | Mesmo (11 migrations) | Mesmo (15 migrations)          |
+| Schema do banco | Mesmo (11 migrations) | Mesmo (001-018; inclui 2 scripts 016) |
 | Persistencia    | pg (SQL puro)        | JDBC (SQL puro)               |
 | Models          | models/\*.js         | domain/\*/\*.java (OOP pura)  |
 | Testes          | Jest + TDD           | JUnit 5 + TDD                 |

@@ -42,3 +42,12 @@ docs/*
 !docs/.assets/
 docs/.assets/*
 !docs/.assets/arquitetura.svg
+
+# Artefatos operacionais locais
+artifacts/
+[[]business-gate]*
+
+# Notas locais (nao publicar; README e a fonte publica)
+ATENDIMENTO-OMNICHANNEL-UNIFICADO.txt
+ISSUE-OSRM-PODA-MONTES-CLAROS*.txt
+POC-MVP-ANCORA-E-PASSOS*.txt
