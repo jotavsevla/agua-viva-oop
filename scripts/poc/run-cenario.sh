@@ -39,6 +39,7 @@ Variaveis opcionais:
   START_ROTA_SLEEP_SECONDS=1
   WAIT_TIMELINE_MAX_ATTEMPTS=30
   WAIT_TIMELINE_SLEEP_SECONDS=1
+  DEBOUNCE_SEGUNDOS=0
 USAGE
 }
 
@@ -122,6 +123,15 @@ print_json() {
   local json="$2"
   echo "--- $label"
   echo "$json" | jq .
+}
+
+debounce_if_needed() {
+  local reason="$1"
+  if [[ "$DEBOUNCE_SEGUNDOS" -le 0 ]]; then
+    return 0
+  fi
+  echo "[run-cenario] pausa ${DEBOUNCE_SEGUNDOS}s: ${reason}"
+  sleep "$DEBOUNCE_SEGUNDOS"
 }
 
 extract_single_value() {
@@ -294,6 +304,7 @@ START_ROTA_MAX_ATTEMPTS="${START_ROTA_MAX_ATTEMPTS:-30}"
 START_ROTA_SLEEP_SECONDS="${START_ROTA_SLEEP_SECONDS:-1}"
 WAIT_TIMELINE_MAX_ATTEMPTS="${WAIT_TIMELINE_MAX_ATTEMPTS:-30}"
 WAIT_TIMELINE_SLEEP_SECONDS="${WAIT_TIMELINE_SLEEP_SECONDS:-1}"
+DEBOUNCE_SEGUNDOS="${DEBOUNCE_SEGUNDOS:-0}"
 
 # Evita colisao de idempotencia entre execucoes proximas no mesmo segundo.
 EXTERNAL_CALL_ID="poc-${SCENARIO}-$(date +%s)-${RANDOM}-$$"
@@ -315,6 +326,11 @@ for n in \
     exit 1
   fi
 done
+
+if ! [[ "$DEBOUNCE_SEGUNDOS" =~ ^[0-9]+$ ]]; then
+  echo "DEBOUNCE_SEGUNDOS invalido: $DEBOUNCE_SEGUNDOS (use inteiro >= 0)" >&2
+  exit 1
+fi
 
 print_step "Health check"
 health_response="$(api_request GET "/health")"
@@ -389,6 +405,7 @@ atendimento_payload="$(jq -n \
 
 atendimento_response="$(api_request POST "/api/atendimento/pedidos" "$atendimento_payload")"
 print_json "POST /api/atendimento/pedidos" "$atendimento_response"
+debounce_if_needed "apos atendimento"
 
 pedido_id="$(echo "$atendimento_response" | jq -r '.pedidoId // empty')"
 if [[ -z "$pedido_id" ]]; then
@@ -406,6 +423,7 @@ if ! execucao_inicial="$(wait_for_execucao_com_rota "$pedido_id" "$WAIT_EXECUCAO
   exit 1
 fi
 print_json "GET /api/pedidos/{pedidoId}/execucao (inicial)" "$execucao_inicial"
+debounce_if_needed "antes de iniciar rota"
 
 rota_id="$(echo "$execucao_inicial" | jq -r '.rotaId // .rotaPrimariaId // empty')"
 entrega_id="$(echo "$execucao_inicial" | jq -r '.entregaId // empty')"
@@ -424,6 +442,7 @@ print_json "POST /api/eventos (ROTA_INICIADA)" "$rota_iniciada_response"
 
 execucao_pos_rota="$(api_request GET "/api/pedidos/${pedido_id}/execucao")"
 print_json "GET /api/pedidos/{pedidoId}/execucao (apos rota iniciada)" "$execucao_pos_rota"
+debounce_if_needed "apos rota iniciada"
 
 entrega_id="$(echo "$execucao_pos_rota" | jq -r '.entregaAtivaId // .entregaId // empty')"
 if [[ -z "$entrega_id" || "$entrega_id" == "null" ]]; then
@@ -469,6 +488,7 @@ esac
 
 evento_terminal_response="$(api_request POST "/api/eventos" "$evento_terminal_payload")"
 print_json "POST /api/eventos (terminal)" "$evento_terminal_response"
+debounce_if_needed "apos evento terminal"
 
 print_step "Timeline final"
 if ! timeline_final="$(wait_for_timeline_status "$pedido_id" "$expected_timeline_status" "$WAIT_TIMELINE_MAX_ATTEMPTS" "$WAIT_TIMELINE_SLEEP_SECONDS")"; then
