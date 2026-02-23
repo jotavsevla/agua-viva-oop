@@ -32,6 +32,32 @@ paths:
     post:
       summary: Registrar pedido de atendimento telefonico
       tags: [atendimento]
+      parameters:
+        - name: Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+            maxLength: 128
+          description: |
+            Chave opcional de idempotencia para atendimento manual quando manualRequestId nao for enviado.
+            Tambem aceita o alias X-Idempotency-Key.
+            Quando ambos os headers sao enviados, devem possuir o mesmo valor.
+            Em origemCanal=MANUAL, se externalCallId tambem for enviado, os valores devem coincidir.
+            Com origemCanal omitida e externalCallId presente, a chave do header tambem deve coincidir com externalCallId.
+            Em canais automaticos (WHATSAPP, BINA_FIXO, TELEFONIA_FIXO), se sourceEventId for enviado, o valor do header deve coincidir com sourceEventId.
+        - name: X-Idempotency-Key
+          in: header
+          required: false
+          schema:
+            type: string
+            maxLength: 128
+          description: |
+            Alias de Idempotency-Key para atendimento manual.
+            Quando ambos os headers sao enviados, devem possuir o mesmo valor.
+            Em origemCanal=MANUAL, se externalCallId tambem for enviado, os valores devem coincidir.
+            Com origemCanal omitida e externalCallId presente, a chave do header tambem deve coincidir com externalCallId.
+            Em canais automaticos (WHATSAPP, BINA_FIXO, TELEFONIA_FIXO), se sourceEventId for enviado, o valor do header deve coincidir com sourceEventId.
       requestBody:
         required: true
         content:
@@ -408,6 +434,35 @@ components:
         externalCallId:
           type: string
           maxLength: 64
+          description: |
+            Legado para integracao telefonica.
+            Em canais automaticos, quando enviado sem sourceEventId, sera usado como chave de idempotencia.
+            Em origemCanal=MANUAL, funciona como fallback de manualRequestId quando manualRequestId nao for enviado.
+            Quando enviado junto com sourceEventId ou manualRequestId, deve ter o mesmo valor da chave correspondente.
+            Com origemCanal omitida, se Idempotency-Key/X-Idempotency-Key for enviado, os valores devem coincidir.
+        sourceEventId:
+          type: string
+          maxLength: 128
+          description: |
+            Chave de idempotencia do evento no canal de origem.
+            Obrigatorio quando origemCanal for WHATSAPP, BINA_FIXO ou TELEFONIA_FIXO.
+            Nao pode ser usado quando origemCanal for MANUAL.
+            Se externalCallId tambem for enviado, os valores devem ser iguais.
+            Se Idempotency-Key/X-Idempotency-Key tambem for enviado, os valores devem ser iguais.
+        manualRequestId:
+          type: string
+          maxLength: 128
+          description: |
+            Chave idempotente opcional para retries de atendimento manual (UI/operador).
+            Nao pode ser usada em canais automaticos.
+            Se externalCallId tambem for enviado, os valores devem ser iguais.
+        origemCanal:
+          type: string
+          enum: [MANUAL, WHATSAPP, BINA_FIXO, TELEFONIA_FIXO]
+          description: |
+            Opcional.
+            Se omitido e sourceEventId for informado, a API assume TELEFONIA_FIXO.
+            Se omitido e nao houver sourceEventId/externalCallId, a API assume MANUAL.
         telefone:
           type: string
         quantidadeGaloes:
@@ -420,6 +475,33 @@ components:
           type: string
           enum: [NAO_INFORMADO, DINHEIRO, PIX, CARTAO, VALE]
           description: Opcional. Quando VALE, o checkout so e aceito se o cliente tiver saldo suficiente.
+        janelaTipo:
+          type: string
+          enum: [ASAP, HARD, FLEXIVEL]
+          description: |
+            Opcional. ASAP/FLEXIVEL representa janela flexivel; HARD exige horario de inicio/fim.
+        janelaInicio:
+          type: string
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+          description: Obrigatorio quando janelaTipo=HARD. Formato HH:mm.
+        janelaFim:
+          type: string
+          pattern: '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+          description: Obrigatorio quando janelaTipo=HARD. Formato HH:mm.
+        nomeCliente:
+          type: string
+          description: Opcional. Usado para criar/atualizar cadastro quando o telefone ainda nao existir.
+        endereco:
+          type: string
+          description: Opcional. Quando informado junto com latitude/longitude, habilita criacao completa do cadastro.
+        latitude:
+          type: number
+          format: double
+          description: Opcional. Deve ser enviado junto com longitude.
+        longitude:
+          type: number
+          format: double
+          description: Opcional. Deve ser enviado junto com latitude.
       required: [telefone, quantidadeGaloes, atendenteId]
 
     AtendimentoResponse:
@@ -801,6 +883,27 @@ components:
           type: number
       required: [pedidoId, entregaId, ordemNaRota, statusEntrega, quantidadeGaloes, lat, lon]
 
+    OperacaoMapaPonto:
+      type: object
+      properties:
+        tipo:
+          type: string
+          enum: [DEPOSITO, PARADA]
+        pedidoId:
+          type: integer
+          nullable: true
+        entregaId:
+          type: integer
+          nullable: true
+        ordemNaRota:
+          type: integer
+          nullable: true
+        lat:
+          type: number
+        lon:
+          type: number
+      required: [tipo, lat, lon]
+
     OperacaoMapaRota:
       type: object
       properties:
@@ -816,7 +919,12 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/OperacaoMapaParada'
-      required: [rotaId, entregadorId, statusRota, camada, paradas]
+        trajeto:
+          type: array
+          description: Sequencia geografica da rota (deposito -> paradas -> deposito).
+          items:
+            $ref: '#/components/schemas/OperacaoMapaPonto'
+      required: [rotaId, entregadorId, statusRota, camada, paradas, trajeto]
 
     OperacaoMapaResponse:
       type: object

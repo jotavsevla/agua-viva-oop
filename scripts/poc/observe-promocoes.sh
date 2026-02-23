@@ -12,6 +12,8 @@ WORK_DIR="${WORK_DIR:-/tmp/agua-viva-observe}"
 SUMMARY_FILE="${SUMMARY_FILE:-$WORK_DIR/summary.json}"
 REQUIRE_CONFIRMADO_EM_ROTA="${REQUIRE_CONFIRMADO_EM_ROTA:-0}"
 REQUIRE_PENDENTE_CONFIRMADO="${REQUIRE_PENDENTE_CONFIRMADO:-0}"
+REQUIRE_NO_EM_ROTA_CONFIRMADO="${REQUIRE_NO_EM_ROTA_CONFIRMADO:-1}"
+PROMO_DEBOUNCE_SEGUNDOS="${PROMO_DEBOUNCE_SEGUNDOS:-${DEBOUNCE_SEGUNDOS:-0}}"
 NUM_ENTREGADORES_ATIVOS="${NUM_ENTREGADORES_ATIVOS:-2}"
 mkdir -p "$WORK_DIR"
 
@@ -62,6 +64,15 @@ wait_for_sql_truth() {
   return 1
 }
 
+debounce_if_needed() {
+  local reason="$1"
+  if [[ "$PROMO_DEBOUNCE_SEGUNDOS" -le 0 ]]; then
+    return 0
+  fi
+  echo "[observe-promocoes] pausa ${PROMO_DEBOUNCE_SEGUNDOS}s: ${reason}"
+  sleep "$PROMO_DEBOUNCE_SEGUNDOS"
+}
+
 snapshot_sql() {
   cat <<'SQL'
 SELECT p.id,p.status::text,COALESCE(r.id::text,'-'),COALESCE(r.status::text,'-'),COALESCE(e.status::text,'-')
@@ -80,6 +91,10 @@ fi
 
 if ! [[ "$NUM_ENTREGADORES_ATIVOS" =~ ^[0-9]+$ ]] || [[ "$NUM_ENTREGADORES_ATIVOS" -le 0 ]]; then
   echo "NUM_ENTREGADORES_ATIVOS invalido: $NUM_ENTREGADORES_ATIVOS (use inteiro > 0)" >&2
+  exit 1
+fi
+if ! [[ "$PROMO_DEBOUNCE_SEGUNDOS" =~ ^[0-9]+$ ]]; then
+  echo "PROMO_DEBOUNCE_SEGUNDOS invalido: $PROMO_DEBOUNCE_SEGUNDOS (use inteiro >= 0)" >&2
   exit 1
 fi
 
@@ -160,6 +175,7 @@ fi
 echo "[observe-promocoes] Snapshot antes"
 psql_query "$(snapshot_sql)" > "$WORK_DIR/antes.txt"
 cat "$WORK_DIR/antes.txt"
+debounce_if_needed "apos snapshot antes"
 
 PEDIDOS_CONFIRMADOS=()
 while IFS= read -r pedido_id; do
@@ -193,16 +209,20 @@ if [[ "$ROTA_MANTER" == "0" ]]; then
   exit 1
 fi
 
+debounce_if_needed "antes de ROTA_INICIADA"
 api_post "/api/eventos" "$(jq -n --argjson rotaId "$ROTA_MANTER" '{eventType:"ROTA_INICIADA",rotaId:$rotaId}')" >/dev/null
+debounce_if_needed "apos ROTA_INICIADA"
 
 echo "[observe-promocoes] Aumentando capacidade para permitir promocao de pendente"
 psql_exec <<'SQL' >/dev/null
 UPDATE configuracoes SET valor = '3' WHERE chave = 'capacidade_veiculo';
 SQL
+debounce_if_needed "apos ajuste de capacidade"
 
 echo "[observe-promocoes] Disparando rodada por evento real (PEDIDO_CRIADO) ate promover pendente conhecido"
 PROMOCAO_OK=0
 for tentativa in $(seq 1 5); do
+  debounce_if_needed "antes de gatilho PEDIDO_CRIADO tentativa ${tentativa}"
   CALL_ID_GATILHO="promocao-gatilho-${tentativa}-$(date +%s)-$RANDOM"
   api_post "/api/atendimento/pedidos" "$(jq -n \
     --arg externalCallId "$CALL_ID_GATILHO" \
@@ -210,6 +230,7 @@ for tentativa in $(seq 1 5); do
     --argjson quantidadeGaloes 1 \
     --argjson atendenteId "$ATENDENTE_ID" \
     '{externalCallId:$externalCallId,telefone:$telefone,quantidadeGaloes:$quantidadeGaloes,atendenteId:$atendenteId,metodoPagamento:"PIX"}')" >/dev/null
+  debounce_if_needed "apos gatilho PEDIDO_CRIADO tentativa ${tentativa}"
 
   if wait_for_sql_truth "SELECT CASE WHEN EXISTS (
     SELECT 1
@@ -232,6 +253,7 @@ if [[ "$PROMOCAO_OK" -ne 1 ]]; then
 fi
 
 echo "[observe-promocoes] Snapshot depois"
+debounce_if_needed "antes do snapshot depois"
 psql_query "$(snapshot_sql)" > "$WORK_DIR/depois.txt"
 cat "$WORK_DIR/depois.txt"
 
@@ -260,8 +282,13 @@ echo
 echo "[observe-promocoes] PENDENTE -> CONFIRMADO"
 grep 'PENDENTE->CONFIRMADO' "$WORK_DIR/transicoes.txt" || true
 
+echo
+echo "[observe-promocoes] EM_ROTA -> CONFIRMADO (nao permitido)"
+grep 'EM_ROTA->CONFIRMADO' "$WORK_DIR/transicoes.txt" || true
+
 CONFIRMADO_EM_ROTA_COUNT="$(grep -c 'CONFIRMADO->EM_ROTA' "$WORK_DIR/transicoes.txt" || true)"
 PENDENTE_CONFIRMADO_COUNT="$(grep -c 'PENDENTE->CONFIRMADO' "$WORK_DIR/transicoes.txt" || true)"
+EM_ROTA_CONFIRMADO_COUNT="$(grep -c 'EM_ROTA->CONFIRMADO' "$WORK_DIR/transicoes.txt" || true)"
 ASSERT_FAILED=0
 
 if [[ "$REQUIRE_CONFIRMADO_EM_ROTA" -eq 1 && "$CONFIRMADO_EM_ROTA_COUNT" -eq 0 ]]; then
@@ -274,14 +301,22 @@ if [[ "$REQUIRE_PENDENTE_CONFIRMADO" -eq 1 && "$PENDENTE_CONFIRMADO_COUNT" -eq 0
   ASSERT_FAILED=1
 fi
 
+if [[ "$REQUIRE_NO_EM_ROTA_CONFIRMADO" -eq 1 && "$EM_ROTA_CONFIRMADO_COUNT" -gt 0 ]]; then
+  echo "[observe-promocoes] FALHA: detectada transicao proibida EM_ROTA->CONFIRMADO." >&2
+  ASSERT_FAILED=1
+fi
+
 jq -n \
   --arg generatedAt "$(date -u +"%Y-%m-%dT%H:%M:%SZ")" \
   --arg apiBase "$API_BASE" \
   --arg workDir "$WORK_DIR" \
   --argjson confirmadoEmRotaCount "$CONFIRMADO_EM_ROTA_COUNT" \
   --argjson pendenteConfirmadoCount "$PENDENTE_CONFIRMADO_COUNT" \
+  --argjson emRotaConfirmadoCount "$EM_ROTA_CONFIRMADO_COUNT" \
   --argjson requireConfirmadoEmRota "$REQUIRE_CONFIRMADO_EM_ROTA" \
   --argjson requirePendenteConfirmado "$REQUIRE_PENDENTE_CONFIRMADO" \
+  --argjson requireNoEmRotaConfirmado "$REQUIRE_NO_EM_ROTA_CONFIRMADO" \
+  --argjson promoDebounceSegundos "$PROMO_DEBOUNCE_SEGUNDOS" \
   --argjson ok "$(( ASSERT_FAILED == 0 ? 1 : 0 ))" \
   '{
     generatedAt: $generatedAt,
@@ -289,11 +324,16 @@ jq -n \
     workDir: $workDir,
     transitions: {
       confirmadoParaEmRota: $confirmadoEmRotaCount,
-      pendenteParaConfirmado: $pendenteConfirmadoCount
+      pendenteParaConfirmado: $pendenteConfirmadoCount,
+      emRotaParaConfirmado: $emRotaConfirmadoCount
     },
     required: {
       confirmadoParaEmRota: ($requireConfirmadoEmRota == 1),
-      pendenteParaConfirmado: ($requirePendenteConfirmado == 1)
+      pendenteParaConfirmado: ($requirePendenteConfirmado == 1),
+      noEmRotaParaConfirmado: ($requireNoEmRotaConfirmado == 1)
+    },
+    timing: {
+      promoDebounceSegundos: $promoDebounceSegundos
     },
     ok: ($ok == 1)
   }' > "$SUMMARY_FILE"

@@ -78,6 +78,7 @@ echo "[reset-test-state] Limpando estado operacional no banco de teste"
 run_sql <<SQL
 TRUNCATE TABLE
   eventos_operacionais_idempotencia,
+  atendimentos_idempotencia,
   dispatch_events,
   sessions,
   entregas,
@@ -94,11 +95,13 @@ INSERT INTO configuracoes (chave, valor, descricao)
 VALUES
   ('frota_perfil_ativo', 'PADRAO', 'Perfil de frota ativo: PADRAO|MOTO|CARRO'),
   ('capacidade_frota_moto', '2', 'Capacidade por entregador para perfil MOTO'),
-  ('capacidade_frota_carro', '5', 'Capacidade por entregador para perfil CARRO')
+  ('capacidade_frota_carro', '5', 'Capacidade por entregador para perfil CARRO'),
+  ('cobertura_bbox', '-43.9600,-16.8200,-43.7800,-16.6200', 'Cobertura operacional de atendimento (MOC) em bbox min_lon,min_lat,max_lon,max_lat')
 ON CONFLICT (chave) DO NOTHING;
 UPDATE configuracoes SET valor = 'PADRAO' WHERE chave = 'frota_perfil_ativo';
 UPDATE configuracoes SET valor = '2' WHERE chave = 'capacidade_frota_moto';
 UPDATE configuracoes SET valor = '5' WHERE chave = 'capacidade_frota_carro';
+UPDATE configuracoes SET valor = '-43.9600,-16.8200,-43.7800,-16.6200' WHERE chave = 'cobertura_bbox';
 
 INSERT INTO users (nome, email, senha_hash, papel, ativo)
 VALUES

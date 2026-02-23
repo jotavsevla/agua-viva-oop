@@ -4,6 +4,7 @@ public final class DispatchEventTypes {
 
     public static final String PEDIDO_CRIADO = "PEDIDO_CRIADO";
     public static final String ROTA_INICIADA = "ROTA_INICIADA";
+    public static final String ROTA_CONCLUIDA = "ROTA_CONCLUIDA";
     public static final String PEDIDO_ENTREGUE = "PEDIDO_ENTREGUE";
     public static final String PEDIDO_FALHOU = "PEDIDO_FALHOU";
     public static final String PEDIDO_CANCELADO = "PEDIDO_CANCELADO";

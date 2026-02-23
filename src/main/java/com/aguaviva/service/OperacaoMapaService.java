@@ -24,7 +24,7 @@ public class OperacaoMapaService {
         try (Connection conn = connectionFactory.getConnection()) {
             String ambiente = resolverAmbiente(conn);
             DepositoResumo deposito = consultarDeposito(conn);
-            List<RotaMapaResumo> rotas = consultarRotasComParadas(conn);
+            List<RotaMapaResumo> rotas = consultarRotasComParadas(conn, deposito);
             return new OperacaoMapaResultado(LocalDateTime.now().toString(), ambiente, deposito, rotas);
         } catch (SQLException e) {
             throw new IllegalStateException("Falha ao consultar mapa operacional", e);
@@ -71,7 +71,8 @@ public class OperacaoMapaService {
         }
     }
 
-    private List<RotaMapaResumo> consultarRotasComParadas(Connection conn) throws SQLException {
+    private List<RotaMapaResumo> consultarRotasComParadas(Connection conn, DepositoResumo deposito)
+            throws SQLException {
         String sql = "SELECT r.id AS rota_id, "
                 + "r.entregador_id, "
                 + "r.status::text AS rota_status, "
@@ -130,10 +131,29 @@ public class OperacaoMapaService {
 
         List<RotaMapaResumo> resultado = new ArrayList<>();
         for (RotaAccumulator rota : rotas.values()) {
-            resultado.add(
-                    new RotaMapaResumo(rota.rotaId, rota.entregadorId, rota.statusRota, rota.camada, rota.paradas));
+            List<ParadaMapaResumo> paradas = List.copyOf(rota.paradas);
+            resultado.add(new RotaMapaResumo(
+                    rota.rotaId,
+                    rota.entregadorId,
+                    rota.statusRota,
+                    rota.camada,
+                    paradas,
+                    construirTrajeto(deposito, paradas)));
         }
         return resultado;
+    }
+
+    private List<PontoMapaResumo> construirTrajeto(DepositoResumo deposito, List<ParadaMapaResumo> paradas) {
+        List<PontoMapaResumo> trajeto = new ArrayList<>();
+        trajeto.add(new PontoMapaResumo("DEPOSITO", null, null, null, deposito.lat(), deposito.lon()));
+        for (ParadaMapaResumo parada : paradas) {
+            trajeto.add(new PontoMapaResumo(
+                    "PARADA", parada.pedidoId(), parada.entregaId(), parada.ordemNaRota(), parada.lat(), parada.lon()));
+        }
+        if (!paradas.isEmpty()) {
+            trajeto.add(new PontoMapaResumo("DEPOSITO", null, null, null, deposito.lat(), deposito.lon()));
+        }
+        return List.copyOf(trajeto);
     }
 
     public record OperacaoMapaResultado(
@@ -146,9 +166,15 @@ public class OperacaoMapaService {
     public record DepositoResumo(double lat, double lon) {}
 
     public record RotaMapaResumo(
-            int rotaId, int entregadorId, String statusRota, String camada, List<ParadaMapaResumo> paradas) {
+            int rotaId,
+            int entregadorId,
+            String statusRota,
+            String camada,
+            List<ParadaMapaResumo> paradas,
+            List<PontoMapaResumo> trajeto) {
         public RotaMapaResumo {
             paradas = List.copyOf(paradas);
+            trajeto = List.copyOf(trajeto);
         }
     }
 
@@ -160,6 +186,9 @@ public class OperacaoMapaService {
             int quantidadeGaloes,
             double lat,
             double lon) {}
+
+    public record PontoMapaResumo(
+            String tipo, Integer pedidoId, Integer entregaId, Integer ordemNaRota, double lat, double lon) {}
 
     private static final class RotaAccumulator {
         private final int rotaId;

@@ -3,8 +3,10 @@ package com.aguaviva.domain.pedido;
 import static org.junit.jupiter.api.Assertions.*;
 
 import java.time.LocalTime;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
+@Tag("unit")
 class PedidoTest {
 
     // ========================================================================

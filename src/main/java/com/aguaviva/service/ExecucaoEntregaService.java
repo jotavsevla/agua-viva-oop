@@ -186,7 +186,7 @@ public class ExecucaoEntregaService {
                                     : transitionContext);
                 }
 
-                atualizarRotaParaConcluidaSeCabivel(conn, entrega.rotaId());
+                boolean rotaConcluida = atualizarRotaParaConcluidaSeCabivel(conn, entrega.rotaId());
 
                 dispatchEventService.publicar(
                         conn,
@@ -199,6 +199,14 @@ public class ExecucaoEntregaService {
                                 entrega.pedidoId(),
                                 entregaStatusDestino,
                                 motivo));
+                if (rotaConcluida) {
+                    dispatchEventService.publicar(
+                            conn,
+                            DispatchEventTypes.ROTA_CONCLUIDA,
+                            "ROTA",
+                            (long) entrega.rotaId(),
+                            new RotaConcluidaPayload(entrega.rotaId()));
+                }
 
                 conn.commit();
                 return new ExecucaoEntregaResultado(
@@ -422,7 +430,7 @@ public class ExecucaoEntregaService {
         }
     }
 
-    private void atualizarRotaParaConcluidaSeCabivel(Connection conn, int rotaId) throws SQLException {
+    private boolean atualizarRotaParaConcluidaSeCabivel(Connection conn, int rotaId) throws SQLException {
         String sql = "SELECT COUNT(*) FILTER (WHERE status::text IN ('PENDENTE', 'EM_EXECUCAO')) AS abertas "
                 + "FROM entregas WHERE rota_id = ?";
         int abertas;
@@ -434,14 +442,17 @@ public class ExecucaoEntregaService {
             }
         }
 
-        if (abertas == 0) {
-            try (PreparedStatement stmt = conn.prepareStatement(
-                    "UPDATE rotas SET status = ?, fim = COALESCE(fim, CURRENT_TIMESTAMP) WHERE id = ?")) {
-                stmt.setObject(1, "CONCLUIDA", Types.OTHER);
-                stmt.setInt(2, rotaId);
-                stmt.executeUpdate();
-            }
+        if (abertas != 0) {
+            return false;
         }
+
+        try (PreparedStatement stmt = conn.prepareStatement(
+                "UPDATE rotas SET status = ?, fim = COALESCE(fim, CURRENT_TIMESTAMP) WHERE id = ?")) {
+            stmt.setObject(1, "CONCLUIDA", Types.OTHER);
+            stmt.setInt(2, rotaId);
+            stmt.executeUpdate();
+        }
+        return true;
     }
 
     private void assertOperationalSchema(Connection conn) throws SQLException {
@@ -496,6 +507,8 @@ public class ExecucaoEntregaService {
             int entregadorId) {}
 
     private record RotaIniciadaPayload(int rotaId, int entregasEmExecucao) {}
+
+    private record RotaConcluidaPayload(int rotaId) {}
 
     private record EntregaAtualizadaPayload(
             int rotaId, int entregaId, int pedidoId, String statusEntrega, String motivo) {}

@@ -20,6 +20,15 @@
       "descricao": "Entregador iniciou a rota"
     },
     {
+      "event_type": "ROTA_CONCLUIDA",
+      "aggregate_type": "ROTA",
+      "publicado_por": "ExecucaoEntregaService",
+      "trigger_replanejamento": true,
+      "trigger_kind": "SECUNDARIO",
+      "capacidade_policy": "REMANESCENTE",
+      "descricao": "Rota finalizada e entregador liberado para nova janela de despacho"
+    },
+    {
       "event_type": "PEDIDO_ENTREGUE",
       "aggregate_type": "PEDIDO",
       "publicado_por": "ExecucaoEntregaService",

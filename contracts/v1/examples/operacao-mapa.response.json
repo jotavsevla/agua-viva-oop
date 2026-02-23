@@ -21,6 +21,26 @@
           "lat": -16.732,
           "lon": -43.872
         }
+      ],
+      "trajeto": [
+        {
+          "tipo": "DEPOSITO",
+          "lat": -16.731,
+          "lon": -43.871
+        },
+        {
+          "tipo": "PARADA",
+          "pedidoId": 101,
+          "entregaId": 55,
+          "ordemNaRota": 1,
+          "lat": -16.732,
+          "lon": -43.872
+        },
+        {
+          "tipo": "DEPOSITO",
+          "lat": -16.731,
+          "lon": -43.871
+        }
       ]
     }
   ]

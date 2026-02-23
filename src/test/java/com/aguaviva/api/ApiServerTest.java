@@ -3,6 +3,7 @@ package com.aguaviva.api;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.aguaviva.domain.cliente.Cliente;
@@ -22,7 +23,9 @@ import com.aguaviva.service.PlanejamentoResultado;
 import com.aguaviva.service.ReplanejamentoWorkerService;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import java.math.BigDecimal;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -44,12 +47,16 @@ import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
+@Tag("integration")
 class ApiServerTest {
 
     private static final Gson GSON = new Gson();
@@ -102,6 +109,19 @@ class ApiServerTest {
             stmt.execute("ALTER TABLE pedidos DROP CONSTRAINT IF EXISTS uk_pedidos_external_call_id");
             stmt.execute("DROP INDEX IF EXISTS uk_pedidos_external_call_id");
             stmt.execute("ALTER TABLE pedidos ADD CONSTRAINT uk_pedidos_external_call_id UNIQUE (external_call_id)");
+            stmt.execute("CREATE TABLE IF NOT EXISTS atendimentos_idempotencia ("
+                    + "origem_canal VARCHAR(32) NOT NULL, "
+                    + "source_event_id VARCHAR(128) NOT NULL, "
+                    + "pedido_id INTEGER NOT NULL, "
+                    + "cliente_id INTEGER NOT NULL, "
+                    + "telefone_normalizado VARCHAR(15) NOT NULL, "
+                    + "criado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, "
+                    + "PRIMARY KEY (origem_canal, source_event_id))");
+            stmt.execute("ALTER TABLE atendimentos_idempotencia ADD COLUMN IF NOT EXISTS request_hash VARCHAR(64)");
+            stmt.execute("INSERT INTO configuracoes (chave, valor, descricao) VALUES ("
+                    + "'cobertura_bbox', '-43.9600,-16.8200,-43.7800,-16.6200', "
+                    + "'Cobertura operacional de atendimento em bbox') "
+                    + "ON CONFLICT (chave) DO NOTHING");
             stmt.execute("DO $$ BEGIN "
                     + "IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'dispatch_event_status') "
                     + "THEN CREATE TYPE dispatch_event_status AS ENUM ('PENDENTE', 'PROCESSADO'); "
@@ -149,7 +169,7 @@ class ApiServerTest {
         try (Connection conn = factory.getConnection();
                 Statement stmt = conn.createStatement()) {
             stmt.execute(
-                    "TRUNCATE TABLE solver_jobs, eventos_operacionais_idempotencia, dispatch_events, sessions, entregas, rotas, movimentacao_vales, saldo_vales, pedidos, clientes, users RESTART IDENTITY CASCADE");
+                    "TRUNCATE TABLE solver_jobs, eventos_operacionais_idempotencia, atendimentos_idempotencia, dispatch_events, sessions, entregas, rotas, movimentacao_vales, saldo_vales, pedidos, clientes, users RESTART IDENTITY CASCADE");
         }
     }
 
@@ -223,6 +243,2000 @@ class ApiServerTest {
             assertEquals(1, contarLinhas("pedidos"));
             assertEquals(1, contarLinhas("clientes"));
             assertEquals(null, externalCallIdPedido(pedidoIdPrimeiro));
+        }
+    }
+
+    @Test
+    void deveCriarCadastroNoAtendimentoManualQuandoTelefoneNaoExistirViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-manual-criacao@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("origemCanal", "MANUAL"),
+                    Map.entry("manualRequestId", "manual-api-20260222-001"),
+                    Map.entry("telefone", "(38) 99876-9331"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente Manual API"),
+                    Map.entry("endereco", "Rua Nova, 123, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7310),
+                    Map.entry("longitude", -43.8710)));
+
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject body = GSON.fromJson(resposta.body(), JsonObject.class);
+            assertEquals(200, resposta.statusCode());
+            assertTrue(body.get("clienteCriado").getAsBoolean());
+            assertFalse(body.get("idempotente").getAsBoolean());
+            assertEquals(1, contarLinhas("clientes"));
+            assertEquals(1, contarLinhas("pedidos"));
+        }
+    }
+
+    @Test
+    void deveAplicarFallbackDeExternalCallIdComoManualRequestIdQuandoOrigemManualViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-manual-fallback-external@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String manualLegacyKey = "manual-legacy-evt-0001";
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("origemCanal", "MANUAL"),
+                    Map.entry("externalCallId", manualLegacyKey),
+                    Map.entry("telefone", "(38) 99876-9339"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente Manual Legacy"),
+                    Map.entry("endereco", "Rua Legacy, 101, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7315),
+                    Map.entry("longitude", -43.8715)));
+
+            HttpResponse<String> primeira = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> segunda = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject bodyPrimeira = GSON.fromJson(primeira.body(), JsonObject.class);
+            JsonObject bodySegunda = GSON.fromJson(segunda.body(), JsonObject.class);
+            int pedidoId = bodyPrimeira.get("pedidoId").getAsInt();
+
+            assertEquals(200, primeira.statusCode());
+            assertEquals(200, segunda.statusCode());
+            assertFalse(bodyPrimeira.get("idempotente").getAsBoolean());
+            assertTrue(bodySegunda.get("idempotente").getAsBoolean());
+            assertEquals(pedidoId, bodySegunda.get("pedidoId").getAsInt());
+            assertEquals(1, contarLinhas("pedidos"));
+            assertEquals(1, contarLinhas("clientes"));
+            assertEquals(1, contarAtendimentosIdempotenciaPorCanalEChave("MANUAL", manualLegacyKey));
+            assertNull(externalCallIdPedido(pedidoId));
+        }
+    }
+
+    @Test
+    void devePermitirIdempotenciaManualViaHeaderIdempotencyKeyQuandoSemManualRequestIdViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-manual-header-idem@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String manualHeaderKey = "manual-header-evt-0001";
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("origemCanal", "MANUAL"),
+                    Map.entry("telefone", "(38) 99876-9340"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente Manual Header"),
+                    Map.entry("endereco", "Rua Header, 102, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7315),
+                    Map.entry("longitude", -43.8715)));
+
+            HttpResponse<String> primeira = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("Idempotency-Key", manualHeaderKey)
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> segunda = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("Idempotency-Key", manualHeaderKey)
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject bodyPrimeira = GSON.fromJson(primeira.body(), JsonObject.class);
+            JsonObject bodySegunda = GSON.fromJson(segunda.body(), JsonObject.class);
+            assertEquals(200, primeira.statusCode());
+            assertEquals(200, segunda.statusCode());
+            assertFalse(bodyPrimeira.get("idempotente").getAsBoolean());
+            assertTrue(bodySegunda.get("idempotente").getAsBoolean());
+            assertEquals(
+                    bodyPrimeira.get("pedidoId").getAsInt(),
+                    bodySegunda.get("pedidoId").getAsInt());
+            assertEquals(1, contarLinhas("pedidos"));
+            assertEquals(1, contarAtendimentosIdempotenciaPorCanalEChave("MANUAL", manualHeaderKey));
+        }
+    }
+
+    @Test
+    void devePermitirIdempotenciaManualViaHeaderXIdempotencyKeyQuandoSemManualRequestIdViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-manual-header-x-idem@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String manualHeaderKey = "manual-xheader-evt-0001";
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("origemCanal", "MANUAL"),
+                    Map.entry("telefone", "(38) 99876-9342"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente Manual X Header"),
+                    Map.entry("endereco", "Rua Header, 104, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7315),
+                    Map.entry("longitude", -43.8715)));
+
+            HttpResponse<String> primeira = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("X-Idempotency-Key", manualHeaderKey)
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> segunda = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("X-Idempotency-Key", manualHeaderKey)
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject bodyPrimeira = GSON.fromJson(primeira.body(), JsonObject.class);
+            JsonObject bodySegunda = GSON.fromJson(segunda.body(), JsonObject.class);
+            assertEquals(200, primeira.statusCode());
+            assertEquals(200, segunda.statusCode());
+            assertFalse(bodyPrimeira.get("idempotente").getAsBoolean());
+            assertTrue(bodySegunda.get("idempotente").getAsBoolean());
+            assertEquals(
+                    bodyPrimeira.get("pedidoId").getAsInt(),
+                    bodySegunda.get("pedidoId").getAsInt());
+            assertEquals(1, contarLinhas("pedidos"));
+            assertEquals(1, contarAtendimentosIdempotenciaPorCanalEChave("MANUAL", manualHeaderKey));
+        }
+    }
+
+    @Test
+    void devePermitirIdempotenciaManualQuandoHeadersIdempotencySaoIguaisViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-manual-headers-iguais@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String manualHeaderKey = "manual-headers-iguais-0001";
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("origemCanal", "MANUAL"),
+                    Map.entry("telefone", "(38) 99876-9345"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente Header Duplo Igual"),
+                    Map.entry("endereco", "Rua Header, 107, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7315),
+                    Map.entry("longitude", -43.8715)));
+
+            HttpResponse<String> primeira = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("Idempotency-Key", manualHeaderKey)
+                            .header("X-Idempotency-Key", manualHeaderKey)
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> segunda = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("Idempotency-Key", manualHeaderKey)
+                            .header("X-Idempotency-Key", manualHeaderKey)
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject bodyPrimeira = GSON.fromJson(primeira.body(), JsonObject.class);
+            JsonObject bodySegunda = GSON.fromJson(segunda.body(), JsonObject.class);
+            assertEquals(200, primeira.statusCode());
+            assertEquals(200, segunda.statusCode());
+            assertFalse(bodyPrimeira.get("idempotente").getAsBoolean());
+            assertTrue(bodySegunda.get("idempotente").getAsBoolean());
+            assertEquals(
+                    bodyPrimeira.get("pedidoId").getAsInt(),
+                    bodySegunda.get("pedidoId").getAsInt());
+            assertEquals(1, contarLinhas("pedidos"));
+            assertEquals(1, contarAtendimentosIdempotenciaPorCanalEChave("MANUAL", manualHeaderKey));
+        }
+    }
+
+    @Test
+    void deveRetornar400QuandoHeadersIdempotencyKeyDivergiremViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-manual-headers-divergentes@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("origemCanal", "MANUAL"),
+                    Map.entry("telefone", "(38) 99876-9346"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente Header Duplo Divergente"),
+                    Map.entry("endereco", "Rua Header, 108, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7315),
+                    Map.entry("longitude", -43.8715)));
+
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("Idempotency-Key", "manual-header-valor-a")
+                            .header("X-Idempotency-Key", "manual-header-valor-b")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject body = GSON.fromJson(resposta.body(), JsonObject.class);
+            assertEquals(400, resposta.statusCode());
+            assertTrue(body.get("erro").getAsString().contains("devem ter o mesmo valor"));
+            assertEquals(0, contarLinhas("pedidos"));
+        }
+    }
+
+    @Test
+    void devePermitirIdempotenciaManualQuandoOrigemCanalOmitidaEHeaderIdempotencyKeyViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-manual-header-sem-origem@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String manualHeaderKey = "manual-header-sem-origem-0001";
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("telefone", "(38) 99876-9343"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente Manual Sem Origem"),
+                    Map.entry("endereco", "Rua Header, 105, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7315),
+                    Map.entry("longitude", -43.8715)));
+
+            HttpResponse<String> primeira = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("Idempotency-Key", manualHeaderKey)
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> segunda = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("Idempotency-Key", manualHeaderKey)
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject bodyPrimeira = GSON.fromJson(primeira.body(), JsonObject.class);
+            JsonObject bodySegunda = GSON.fromJson(segunda.body(), JsonObject.class);
+            assertEquals(200, primeira.statusCode());
+            assertEquals(200, segunda.statusCode());
+            assertFalse(bodyPrimeira.get("idempotente").getAsBoolean());
+            assertTrue(bodySegunda.get("idempotente").getAsBoolean());
+            assertEquals(
+                    bodyPrimeira.get("pedidoId").getAsInt(),
+                    bodySegunda.get("pedidoId").getAsInt());
+            assertEquals(1, contarLinhas("pedidos"));
+            assertEquals(1, contarAtendimentosIdempotenciaPorCanalEChave("MANUAL", manualHeaderKey));
+        }
+    }
+
+    @Test
+    void deveRetornar400QuandoManualRequestIdDivergirDoHeaderIdempotencyKeyViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-manual-header-divergente@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("origemCanal", "MANUAL"),
+                    Map.entry("manualRequestId", "manual-body-key-001"),
+                    Map.entry("telefone", "(38) 99876-9341"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente Header Divergente"),
+                    Map.entry("endereco", "Rua Header, 103, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7315),
+                    Map.entry("longitude", -43.8715)));
+
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("Idempotency-Key", "manual-header-key-999")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject body = GSON.fromJson(resposta.body(), JsonObject.class);
+            assertEquals(400, resposta.statusCode());
+            assertTrue(body.get("erro").getAsString().contains("manualRequestId diverge do header Idempotency-Key"));
+            assertEquals(0, contarLinhas("pedidos"));
+        }
+    }
+
+    @Test
+    void deveRetornar400QuandoManualRequestIdDivergirDeExternalCallIdViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-manual-external-divergente@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("origemCanal", "MANUAL"),
+                    Map.entry("manualRequestId", "manual-body-key-100"),
+                    Map.entry("externalCallId", "manual-legacy-key-999"),
+                    Map.entry("telefone", "(38) 99876-9347"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente Chaves Divergentes"),
+                    Map.entry("endereco", "Rua Header, 109, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7315),
+                    Map.entry("longitude", -43.8715)));
+
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject body = GSON.fromJson(resposta.body(), JsonObject.class);
+            assertEquals(400, resposta.statusCode());
+            assertTrue(body.get("erro").getAsString().contains("manualRequestId diverge de externalCallId"));
+            assertEquals(0, contarLinhas("pedidos"));
+        }
+    }
+
+    @Test
+    void deveRetornar400QuandoSourceEventIdDivergirDeExternalCallIdViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-auto-external-divergente@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("origemCanal", "WHATSAPP"),
+                    Map.entry("sourceEventId", "wa-evt-100"),
+                    Map.entry("externalCallId", "wa-evt-101"),
+                    Map.entry("telefone", "(38) 99876-9348"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente Auto Chaves Divergentes"),
+                    Map.entry("endereco", "Rua Header, 110, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7316),
+                    Map.entry("longitude", -43.8716)));
+
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject body = GSON.fromJson(resposta.body(), JsonObject.class);
+            assertEquals(400, resposta.statusCode());
+            assertTrue(body.get("erro").getAsString().contains("sourceEventId diverge de externalCallId"));
+            assertEquals(0, contarLinhas("pedidos"));
+        }
+    }
+
+    @Test
+    void devePermitirManualComIdempotencyKeyEExternalCallIdIguaisViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-manual-header-external-iguais@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String chave = "manual-header-external-0001";
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("origemCanal", "MANUAL"),
+                    Map.entry("externalCallId", chave),
+                    Map.entry("telefone", "(38) 99876-9349"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente Header + External"),
+                    Map.entry("endereco", "Rua Header, 111, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7316),
+                    Map.entry("longitude", -43.8716)));
+
+            HttpResponse<String> primeira = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("Idempotency-Key", chave)
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> segunda = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("Idempotency-Key", chave)
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject bodyPrimeira = GSON.fromJson(primeira.body(), JsonObject.class);
+            JsonObject bodySegunda = GSON.fromJson(segunda.body(), JsonObject.class);
+            int pedidoId = bodyPrimeira.get("pedidoId").getAsInt();
+            assertEquals(200, primeira.statusCode());
+            assertEquals(200, segunda.statusCode());
+            assertFalse(bodyPrimeira.get("idempotente").getAsBoolean());
+            assertTrue(bodySegunda.get("idempotente").getAsBoolean());
+            assertEquals(pedidoId, bodySegunda.get("pedidoId").getAsInt());
+            assertEquals(1, contarLinhas("pedidos"));
+            assertEquals(1, contarAtendimentosIdempotenciaPorCanalEChave("MANUAL", chave));
+            assertNull(externalCallIdPedido(pedidoId));
+        }
+    }
+
+    @Test
+    void deveRetornar400QuandoIdempotencyKeyDivergirDeExternalCallIdNoCanalManualViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-manual-header-external-divergente@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("origemCanal", "MANUAL"),
+                    Map.entry("externalCallId", "manual-external-key-B"),
+                    Map.entry("telefone", "(38) 99876-9350"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente Header + External Divergente"),
+                    Map.entry("endereco", "Rua Header, 112, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7316),
+                    Map.entry("longitude", -43.8716)));
+
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("Idempotency-Key", "manual-header-key-A")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject body = GSON.fromJson(resposta.body(), JsonObject.class);
+            assertEquals(400, resposta.statusCode());
+            assertTrue(body.get("erro").getAsString().contains("manualRequestId diverge de externalCallId"));
+            assertEquals(0, contarLinhas("pedidos"));
+        }
+    }
+
+    @Test
+    void devePermitirManualComXIdempotencyKeyEExternalCallIdIguaisViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-manual-xheader-external-iguais@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String chave = "manual-xheader-external-0001";
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("origemCanal", "MANUAL"),
+                    Map.entry("externalCallId", chave),
+                    Map.entry("telefone", "(38) 99876-9351"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente X Header + External"),
+                    Map.entry("endereco", "Rua Header, 113, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7316),
+                    Map.entry("longitude", -43.8716)));
+
+            HttpResponse<String> primeira = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("X-Idempotency-Key", chave)
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> segunda = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("X-Idempotency-Key", chave)
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject bodyPrimeira = GSON.fromJson(primeira.body(), JsonObject.class);
+            JsonObject bodySegunda = GSON.fromJson(segunda.body(), JsonObject.class);
+            int pedidoId = bodyPrimeira.get("pedidoId").getAsInt();
+            assertEquals(200, primeira.statusCode());
+            assertEquals(200, segunda.statusCode());
+            assertFalse(bodyPrimeira.get("idempotente").getAsBoolean());
+            assertTrue(bodySegunda.get("idempotente").getAsBoolean());
+            assertEquals(pedidoId, bodySegunda.get("pedidoId").getAsInt());
+            assertEquals(1, contarLinhas("pedidos"));
+            assertEquals(1, contarAtendimentosIdempotenciaPorCanalEChave("MANUAL", chave));
+            assertNull(externalCallIdPedido(pedidoId));
+        }
+    }
+
+    @Test
+    void deveRetornar400QuandoXIdempotencyKeyDivergirDeExternalCallIdNoCanalManualViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-manual-xheader-external-divergente@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("origemCanal", "MANUAL"),
+                    Map.entry("externalCallId", "manual-xexternal-key-B"),
+                    Map.entry("telefone", "(38) 99876-9352"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente X Header + External Divergente"),
+                    Map.entry("endereco", "Rua Header, 114, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7316),
+                    Map.entry("longitude", -43.8716)));
+
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("X-Idempotency-Key", "manual-xheader-key-A")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject body = GSON.fromJson(resposta.body(), JsonObject.class);
+            assertEquals(400, resposta.statusCode());
+            assertTrue(body.get("erro").getAsString().contains("manualRequestId diverge de externalCallId"));
+            assertEquals(0, contarLinhas("pedidos"));
+        }
+    }
+
+    @Test
+    void devePermitirOrigemOmitidaComExternalCallIdEIdempotencyKeyIguaisViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-origem-omitida-external-header-iguais@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String chave = "origem-omitida-ext-header-0001";
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("externalCallId", chave),
+                    Map.entry("telefone", "(38) 99876-9353"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente Origem Omitida"),
+                    Map.entry("endereco", "Rua Header, 115, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7316),
+                    Map.entry("longitude", -43.8716)));
+
+            HttpResponse<String> primeira = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("Idempotency-Key", chave)
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> segunda = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("Idempotency-Key", chave)
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject bodyPrimeira = GSON.fromJson(primeira.body(), JsonObject.class);
+            JsonObject bodySegunda = GSON.fromJson(segunda.body(), JsonObject.class);
+            int pedidoId = bodyPrimeira.get("pedidoId").getAsInt();
+            assertEquals(200, primeira.statusCode());
+            assertEquals(200, segunda.statusCode());
+            assertFalse(bodyPrimeira.get("idempotente").getAsBoolean());
+            assertTrue(bodySegunda.get("idempotente").getAsBoolean());
+            assertEquals(pedidoId, bodySegunda.get("pedidoId").getAsInt());
+            assertEquals(1, contarLinhas("pedidos"));
+            assertEquals(1, contarAtendimentosIdempotenciaPorCanalEChave("TELEFONIA_FIXO", chave));
+            assertEquals(chave, externalCallIdPedido(pedidoId));
+        }
+    }
+
+    @Test
+    void deveRetornar400QuandoOrigemOmitidaComExternalCallIdEIdempotencyKeyDivergiremViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-origem-omitida-external-header-divergente@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("externalCallId", "origem-omitida-ext-key-B"),
+                    Map.entry("telefone", "(38) 99876-9354"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente Origem Omitida Divergente"),
+                    Map.entry("endereco", "Rua Header, 116, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7316),
+                    Map.entry("longitude", -43.8716)));
+
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("Idempotency-Key", "origem-omitida-ext-key-A")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject body = GSON.fromJson(resposta.body(), JsonObject.class);
+            assertEquals(400, resposta.statusCode());
+            assertTrue(body.get("erro").getAsString().contains("Idempotency-Key diverge de externalCallId"));
+            assertEquals(0, contarLinhas("pedidos"));
+        }
+    }
+
+    @Test
+    void devePermitirOrigemOmitidaComExternalCallIdEXIdempotencyKeyIguaisViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-origem-omitida-external-xheader-iguais@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String chave = "origem-omitida-ext-xheader-0001";
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("externalCallId", chave),
+                    Map.entry("telefone", "(38) 99876-9355"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente Origem Omitida X"),
+                    Map.entry("endereco", "Rua Header, 117, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7316),
+                    Map.entry("longitude", -43.8716)));
+
+            HttpResponse<String> primeira = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("X-Idempotency-Key", chave)
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> segunda = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("X-Idempotency-Key", chave)
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject bodyPrimeira = GSON.fromJson(primeira.body(), JsonObject.class);
+            JsonObject bodySegunda = GSON.fromJson(segunda.body(), JsonObject.class);
+            int pedidoId = bodyPrimeira.get("pedidoId").getAsInt();
+            assertEquals(200, primeira.statusCode());
+            assertEquals(200, segunda.statusCode());
+            assertFalse(bodyPrimeira.get("idempotente").getAsBoolean());
+            assertTrue(bodySegunda.get("idempotente").getAsBoolean());
+            assertEquals(pedidoId, bodySegunda.get("pedidoId").getAsInt());
+            assertEquals(1, contarLinhas("pedidos"));
+            assertEquals(1, contarAtendimentosIdempotenciaPorCanalEChave("TELEFONIA_FIXO", chave));
+            assertEquals(chave, externalCallIdPedido(pedidoId));
+        }
+    }
+
+    @Test
+    void deveRetornar400QuandoOrigemOmitidaComExternalCallIdEXIdempotencyKeyDivergiremViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-origem-omitida-external-xheader-divergente@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("externalCallId", "origem-omitida-ext-xkey-B"),
+                    Map.entry("telefone", "(38) 99876-9356"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente Origem Omitida X Divergente"),
+                    Map.entry("endereco", "Rua Header, 118, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7316),
+                    Map.entry("longitude", -43.8716)));
+
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("X-Idempotency-Key", "origem-omitida-ext-xkey-A")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject body = GSON.fromJson(resposta.body(), JsonObject.class);
+            assertEquals(400, resposta.statusCode());
+            assertTrue(body.get("erro").getAsString().contains("Idempotency-Key diverge de externalCallId"));
+            assertEquals(0, contarLinhas("pedidos"));
+        }
+    }
+
+    @Test
+    void devePermitirOrigemOmitidaComExternalCallIdEHeadersIdempotenciaIguaisViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-origem-omitida-external-duplo-header-igual@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String chave = "origem-omitida-ext-duplo-header-0001";
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("externalCallId", chave),
+                    Map.entry("telefone", "(38) 99876-9357"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente Origem Omitida Header Duplo"),
+                    Map.entry("endereco", "Rua Header, 119, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7316),
+                    Map.entry("longitude", -43.8716)));
+
+            HttpResponse<String> primeira = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("Idempotency-Key", chave)
+                            .header("X-Idempotency-Key", chave)
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> segunda = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("Idempotency-Key", chave)
+                            .header("X-Idempotency-Key", chave)
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject bodyPrimeira = GSON.fromJson(primeira.body(), JsonObject.class);
+            JsonObject bodySegunda = GSON.fromJson(segunda.body(), JsonObject.class);
+            int pedidoId = bodyPrimeira.get("pedidoId").getAsInt();
+            assertEquals(200, primeira.statusCode());
+            assertEquals(200, segunda.statusCode());
+            assertFalse(bodyPrimeira.get("idempotente").getAsBoolean());
+            assertTrue(bodySegunda.get("idempotente").getAsBoolean());
+            assertEquals(pedidoId, bodySegunda.get("pedidoId").getAsInt());
+            assertEquals(1, contarLinhas("pedidos"));
+            assertEquals(1, contarAtendimentosIdempotenciaPorCanalEChave("TELEFONIA_FIXO", chave));
+            assertEquals(chave, externalCallIdPedido(pedidoId));
+        }
+    }
+
+    @Test
+    void deveRetornar400QuandoOrigemOmitidaComHeadersIdempotenciaIguaisEDivergentesDoExternalViaHttp()
+            throws Exception {
+        int atendenteId = criarAtendenteId("api-origem-omitida-external-duplo-header-div-external@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("externalCallId", "origem-omitida-ext-duplo-header-B"),
+                    Map.entry("telefone", "(38) 99876-9358"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente Origem Omitida Header Duplo Divergente"),
+                    Map.entry("endereco", "Rua Header, 120, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7316),
+                    Map.entry("longitude", -43.8716)));
+
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("Idempotency-Key", "origem-omitida-ext-duplo-header-A")
+                            .header("X-Idempotency-Key", "origem-omitida-ext-duplo-header-A")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject body = GSON.fromJson(resposta.body(), JsonObject.class);
+            assertEquals(400, resposta.statusCode());
+            assertTrue(body.get("erro").getAsString().contains("Idempotency-Key diverge de externalCallId"));
+            assertEquals(0, contarLinhas("pedidos"));
+        }
+    }
+
+    @Test
+    void deveRetornar400QuandoOrigemOmitidaComHeadersIdempotenciaDivergentesEntreSiViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-origem-omitida-external-duplo-header-div-headers@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("externalCallId", "origem-omitida-ext-duplo-header-C"),
+                    Map.entry("telefone", "(38) 99876-9359"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente Origem Omitida Header Duplo Divergente Entre Si"),
+                    Map.entry("endereco", "Rua Header, 121, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7316),
+                    Map.entry("longitude", -43.8716)));
+
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("Idempotency-Key", "origem-omitida-ext-duplo-header-C1")
+                            .header("X-Idempotency-Key", "origem-omitida-ext-duplo-header-C2")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject body = GSON.fromJson(resposta.body(), JsonObject.class);
+            assertEquals(400, resposta.statusCode());
+            assertTrue(body.get("erro")
+                    .getAsString()
+                    .contains("Idempotency-Key e X-Idempotency-Key devem ter o mesmo valor"));
+            assertEquals(0, contarLinhas("pedidos"));
+        }
+    }
+
+    @Test
+    void deveRetornar400QuandoCanalAutomaticoNaoEnviarSourceEventIdMesmoComHeaderIdempotencyKeyViaHttp()
+            throws Exception {
+        int atendenteId = criarAtendenteId("api-auto-sem-source-com-header@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("origemCanal", "WHATSAPP"),
+                    Map.entry("telefone", "(38) 99876-9344"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente auto sem source e com header"),
+                    Map.entry("endereco", "Rua Header, 106, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7320),
+                    Map.entry("longitude", -43.8720)));
+
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("Idempotency-Key", "auto-header-key-0001")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject body = GSON.fromJson(resposta.body(), JsonObject.class);
+            assertEquals(400, resposta.statusCode());
+            assertTrue(body.get("erro").getAsString().contains("sourceEventId obrigatorio"));
+            assertEquals(0, contarLinhas("pedidos"));
+        }
+    }
+
+    @Test
+    void devePermitirOrigemOmitidaComSourceEventIdEIdempotencyKeyIguaisViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-origem-omitida-source-header-iguais@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String chave = "origem-omitida-source-header-0001";
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("sourceEventId", chave),
+                    Map.entry("telefone", "(38) 99876-9367"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente Origem Omitida Source Header Igual"),
+                    Map.entry("endereco", "Rua Header, 129, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7316),
+                    Map.entry("longitude", -43.8716)));
+
+            HttpResponse<String> primeira = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("Idempotency-Key", chave)
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> segunda = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("Idempotency-Key", chave)
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject bodyPrimeira = GSON.fromJson(primeira.body(), JsonObject.class);
+            JsonObject bodySegunda = GSON.fromJson(segunda.body(), JsonObject.class);
+            int pedidoId = bodyPrimeira.get("pedidoId").getAsInt();
+            assertEquals(200, primeira.statusCode());
+            assertEquals(200, segunda.statusCode());
+            assertFalse(bodyPrimeira.get("idempotente").getAsBoolean());
+            assertTrue(bodySegunda.get("idempotente").getAsBoolean());
+            assertEquals(pedidoId, bodySegunda.get("pedidoId").getAsInt());
+            assertEquals(1, contarLinhas("pedidos"));
+            assertEquals(1, contarAtendimentosIdempotenciaPorCanalEChave("TELEFONIA_FIXO", chave));
+            assertEquals(chave, externalCallIdPedido(pedidoId));
+        }
+    }
+
+    @Test
+    void devePermitirOrigemOmitidaComSourceEventIdEXIdempotencyKeyIguaisViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-origem-omitida-source-xheader-iguais@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String chave = "origem-omitida-source-xheader-0001";
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("sourceEventId", chave),
+                    Map.entry("telefone", "(38) 99876-9368"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente Origem Omitida Source X Header Igual"),
+                    Map.entry("endereco", "Rua Header, 130, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7316),
+                    Map.entry("longitude", -43.8716)));
+
+            HttpResponse<String> primeira = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("X-Idempotency-Key", chave)
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> segunda = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("X-Idempotency-Key", chave)
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject bodyPrimeira = GSON.fromJson(primeira.body(), JsonObject.class);
+            JsonObject bodySegunda = GSON.fromJson(segunda.body(), JsonObject.class);
+            int pedidoId = bodyPrimeira.get("pedidoId").getAsInt();
+            assertEquals(200, primeira.statusCode());
+            assertEquals(200, segunda.statusCode());
+            assertFalse(bodyPrimeira.get("idempotente").getAsBoolean());
+            assertTrue(bodySegunda.get("idempotente").getAsBoolean());
+            assertEquals(pedidoId, bodySegunda.get("pedidoId").getAsInt());
+            assertEquals(1, contarLinhas("pedidos"));
+            assertEquals(1, contarAtendimentosIdempotenciaPorCanalEChave("TELEFONIA_FIXO", chave));
+            assertEquals(chave, externalCallIdPedido(pedidoId));
+        }
+    }
+
+    @Test
+    void deveRetornar400QuandoOrigemOmitidaComSourceEventIdEIdempotencyKeyDivergiremViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-origem-omitida-source-header-divergente@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("sourceEventId", "origem-omitida-source-header-B"),
+                    Map.entry("telefone", "(38) 99876-9369"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente Origem Omitida Source Header Divergente"),
+                    Map.entry("endereco", "Rua Header, 131, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7316),
+                    Map.entry("longitude", -43.8716)));
+
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("Idempotency-Key", "origem-omitida-source-header-A")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject body = GSON.fromJson(resposta.body(), JsonObject.class);
+            assertEquals(400, resposta.statusCode());
+            assertTrue(body.get("erro").getAsString().contains("sourceEventId diverge do header Idempotency-Key"));
+            assertEquals(0, contarLinhas("pedidos"));
+        }
+    }
+
+    @Test
+    void deveRetornar400QuandoOrigemOmitidaComSourceEventIdEManualRequestIdViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-origem-omitida-source-manual-key@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("sourceEventId", "origem-omitida-source-manual-001"),
+                    Map.entry("manualRequestId", "origem-omitida-manual-001"),
+                    Map.entry("telefone", "(38) 99876-9370"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente Origem Omitida Source + Manual"),
+                    Map.entry("endereco", "Rua Header, 132, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7316),
+                    Map.entry("longitude", -43.8716)));
+
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject body = GSON.fromJson(resposta.body(), JsonObject.class);
+            assertEquals(400, resposta.statusCode());
+            assertTrue(body.get("erro")
+                    .getAsString()
+                    .contains("manualRequestId so pode ser usado com origemCanal=MANUAL"));
+            assertEquals(0, contarLinhas("pedidos"));
+        }
+    }
+
+    @Test
+    void devePermitirCanalAutomaticoComSourceEventIdEIdempotencyKeyIguaisViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-auto-source-header-iguais@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String chave = "wa-evt-header-0001";
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("origemCanal", "WHATSAPP"),
+                    Map.entry("sourceEventId", chave),
+                    Map.entry("telefone", "(38) 99876-9360"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente WA Header Igual"),
+                    Map.entry("endereco", "Rua Header, 122, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7316),
+                    Map.entry("longitude", -43.8716)));
+
+            HttpResponse<String> primeira = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("Idempotency-Key", chave)
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> segunda = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("Idempotency-Key", chave)
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject bodyPrimeira = GSON.fromJson(primeira.body(), JsonObject.class);
+            JsonObject bodySegunda = GSON.fromJson(segunda.body(), JsonObject.class);
+            int pedidoId = bodyPrimeira.get("pedidoId").getAsInt();
+            assertEquals(200, primeira.statusCode());
+            assertEquals(200, segunda.statusCode());
+            assertFalse(bodyPrimeira.get("idempotente").getAsBoolean());
+            assertTrue(bodySegunda.get("idempotente").getAsBoolean());
+            assertEquals(pedidoId, bodySegunda.get("pedidoId").getAsInt());
+            assertEquals(1, contarLinhas("pedidos"));
+            assertEquals(1, contarAtendimentosIdempotenciaPorCanalEChave("WHATSAPP", chave));
+        }
+    }
+
+    @Test
+    void deveRetornar400QuandoCanalAutomaticoComSourceEventIdEIdempotencyKeyDivergiremViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-auto-source-header-divergente@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("origemCanal", "WHATSAPP"),
+                    Map.entry("sourceEventId", "wa-evt-header-B"),
+                    Map.entry("telefone", "(38) 99876-9361"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente WA Header Divergente"),
+                    Map.entry("endereco", "Rua Header, 123, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7316),
+                    Map.entry("longitude", -43.8716)));
+
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("Idempotency-Key", "wa-evt-header-A")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject body = GSON.fromJson(resposta.body(), JsonObject.class);
+            assertEquals(400, resposta.statusCode());
+            assertTrue(body.get("erro").getAsString().contains("sourceEventId diverge do header Idempotency-Key"));
+            assertEquals(0, contarLinhas("pedidos"));
+        }
+    }
+
+    @Test
+    void devePermitirCanalAutomaticoComSourceEventIdEXIdempotencyKeyIguaisViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-auto-source-xheader-iguais@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String chave = "wa-evt-xheader-0001";
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("origemCanal", "WHATSAPP"),
+                    Map.entry("sourceEventId", chave),
+                    Map.entry("telefone", "(38) 99876-9362"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente WA X Header Igual"),
+                    Map.entry("endereco", "Rua Header, 124, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7316),
+                    Map.entry("longitude", -43.8716)));
+
+            HttpResponse<String> primeira = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("X-Idempotency-Key", chave)
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> segunda = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("X-Idempotency-Key", chave)
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject bodyPrimeira = GSON.fromJson(primeira.body(), JsonObject.class);
+            JsonObject bodySegunda = GSON.fromJson(segunda.body(), JsonObject.class);
+            int pedidoId = bodyPrimeira.get("pedidoId").getAsInt();
+            assertEquals(200, primeira.statusCode());
+            assertEquals(200, segunda.statusCode());
+            assertFalse(bodyPrimeira.get("idempotente").getAsBoolean());
+            assertTrue(bodySegunda.get("idempotente").getAsBoolean());
+            assertEquals(pedidoId, bodySegunda.get("pedidoId").getAsInt());
+            assertEquals(1, contarLinhas("pedidos"));
+            assertEquals(1, contarAtendimentosIdempotenciaPorCanalEChave("WHATSAPP", chave));
+        }
+    }
+
+    @Test
+    void deveRetornar400QuandoCanalAutomaticoComSourceEventIdEXIdempotencyKeyDivergiremViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-auto-source-xheader-divergente@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("origemCanal", "WHATSAPP"),
+                    Map.entry("sourceEventId", "wa-evt-xheader-B"),
+                    Map.entry("telefone", "(38) 99876-9363"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente WA X Header Divergente"),
+                    Map.entry("endereco", "Rua Header, 125, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7316),
+                    Map.entry("longitude", -43.8716)));
+
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("X-Idempotency-Key", "wa-evt-xheader-A")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject body = GSON.fromJson(resposta.body(), JsonObject.class);
+            assertEquals(400, resposta.statusCode());
+            assertTrue(body.get("erro").getAsString().contains("sourceEventId diverge do header Idempotency-Key"));
+            assertEquals(0, contarLinhas("pedidos"));
+        }
+    }
+
+    @Test
+    void devePermitirCanalAutomaticoComSourceEventIdEHeadersIdempotenciaIguaisViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-auto-source-duplo-header-iguais@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String chave = "wa-evt-duplo-header-0001";
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("origemCanal", "WHATSAPP"),
+                    Map.entry("sourceEventId", chave),
+                    Map.entry("telefone", "(38) 99876-9364"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente WA Duplo Header Igual"),
+                    Map.entry("endereco", "Rua Header, 126, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7316),
+                    Map.entry("longitude", -43.8716)));
+
+            HttpResponse<String> primeira = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("Idempotency-Key", chave)
+                            .header("X-Idempotency-Key", chave)
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> segunda = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("Idempotency-Key", chave)
+                            .header("X-Idempotency-Key", chave)
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject bodyPrimeira = GSON.fromJson(primeira.body(), JsonObject.class);
+            JsonObject bodySegunda = GSON.fromJson(segunda.body(), JsonObject.class);
+            int pedidoId = bodyPrimeira.get("pedidoId").getAsInt();
+            assertEquals(200, primeira.statusCode());
+            assertEquals(200, segunda.statusCode());
+            assertFalse(bodyPrimeira.get("idempotente").getAsBoolean());
+            assertTrue(bodySegunda.get("idempotente").getAsBoolean());
+            assertEquals(pedidoId, bodySegunda.get("pedidoId").getAsInt());
+            assertEquals(1, contarLinhas("pedidos"));
+            assertEquals(1, contarAtendimentosIdempotenciaPorCanalEChave("WHATSAPP", chave));
+        }
+    }
+
+    @Test
+    void deveRetornar400QuandoCanalAutomaticoComHeadersIdempotenciaIguaisEDivergentesDoSourceEventIdViaHttp()
+            throws Exception {
+        int atendenteId = criarAtendenteId("api-auto-source-duplo-header-div-source@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("origemCanal", "WHATSAPP"),
+                    Map.entry("sourceEventId", "wa-evt-duplo-header-B"),
+                    Map.entry("telefone", "(38) 99876-9365"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente WA Duplo Header Divergente Source"),
+                    Map.entry("endereco", "Rua Header, 127, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7316),
+                    Map.entry("longitude", -43.8716)));
+
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("Idempotency-Key", "wa-evt-duplo-header-A")
+                            .header("X-Idempotency-Key", "wa-evt-duplo-header-A")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject body = GSON.fromJson(resposta.body(), JsonObject.class);
+            assertEquals(400, resposta.statusCode());
+            assertTrue(body.get("erro").getAsString().contains("sourceEventId diverge do header Idempotency-Key"));
+            assertEquals(0, contarLinhas("pedidos"));
+        }
+    }
+
+    @Test
+    void deveRetornar400QuandoCanalAutomaticoComHeadersIdempotenciaDivergentesEntreSiViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-auto-source-duplo-header-div-headers@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("origemCanal", "WHATSAPP"),
+                    Map.entry("sourceEventId", "wa-evt-duplo-header-C"),
+                    Map.entry("telefone", "(38) 99876-9366"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente WA Duplo Header Divergente Headers"),
+                    Map.entry("endereco", "Rua Header, 128, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7316),
+                    Map.entry("longitude", -43.8716)));
+
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .header("Idempotency-Key", "wa-evt-duplo-header-C1")
+                            .header("X-Idempotency-Key", "wa-evt-duplo-header-C2")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject body = GSON.fromJson(resposta.body(), JsonObject.class);
+            assertEquals(400, resposta.statusCode());
+            assertTrue(body.get("erro")
+                    .getAsString()
+                    .contains("Idempotency-Key e X-Idempotency-Key devem ter o mesmo valor"));
+            assertEquals(0, contarLinhas("pedidos"));
+        }
+    }
+
+    @Test
+    void deveRespeitarIdempotenciaPorCanalESourceEventIdViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-omnichannel-idem@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("origemCanal", "WHATSAPP"),
+                    Map.entry("sourceEventId", "wa-evt-0001"),
+                    Map.entry("telefone", "(38) 99876-9332"),
+                    Map.entry("quantidadeGaloes", 2),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente WA"),
+                    Map.entry("endereco", "Rua Bot, 42, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7320),
+                    Map.entry("longitude", -43.8720)));
+
+            HttpResponse<String> primeira = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> segunda = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject body1 = GSON.fromJson(primeira.body(), JsonObject.class);
+            JsonObject body2 = GSON.fromJson(segunda.body(), JsonObject.class);
+            assertEquals(200, primeira.statusCode());
+            assertEquals(200, segunda.statusCode());
+            assertFalse(body1.get("idempotente").getAsBoolean());
+            assertTrue(body2.get("idempotente").getAsBoolean());
+            assertEquals(body1.get("pedidoId").getAsInt(), body2.get("pedidoId").getAsInt());
+            assertEquals(1, contarLinhas("pedidos"));
+            assertEquals(1, contarLinhas("clientes"));
+        }
+    }
+
+    @Test
+    void deveRetornar409QuandoSourceEventIdForReutilizadoComPayloadDivergenteViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-omnichannel-divergente@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String payloadBase = GSON.toJson(Map.ofEntries(
+                    Map.entry("origemCanal", "WHATSAPP"),
+                    Map.entry("sourceEventId", "wa-evt-div-0001"),
+                    Map.entry("telefone", "(38) 99876-9390"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente WA Divergente"),
+                    Map.entry("endereco", "Rua Bot, 90, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7320),
+                    Map.entry("longitude", -43.8720)));
+            String payloadDivergente = GSON.toJson(Map.ofEntries(
+                    Map.entry("origemCanal", "WHATSAPP"),
+                    Map.entry("sourceEventId", "wa-evt-div-0001"),
+                    Map.entry("telefone", "(38) 99876-9390"),
+                    Map.entry("quantidadeGaloes", 2),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente WA Divergente"),
+                    Map.entry("endereco", "Rua Bot, 90, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7320),
+                    Map.entry("longitude", -43.8720)));
+
+            HttpResponse<String> primeira = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString(payloadBase))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> segunda = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString(payloadDivergente))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject bodyPrimeira = GSON.fromJson(primeira.body(), JsonObject.class);
+            JsonObject bodySegunda = GSON.fromJson(segunda.body(), JsonObject.class);
+            assertEquals(200, primeira.statusCode());
+            assertEquals(409, segunda.statusCode());
+            assertTrue(bodySegunda.get("erro").getAsString().contains("payload divergente"));
+            assertFalse(bodyPrimeira.get("idempotente").getAsBoolean());
+            assertEquals(1, contarLinhas("pedidos"));
+            assertEquals(1, contarLinhas("atendimentos_idempotencia"));
+        }
+    }
+
+    @Test
+    void deveRetornar409QuandoManualRequestIdForReutilizadoComPayloadDivergenteViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-manual-divergente@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String payloadBase = GSON.toJson(Map.ofEntries(
+                    Map.entry("origemCanal", "MANUAL"),
+                    Map.entry("manualRequestId", "manual-evt-div-0001"),
+                    Map.entry("telefone", "(38) 99876-9391"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente Manual Divergente"),
+                    Map.entry("endereco", "Rua Manual, 91, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7320),
+                    Map.entry("longitude", -43.8720)));
+            String payloadDivergente = GSON.toJson(Map.ofEntries(
+                    Map.entry("origemCanal", "MANUAL"),
+                    Map.entry("manualRequestId", "manual-evt-div-0001"),
+                    Map.entry("telefone", "(38) 99876-9391"),
+                    Map.entry("quantidadeGaloes", 2),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente Manual Divergente"),
+                    Map.entry("endereco", "Rua Manual, 91, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7320),
+                    Map.entry("longitude", -43.8720)));
+
+            HttpResponse<String> primeira = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString(payloadBase))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> segunda = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString(payloadDivergente))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject bodyPrimeira = GSON.fromJson(primeira.body(), JsonObject.class);
+            JsonObject bodySegunda = GSON.fromJson(segunda.body(), JsonObject.class);
+            assertEquals(200, primeira.statusCode());
+            assertEquals(409, segunda.statusCode());
+            assertTrue(bodySegunda.get("erro").getAsString().contains("payload divergente"));
+            assertFalse(bodyPrimeira.get("idempotente").getAsBoolean());
+            assertEquals(1, contarLinhas("pedidos"));
+            assertEquals(1, contarLinhas("atendimentos_idempotencia"));
+        }
+    }
+
+    @Test
+    void deveAplicarFallbackDeExternalCallIdComoSourceEventIdEmCanalAutomaticoViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-omnichannel-fallback@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("origemCanal", "WHATSAPP"),
+                    Map.entry("externalCallId", "wa-legacy-fallback-0001"),
+                    Map.entry("telefone", "(38) 99876-9335"),
+                    Map.entry("quantidadeGaloes", 2),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente WA Legacy"),
+                    Map.entry("endereco", "Rua Bot, 45, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7320),
+                    Map.entry("longitude", -43.8720)));
+
+            HttpResponse<String> primeira = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> segunda = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject body1 = GSON.fromJson(primeira.body(), JsonObject.class);
+            JsonObject body2 = GSON.fromJson(segunda.body(), JsonObject.class);
+            assertEquals(200, primeira.statusCode());
+            assertEquals(200, segunda.statusCode());
+            assertFalse(body1.get("idempotente").getAsBoolean());
+            assertTrue(body2.get("idempotente").getAsBoolean());
+            assertEquals(body1.get("pedidoId").getAsInt(), body2.get("pedidoId").getAsInt());
+            assertEquals(1, contarLinhas("pedidos"));
+            assertEquals(1, contarLinhas("atendimentos_idempotencia"));
+        }
+    }
+
+    @Test
+    void devePersistirExternalCallIdHasheadoQuandoSourceEventIdLongoViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-omnichannel-source-longo@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+        String sourceEventIdLongo = IntStream.range(0, 110).mapToObj(i -> "y").collect(Collectors.joining());
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("origemCanal", "WHATSAPP"),
+                    Map.entry("sourceEventId", sourceEventIdLongo),
+                    Map.entry("telefone", "(38) 99876-9338"),
+                    Map.entry("quantidadeGaloes", 2),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente WA Source Longo"),
+                    Map.entry("endereco", "Rua Bot, 48, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7320),
+                    Map.entry("longitude", -43.8720)));
+
+            HttpResponse<String> primeira = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> segunda = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject body1 = GSON.fromJson(primeira.body(), JsonObject.class);
+            JsonObject body2 = GSON.fromJson(segunda.body(), JsonObject.class);
+            int pedidoId = body1.get("pedidoId").getAsInt();
+            assertEquals(200, primeira.statusCode());
+            assertEquals(200, segunda.statusCode());
+            assertFalse(body1.get("idempotente").getAsBoolean());
+            assertTrue(body2.get("idempotente").getAsBoolean());
+            assertEquals(body1.get("pedidoId").getAsInt(), body2.get("pedidoId").getAsInt());
+            assertEquals(1, contarLinhas("pedidos"));
+            assertEquals(1, contarLinhas("atendimentos_idempotencia"));
+
+            String externalCallId = externalCallIdPedido(pedidoId);
+            assertTrue(externalCallId != null && externalCallId.length() == 64);
+        }
+    }
+
+    @Test
+    void deveRetornar400QuandoCanalAutomaticoNaoEnviarSourceEventIdViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-auto-sem-source@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("origemCanal", "WHATSAPP"),
+                    Map.entry("telefone", "(38) 99876-9336"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente sem sourceEventId"),
+                    Map.entry("endereco", "Rua Bot, 55, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7320),
+                    Map.entry("longitude", -43.8720)));
+
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject body = GSON.fromJson(resposta.body(), JsonObject.class);
+            assertEquals(400, resposta.statusCode());
+            assertTrue(body.get("erro").getAsString().contains("sourceEventId obrigatorio"));
+            assertEquals(0, contarLinhas("pedidos"));
+        }
+    }
+
+    @Test
+    void deveRetornar400QuandoCanalAutomaticoReceberManualRequestIdViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-auto-manual-key@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("origemCanal", "BINA_FIXO"),
+                    Map.entry("sourceEventId", "bina-evt-777"),
+                    Map.entry("manualRequestId", "manual-ui-777"),
+                    Map.entry("telefone", "(38) 99876-9337"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente chave invalida"),
+                    Map.entry("endereco", "Rua Bot, 56, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7330),
+                    Map.entry("longitude", -43.8730)));
+
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject body = GSON.fromJson(resposta.body(), JsonObject.class);
+            assertEquals(400, resposta.statusCode());
+            assertTrue(body.get("erro").getAsString().contains("manualRequestId so pode ser usado"));
+            assertEquals(0, contarLinhas("pedidos"));
+        }
+    }
+
+    @Test
+    void deveRetornar400QuandoCanalManualReceberSourceEventIdViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-manual-source-event@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("origemCanal", "MANUAL"),
+                    Map.entry("sourceEventId", "manual-source-event-777"),
+                    Map.entry("telefone", "(38) 99876-9338"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente chave manual invalida"),
+                    Map.entry("endereco", "Rua Bot, 57, Montes Claros - MG"),
+                    Map.entry("latitude", -16.7330),
+                    Map.entry("longitude", -43.8730)));
+
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject body = GSON.fromJson(resposta.body(), JsonObject.class);
+            assertEquals(400, resposta.statusCode());
+            assertTrue(body.get("erro").getAsString().contains("sourceEventId nao pode ser usado"));
+            assertEquals(0, contarLinhas("pedidos"));
+        }
+    }
+
+    @Test
+    void deveRejeitarCadastroForaDaCoberturaMocViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-coverage@teste.com");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String payload = GSON.toJson(Map.ofEntries(
+                    Map.entry("origemCanal", "MANUAL"),
+                    Map.entry("telefone", "(38) 99876-9333"),
+                    Map.entry("quantidadeGaloes", 1),
+                    Map.entry("atendenteId", atendenteId),
+                    Map.entry("nomeCliente", "Cliente Fora MOC"),
+                    Map.entry("endereco", "Rua Distante, 1"),
+                    Map.entry("latitude", -18.0000),
+                    Map.entry("longitude", -44.5000)));
+
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject body = GSON.fromJson(resposta.body(), JsonObject.class);
+            assertEquals(400, resposta.statusCode());
+            assertTrue(body.get("erro").getAsString().contains("fora da cobertura operacional"));
+            assertEquals(0, contarLinhas("pedidos"));
+            assertEquals(1, contarLinhas("clientes"));
         }
     }
 
@@ -343,6 +2357,100 @@ class ApiServerTest {
             assertEquals("call-api-001", externalCallIdPedido(pedidoIdPrimeiro));
             assertEquals(1, contarLinhas("pedidos"));
             assertEquals(1, contarLinhas("clientes"));
+        }
+    }
+
+    @Test
+    void deveAceitarJanelaHardViaHttpQuandoPayloadForValido() throws Exception {
+        int atendenteId = criarAtendenteId("api-hard-window@teste.com");
+        criarClienteId("(38) 99876-9044");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String payload = GSON.toJson(Map.of(
+                    "externalCallId",
+                    "call-api-hard-001",
+                    "telefone",
+                    "(38) 99876-9044",
+                    "quantidadeGaloes",
+                    1,
+                    "atendenteId",
+                    atendenteId,
+                    "metodoPagamento",
+                    "PIX",
+                    "janelaTipo",
+                    "HARD",
+                    "janelaInicio",
+                    "09:00",
+                    "janelaFim",
+                    "11:00"));
+
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            assertEquals(200, resposta.statusCode());
+            JsonObject body = GSON.fromJson(resposta.body(), JsonObject.class);
+            int pedidoId = body.get("pedidoId").getAsInt();
+            assertEquals("HARD", janelaTipoPedido(pedidoId));
+            assertEquals("09:00:00", janelaInicioPedido(pedidoId));
+            assertEquals("11:00:00", janelaFimPedido(pedidoId));
+        }
+    }
+
+    @Test
+    void deveRetornar400QuandoJanelaHardNaoInformarHorarioCompletoViaHttp() throws Exception {
+        int atendenteId = criarAtendenteId("api-hard-window-invalido@teste.com");
+        criarClienteId("(38) 99876-9045");
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            String payload = GSON.toJson(Map.of(
+                    "externalCallId",
+                    "call-api-hard-002",
+                    "telefone",
+                    "(38) 99876-9045",
+                    "quantidadeGaloes",
+                    1,
+                    "atendenteId",
+                    atendenteId,
+                    "metodoPagamento",
+                    "PIX",
+                    "janelaTipo",
+                    "HARD",
+                    "janelaInicio",
+                    "09:00"));
+
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/api/atendimento/pedidos"))
+                            .header("Content-Type", "application/json")
+                            .POST(HttpRequest.BodyPublishers.ofString(payload))
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            assertEquals(400, resposta.statusCode());
+            JsonObject body = GSON.fromJson(resposta.body(), JsonObject.class);
+            assertTrue(body.get("erro").getAsString().contains("janelaTipo=HARD"));
+            assertEquals(0, contarLinhas("pedidos"));
         }
     }
 
@@ -903,7 +3011,10 @@ class ApiServerTest {
                             .GET()
                             .build(),
                     HttpResponse.BodyHandlers.ofString());
-            JsonObject payload = GSON.fromJson(resposta.body(), JsonObject.class);
+            JsonElement payloadElement = JsonParser.parseString(resposta.body());
+            assertTrue(
+                    payloadElement.isJsonObject(), "Payload do mapa deve ser um objeto JSON. body=" + resposta.body());
+            JsonObject payload = payloadElement.getAsJsonObject();
 
             assertEquals(200, resposta.statusCode());
             assertTrue(payload.has("deposito"));
@@ -924,6 +3035,12 @@ class ApiServerTest {
             assertEquals(pedidoEmRota, paradaPrimaria.get("pedidoId").getAsInt());
             assertEquals(entregaEmExecucao, paradaPrimaria.get("entregaId").getAsInt());
             assertEquals("EM_EXECUCAO", paradaPrimaria.get("statusEntrega").getAsString());
+            JsonArray trajetoPrimaria = rotaPrimaria.getAsJsonArray("trajeto");
+            assertEquals(3, trajetoPrimaria.size());
+            JsonObject pontoInicialPrimaria = trajetoPrimaria.get(0).getAsJsonObject();
+            JsonObject pontoFinalPrimaria = trajetoPrimaria.get(2).getAsJsonObject();
+            assertEquals("DEPOSITO", pontoInicialPrimaria.get("tipo").getAsString());
+            assertEquals("DEPOSITO", pontoFinalPrimaria.get("tipo").getAsString());
 
             JsonObject rotaSecundaria = buscarRota(rotas, rotaPlanejada);
             assertNotNull(rotaSecundaria);
@@ -935,6 +3052,12 @@ class ApiServerTest {
             assertEquals(pedidoConfirmado, paradaSecundaria.get("pedidoId").getAsInt());
             assertEquals(entregaPendente, paradaSecundaria.get("entregaId").getAsInt());
             assertEquals("PENDENTE", paradaSecundaria.get("statusEntrega").getAsString());
+            JsonArray trajetoSecundaria = rotaSecundaria.getAsJsonArray("trajeto");
+            assertEquals(3, trajetoSecundaria.size());
+            JsonObject pontoInicialSecundaria = trajetoSecundaria.get(0).getAsJsonObject();
+            JsonObject pontoFinalSecundaria = trajetoSecundaria.get(2).getAsJsonObject();
+            assertEquals("DEPOSITO", pontoInicialSecundaria.get("tipo").getAsString());
+            assertEquals("DEPOSITO", pontoFinalSecundaria.get("tipo").getAsString());
         }
     }
 
@@ -1846,6 +3969,19 @@ class ApiServerTest {
         }
     }
 
+    private int contarAtendimentosIdempotenciaPorCanalEChave(String origemCanal, String dedupeKey) throws Exception {
+        try (Connection conn = factory.getConnection();
+                PreparedStatement stmt = conn.prepareStatement(
+                        "SELECT COUNT(*) FROM atendimentos_idempotencia WHERE origem_canal = ? AND source_event_id = ?")) {
+            stmt.setString(1, origemCanal);
+            stmt.setString(2, dedupeKey);
+            try (ResultSet rs = stmt.executeQuery()) {
+                rs.next();
+                return rs.getInt(1);
+            }
+        }
+    }
+
     private int contarDispatchPorStatus(String status) throws Exception {
         try (Connection conn = factory.getConnection();
                 PreparedStatement stmt =
@@ -1873,6 +4009,40 @@ class ApiServerTest {
     private String externalCallIdPedido(int pedidoId) throws Exception {
         try (Connection conn = factory.getConnection();
                 PreparedStatement stmt = conn.prepareStatement("SELECT external_call_id FROM pedidos WHERE id = ?")) {
+            stmt.setInt(1, pedidoId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                rs.next();
+                return rs.getString(1);
+            }
+        }
+    }
+
+    private String janelaTipoPedido(int pedidoId) throws Exception {
+        try (Connection conn = factory.getConnection();
+                PreparedStatement stmt = conn.prepareStatement("SELECT janela_tipo::text FROM pedidos WHERE id = ?")) {
+            stmt.setInt(1, pedidoId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                rs.next();
+                return rs.getString(1);
+            }
+        }
+    }
+
+    private String janelaInicioPedido(int pedidoId) throws Exception {
+        try (Connection conn = factory.getConnection();
+                PreparedStatement stmt =
+                        conn.prepareStatement("SELECT janela_inicio::text FROM pedidos WHERE id = ?")) {
+            stmt.setInt(1, pedidoId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                rs.next();
+                return rs.getString(1);
+            }
+        }
+    }
+
+    private String janelaFimPedido(int pedidoId) throws Exception {
+        try (Connection conn = factory.getConnection();
+                PreparedStatement stmt = conn.prepareStatement("SELECT janela_fim::text FROM pedidos WHERE id = ?")) {
             stmt.setInt(1, pedidoId);
             try (ResultSet rs = stmt.executeQuery()) {
                 rs.next();

@@ -1,12 +1,36 @@
 import time
 import uuid
 
+import pytest
 from fastapi.testclient import TestClient
 
-from main import app
+import main
 
 
-client = TestClient(app)
+client = TestClient(main.app)
+
+
+@pytest.fixture(autouse=True)
+def _isolar_estado_jobs():
+    with main.JOBS_LOCK:
+        main.JOBS.clear()
+    yield
+    with main.JOBS_LOCK:
+        main.JOBS.clear()
+
+
+@pytest.fixture(autouse=True)
+def _mock_duration_matrix(monkeypatch):
+    def fake_duration_matrix(points, osrm_url):
+        size = len(points)
+        matrix = [[0 for _ in range(size)] for _ in range(size)]
+        for i in range(size):
+            for j in range(size):
+                if i != j:
+                    matrix[i][j] = 60
+        return matrix
+
+    monkeypatch.setattr(main, "get_duration_matrix", fake_duration_matrix)
 
 
 def _payload(job_id: str | None = None) -> dict:

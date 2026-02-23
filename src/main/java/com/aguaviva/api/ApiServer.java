@@ -38,7 +38,7 @@ import java.util.Objects;
 public final class ApiServer {
 
     private static final String CORS_ALLOW_ORIGIN = "*";
-    private static final String CORS_ALLOW_HEADERS = "Content-Type";
+    private static final String CORS_ALLOW_HEADERS = "Content-Type,Idempotency-Key,X-Idempotency-Key";
     private static final String CORS_ALLOW_METHODS = "GET,POST,OPTIONS";
     private static final String TEST_VERBOSE_PROPERTY = "aguaviva.test.verbose";
 
@@ -181,19 +181,85 @@ public final class ApiServer {
                 int quantidadeGaloes = requireInt(req.quantidadeGaloes(), "quantidade_galoes");
                 int atendenteId = requireInt(req.atendenteId(), "atendente_id");
                 String metodoPagamento = req.metodoPagamento();
-
-                AtendimentoTelefonicoResultado resultado;
-                if (req.externalCallId() == null || req.externalCallId().isBlank()) {
-                    resultado = atendimentoTelefonicoService.registrarPedidoManual(
-                            telefone, quantidadeGaloes, atendenteId, metodoPagamento);
-                } else {
-                    resultado = atendimentoTelefonicoService.registrarPedido(
-                            req.externalCallId(), telefone, quantidadeGaloes, atendenteId, metodoPagamento);
+                String janelaTipo = req.janelaTipo();
+                String janelaInicio = req.janelaInicio();
+                String janelaFim = req.janelaFim();
+                String origemCanal = req.origemCanal();
+                boolean origemCanalManual = isOrigemCanalManual(origemCanal);
+                String sourceEventId = normalizeOptionalText(req.sourceEventId());
+                String manualRequestId = normalizeOptionalText(req.manualRequestId());
+                String externalCallId = normalizeOptionalText(req.externalCallId());
+                String idempotencyKeyHeader = resolveIdempotencyKeyHeader(exchange);
+                boolean origemCanalOmitida = origemCanal == null || origemCanal.isBlank();
+                if (sourceEventId != null && externalCallId != null && !sourceEventId.equals(externalCallId)) {
+                    throw new IllegalArgumentException("sourceEventId diverge de externalCallId");
                 }
+                if (manualRequestId != null && externalCallId != null && !manualRequestId.equals(externalCallId)) {
+                    throw new IllegalArgumentException("manualRequestId diverge de externalCallId");
+                }
+                if (manualRequestId != null
+                        && idempotencyKeyHeader != null
+                        && !manualRequestId.equals(idempotencyKeyHeader)) {
+                    throw new IllegalArgumentException("manualRequestId diverge do header Idempotency-Key");
+                }
+                if (origemCanalOmitida
+                        && sourceEventId == null
+                        && manualRequestId == null
+                        && externalCallId != null
+                        && idempotencyKeyHeader != null
+                        && !externalCallId.equals(idempotencyKeyHeader)) {
+                    throw new IllegalArgumentException(
+                            "Idempotency-Key diverge de externalCallId quando origemCanal for omitida");
+                }
+                if (manualRequestId == null && origemCanalManual) {
+                    manualRequestId = idempotencyKeyHeader;
+                }
+                if (sourceEventId == null) {
+                    if (origemCanalManual) {
+                        if (manualRequestId == null) {
+                            manualRequestId = externalCallId;
+                        }
+                    } else {
+                        sourceEventId = externalCallId;
+                    }
+                }
+                if (manualRequestId == null
+                        && sourceEventId == null
+                        && origemCanalOmitida
+                        && idempotencyKeyHeader != null) {
+                    manualRequestId = idempotencyKeyHeader;
+                }
+                if (!origemCanalManual
+                        && sourceEventId != null
+                        && idempotencyKeyHeader != null
+                        && !sourceEventId.equals(idempotencyKeyHeader)) {
+                    throw new IllegalArgumentException("sourceEventId diverge do header Idempotency-Key");
+                }
+                if (manualRequestId != null && externalCallId != null && !manualRequestId.equals(externalCallId)) {
+                    throw new IllegalArgumentException("manualRequestId diverge de externalCallId");
+                }
+
+                AtendimentoTelefonicoResultado resultado = atendimentoTelefonicoService.registrarPedidoOmnichannel(
+                        origemCanal,
+                        sourceEventId,
+                        manualRequestId,
+                        telefone,
+                        quantidadeGaloes,
+                        atendenteId,
+                        metodoPagamento,
+                        janelaTipo,
+                        janelaInicio,
+                        janelaFim,
+                        req.nomeCliente(),
+                        req.endereco(),
+                        req.latitude(),
+                        req.longitude());
                 writeJson(exchange, 200, resultado);
                 dispararReplanejamentoAssincronoSeNecessario(DispatchEventTypes.PEDIDO_CRIADO, resultado.idempotente());
             } catch (IllegalArgumentException e) {
                 writeJson(exchange, 400, Map.of("erro", e.getMessage()));
+            } catch (IllegalStateException e) {
+                writeJson(exchange, 409, Map.of("erro", e.getMessage()));
             } catch (Exception e) {
                 writeJson(exchange, 500, Map.of("erro", "Falha no atendimento telefonico", "detalhe", e.getMessage()));
             }
@@ -617,10 +683,20 @@ public final class ApiServer {
 
     private record AtendimentoRequest(
             String externalCallId,
+            String sourceEventId,
+            String manualRequestId,
+            String origemCanal,
             String telefone,
             Integer quantidadeGaloes,
             Integer atendenteId,
-            String metodoPagamento) {}
+            String metodoPagamento,
+            String janelaTipo,
+            String janelaInicio,
+            String janelaFim,
+            String nomeCliente,
+            String endereco,
+            Double latitude,
+            Double longitude) {}
 
     private ExecucaoEntregaResultado processarEventoOperacional(String eventType, EventoRequest req) {
         return switch (eventType) {
@@ -708,6 +784,27 @@ public final class ApiServer {
         }
         String trimmed = value.trim();
         return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static boolean isOrigemCanalManual(String origemCanal) {
+        if (origemCanal == null) {
+            return false;
+        }
+        return "MANUAL".equalsIgnoreCase(origemCanal.trim());
+    }
+
+    private static String resolveIdempotencyKeyHeader(HttpExchange exchange) {
+        String idempotencyKey =
+                normalizeOptionalText(exchange.getRequestHeaders().getFirst("Idempotency-Key"));
+        String idempotencyKeyAlias =
+                normalizeOptionalText(exchange.getRequestHeaders().getFirst("X-Idempotency-Key"));
+        if (idempotencyKey != null && idempotencyKeyAlias != null && !idempotencyKey.equals(idempotencyKeyAlias)) {
+            throw new IllegalArgumentException("Idempotency-Key e X-Idempotency-Key devem ter o mesmo valor");
+        }
+        if (idempotencyKey != null) {
+            return idempotencyKey;
+        }
+        return idempotencyKeyAlias;
     }
 
     private static String sha256(String value) {
