@@ -2351,13 +2351,19 @@ function renderOperationalSplitBoard(painel) {
 function renderMetrics() {
   const painel = painelOrDefault();
   const connectionValue = appState.api.connected ? "online" : "offline";
-  const cards = [
-    { label: "Pendentes", value: painel.pedidosPorStatus?.pendente ?? 0 },
-    { label: "Confirmados", value: painel.pedidosPorStatus?.confirmado ?? 0 },
-    { label: "Em rota", value: painel.pedidosPorStatus?.emRota ?? 0 },
-    { label: "API", value: connectionValue },
-    { label: "Ambiente", value: painel.ambiente || "-" }
-  ];
+  const cards = appState.view === "pedidos"
+    ? [
+        { label: "Pendentes", value: painel.pedidosPorStatus?.pendente ?? 0 },
+        { label: "Em rota", value: painel.pedidosPorStatus?.emRota ?? 0 },
+        { label: "API", value: connectionValue }
+      ]
+    : [
+        { label: "Pendentes", value: painel.pedidosPorStatus?.pendente ?? 0 },
+        { label: "Confirmados", value: painel.pedidosPorStatus?.confirmado ?? 0 },
+        { label: "Em rota", value: painel.pedidosPorStatus?.emRota ?? 0 },
+        { label: "API", value: connectionValue },
+        { label: "Ambiente", value: painel.ambiente || "-" }
+      ];
 
   metricsRoot.innerHTML = cards
     .map((item, idx) => {
