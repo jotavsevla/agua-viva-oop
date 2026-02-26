@@ -1,5 +1,8 @@
-const API_BASE_STORAGE_KEY = "aguaVivaApiBaseUrl";
-const DEFAULT_API_BASE = "http://localhost:8082";
+const StorageModule = window.AguaVivaStorage || {};
+const ApiModule = window.AguaVivaApi || {};
+const AtendimentoModule = window.AguaVivaAtendimento || {};
+const StoreModule = window.AguaVivaStore || {};
+const DEFAULT_API_BASE = StorageModule.DEFAULT_API_BASE || "http://localhost:8082";
 const OPERATIONAL_AUTO_REFRESH_MS = 5000;
 let operationalRefreshTimerId = null;
 let operationalRefreshInFlight = false;
@@ -7,8 +10,11 @@ let deferredViewRender = false;
 let cityMapInstances = [];
 
 function readStoredApiBase() {
+  if (typeof StorageModule.readStoredApiBase === "function") {
+    return StorageModule.readStoredApiBase();
+  }
   try {
-    const stored = window.localStorage.getItem(API_BASE_STORAGE_KEY);
+    const stored = window.localStorage.getItem("aguaVivaApiBaseUrl");
     return stored || DEFAULT_API_BASE;
   } catch (_) {
     return DEFAULT_API_BASE;
@@ -32,9 +38,64 @@ function formatNow() {
   return new Date().toLocaleTimeString("pt-BR");
 }
 
-function toFiniteNumberOr(value, fallback) {
-  const numeric = Number(value);
-  return Number.isFinite(numeric) ? numeric : fallback;
+function readAtendimentoFormState(formData) {
+  if (typeof AtendimentoModule.readAtendimentoFormState === "function") {
+    return AtendimentoModule.readAtendimentoFormState(formData);
+  }
+  return {
+    telefone: String(formData.get("telefone") || "").trim(),
+    quantidadeGaloes: String(formData.get("quantidadeGaloes") || "").trim(),
+    atendenteId: String(formData.get("atendenteId") || "").trim(),
+    origemCanal: String(formData.get("origemCanal") || "").trim().toUpperCase(),
+    sourceEventId: String(formData.get("sourceEventId") || "").trim(),
+    manualRequestId: String(formData.get("manualRequestId") || "").trim(),
+    externalCallId: String(formData.get("externalCallId") || "").trim(),
+    metodoPagamento: String(formData.get("metodoPagamento") || "").trim().toUpperCase(),
+    janelaTipo: String(formData.get("janelaTipo") || "").trim().toUpperCase(),
+    janelaInicio: String(formData.get("janelaInicio") || "").trim(),
+    janelaFim: String(formData.get("janelaFim") || "").trim(),
+    nomeCliente: String(formData.get("nomeCliente") || "").trim(),
+    endereco: String(formData.get("endereco") || "").trim(),
+    latitude: String(formData.get("latitude") || "").trim(),
+    longitude: String(formData.get("longitude") || "").trim()
+  };
+}
+
+function buildAtendimentoPayloadFromFormData(formData) {
+  if (typeof AtendimentoModule.buildAtendimentoPayloadFromFormData === "function") {
+    return AtendimentoModule.buildAtendimentoPayloadFromFormData(formData);
+  }
+
+  const state = readAtendimentoFormState(formData);
+  const payload = {
+    telefone: state.telefone,
+    quantidadeGaloes: Number(state.quantidadeGaloes),
+    atendenteId: Number(state.atendenteId)
+  };
+  [
+    "origemCanal",
+    "sourceEventId",
+    "manualRequestId",
+    "externalCallId",
+    "metodoPagamento",
+    "janelaTipo",
+    "janelaInicio",
+    "janelaFim",
+    "nomeCliente",
+    "endereco"
+  ].forEach((field) => {
+    if (state[field]) {
+      payload[field] = state[field];
+    }
+  });
+
+  const latitude = state.latitude ? Number(state.latitude.replace(",", ".")) : null;
+  const longitude = state.longitude ? Number(state.longitude.replace(",", ".")) : null;
+  if (Number.isFinite(latitude) && Number.isFinite(longitude)) {
+    payload.latitude = latitude;
+    payload.longitude = longitude;
+  }
+  return payload;
 }
 
 function normalizeTimelinePayload(payload) {
@@ -76,106 +137,77 @@ function buildTimelinePath(pedidoId) {
   return `/api/pedidos/${numeric}/timeline`;
 }
 
-function expectedStatusForScenario(value) {
-  const scenario = String(value || "").trim().toLowerCase();
-  if (scenario === "feliz") {
-    return "ENTREGUE";
-  }
-  if (scenario === "falha" || scenario === "cancelamento") {
-    return "CANCELADO";
-  }
-  throw new Error("cenario invalido");
+function createFallbackAppState(apiBaseUrl) {
+  return {
+    view: "pedidos",
+    mode: "success",
+    api: {
+      baseUrl: apiBaseUrl,
+      connected: false,
+      lastError: null,
+      lastSyncAt: null
+    },
+    painel: null,
+    eventosOperacionais: [],
+    mapaOperacional: null,
+    frotaRoteiros: [],
+    apiResults: {
+      atendimento: null,
+      timeline: null,
+      evento: null,
+      iniciarRotaPronta: null
+    },
+    handoff: {
+      atendimentosSessao: [],
+      focoPedidoId: null,
+      ultimoEntregadorId: null
+    },
+    atendente: {
+      buscaTelefone: {
+        telefone: "",
+        telefoneNormalizado: "",
+        atualizadaEm: null
+      },
+      trilhaSessao: []
+    },
+    examples: {
+      atendimentoRequest: {
+        externalCallId: "call-20260213-0001",
+        sourceEventId: "",
+        manualRequestId: "call-20260213-0001",
+        origemCanal: "MANUAL",
+        telefone: "(38) 99876-1234",
+        quantidadeGaloes: 2,
+        atendenteId: 1,
+        metodoPagamento: "PIX",
+        janelaTipo: "ASAP",
+        janelaInicio: "",
+        janelaFim: "",
+        nomeCliente: "",
+        endereco: "",
+        latitude: "",
+        longitude: ""
+      },
+      eventoRequest: {
+        externalEventId: "",
+        eventType: "PEDIDO_ENTREGUE",
+        rotaId: "",
+        entregaId: "",
+        actorEntregadorId: "",
+        motivo: "",
+        cobrancaCancelamentoCentavos: ""
+      },
+      timelineRequest: {
+        pedidoId: 1
+      }
+    }
+  };
 }
 
-function buildTerminalEventPayload(params) {
-  const scenario = String(params?.scenario || "").trim().toLowerCase();
-  const entregaId = Number(params?.entregaId);
-  if (!Number.isInteger(entregaId) || entregaId <= 0) {
-    throw new Error("entregaId invalido");
-  }
-  if (scenario === "feliz") {
-    return { eventType: "PEDIDO_ENTREGUE", entregaId };
-  }
-  if (scenario === "falha") {
-    return {
-      eventType: "PEDIDO_FALHOU",
-      entregaId,
-      motivo: String(params?.motivoFalha || "cliente ausente")
-    };
-  }
-  if (scenario === "cancelamento") {
-    const payload = {
-      eventType: "PEDIDO_CANCELADO",
-      entregaId,
-      motivo: String(params?.motivoCancelamento || "cliente cancelou")
-    };
-    const cobranca = Number(params?.cobrancaCancelamentoCentavos);
-    if (Number.isInteger(cobranca) && cobranca >= 0) {
-      payload.cobrancaCancelamentoCentavos = cobranca;
-    }
-    return payload;
-  }
-  throw new Error("cenario invalido");
-}
-
-const appState = {
-  view: "pedidos",
-  mode: "success",
-  api: {
-    baseUrl: readStoredApiBase(),
-    connected: false,
-    lastError: null,
-    lastSyncAt: null
-  },
-  painel: null,
-  eventosOperacionais: [],
-  mapaOperacional: null,
-  frotaRoteiros: [],
-  apiResults: {
-    atendimento: null,
-    timeline: null,
-    evento: null,
-    iniciarRotaPronta: null
-  },
-  examples: {
-    atendimentoRequest: {
-      externalCallId: "call-20260213-0001",
-      telefone: "(38) 99876-1234",
-      quantidadeGaloes: 2,
-      atendenteId: 1,
-      metodoPagamento: "PIX",
-      janelaTipo: "FLEXIVEL",
-      janelaInicio: "",
-      janelaFim: ""
-    },
-    eventoRequest: {
-      externalEventId: "",
-      eventType: "PEDIDO_ENTREGUE",
-      rotaId: "",
-      entregaId: "",
-      actorEntregadorId: "",
-      motivo: "",
-      cobrancaCancelamentoCentavos: ""
-    },
-    timelineRequest: {
-      pedidoId: 1
-    }
-  },
-  e2e: {
-    running: false,
-    form: {
-      scenario: "feliz",
-      telefone: "(38) 99876-9901",
-      quantidadeGaloes: 1,
-      atendenteId: 1,
-      metodoPagamento: "PIX",
-      motivoFalha: "cliente ausente",
-      motivoCancelamento: "cliente cancelou",
-      cobrancaCancelamentoCentavos: 2500
-    },
-    lastRun: null
-  }
-};
+const initialApiBase = readStoredApiBase();
+const appState = typeof StoreModule.createInitialAppState === "function"
+  ? StoreModule.createInitialAppState(initialApiBase)
+  : createFallbackAppState(initialApiBase);
 
 const viewTitle = document.getElementById("view-title");
 const viewRoot = document.getElementById("view-root");
@@ -185,6 +217,10 @@ const apiInput = document.getElementById("api-base");
 const apiConnectButton = document.getElementById("api-connect");
 const apiResetButton = document.getElementById("api-reset");
 const apiStatus = document.getElementById("api-status");
+const sidebarPhoneSearchRoot = document.getElementById("sidebar-phone-search");
+
+const OPEN_PEDIDO_STATUSES = new Set(["PENDENTE", "CONFIRMADO", "EM_ROTA"]);
+const CLOSED_PEDIDO_STATUSES = new Set(["ENTREGUE", "CANCELADO"]);
 
 apiInput.value = appState.api.baseUrl;
 
@@ -247,81 +283,701 @@ function statusPill(status) {
   return `<span class="pill ${tone}">${escapeHtml(normalized || "-")}</span>`;
 }
 
+function atendenteActionHintByPedidoStatus(status) {
+  const normalized = String(status || "").toUpperCase();
+  if (normalized === "PENDENTE") {
+    return "Conferir dados e priorizar despacho";
+  }
+  if (normalized === "CONFIRMADO") {
+    return "Encaminhar para rota planejada";
+  }
+  if (normalized === "EM_ROTA") {
+    return "Acompanhar execucao e evitar duplicidade";
+  }
+  if (normalized === "ENTREGUE" || normalized === "CANCELADO") {
+    return "Sem acao pendente";
+  }
+  return "Validar timeline e estado atual";
+}
+
+function rotaActionHintByStatus(status) {
+  const normalized = String(status || "").toUpperCase();
+  if (normalized === "PLANEJADA") {
+    return "Pode iniciar rota pronta";
+  }
+  if (normalized === "EM_ANDAMENTO") {
+    return "Monitorar entregas em execucao";
+  }
+  if (normalized === "CONCLUIDA") {
+    return "Sem acao pendente";
+  }
+  return "Atualizar painel antes de operar";
+}
+
 function renderResultBox(title, result) {
   if (!result) {
     return "";
   }
 
   const source = result.source || "api real";
+  const payload = result.payload || {};
+  const hasError = Boolean(payload?.erro || payload?.error);
   return `
-    <div class="result-box">
-      <p><strong>${escapeHtml(title)}</strong> · ${tonePill(source, "ok")}</p>
+    <details class="result-box"${hasError ? " open" : ""}>
+      <summary class="diag-summary">
+        <strong>${escapeHtml(title)}</strong> · ${tonePill(source, hasError ? "danger" : "ok")}
+      </summary>
       <pre class="mono">${escapeHtml(JSON.stringify(result.payload, null, 2))}</pre>
+    </details>
+  `;
+}
+
+function normalizePhoneDigits(value) {
+  return String(value || "").replace(/\D+/g, "");
+}
+
+function formatPhoneForDisplay(value) {
+  const digits = normalizePhoneDigits(value);
+  if (digits.length === 11) {
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`;
+  }
+  if (digits.length === 10) {
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
+  }
+  const trimmed = String(value || "").trim();
+  return trimmed || "-";
+}
+
+function ensureHandoffState() {
+  if (!appState.handoff || typeof appState.handoff !== "object") {
+    appState.handoff = {
+      atendimentosSessao: [],
+      focoPedidoId: null,
+      ultimoEntregadorId: null
+    };
+  }
+  if (!Array.isArray(appState.handoff.atendimentosSessao)) {
+    appState.handoff.atendimentosSessao = [];
+  }
+  if (!Object.prototype.hasOwnProperty.call(appState.handoff, "focoPedidoId")) {
+    appState.handoff.focoPedidoId = null;
+  }
+  if (!Object.prototype.hasOwnProperty.call(appState.handoff, "ultimoEntregadorId")) {
+    appState.handoff.ultimoEntregadorId = null;
+  }
+  return appState.handoff;
+}
+
+function ensureAtendenteState() {
+  if (!appState.atendente || typeof appState.atendente !== "object") {
+    appState.atendente = {
+      buscaTelefone: {
+        telefone: "",
+        telefoneNormalizado: "",
+        atualizadaEm: null
+      },
+      trilhaSessao: []
+    };
+  }
+  if (!appState.atendente.buscaTelefone || typeof appState.atendente.buscaTelefone !== "object") {
+    appState.atendente.buscaTelefone = {
+      telefone: "",
+      telefoneNormalizado: "",
+      atualizadaEm: null
+    };
+  }
+  if (!Array.isArray(appState.atendente.trilhaSessao)) {
+    appState.atendente.trilhaSessao = [];
+  }
+  return appState.atendente;
+}
+
+function pushTrilhaSessao(tipo, acao, detalhe, contexto) {
+  const atendente = ensureAtendenteState();
+  const tone = ["ok", "warn", "danger", "info"].includes(tipo) ? tipo : "info";
+  const item = {
+    quando: new Date().toISOString(),
+    tipo: tone,
+    acao: String(acao || "acao"),
+    detalhe: String(detalhe || ""),
+    contexto: contexto || null
+  };
+  atendente.trilhaSessao = [item, ...atendente.trilhaSessao].slice(0, 40);
+}
+
+function moveHandoffOrder(pedidoId, direction) {
+  const numericPedidoId = Number(pedidoId);
+  if (!Number.isInteger(numericPedidoId) || numericPedidoId <= 0) {
+    return false;
+  }
+
+  const handoff = ensureHandoffState();
+  const currentIndex = handoff.atendimentosSessao.findIndex(
+    (item) => Number(item?.pedidoId || 0) === numericPedidoId
+  );
+  if (currentIndex < 0) {
+    return false;
+  }
+
+  const delta = direction === "up" ? -1 : direction === "down" ? 1 : 0;
+  if (delta === 0) {
+    return false;
+  }
+
+  const nextIndex = currentIndex + delta;
+  if (nextIndex < 0 || nextIndex >= handoff.atendimentosSessao.length) {
+    return false;
+  }
+
+  const rows = [...handoff.atendimentosSessao];
+  const [selected] = rows.splice(currentIndex, 1);
+  rows.splice(nextIndex, 0, selected);
+  handoff.atendimentosSessao = rows;
+  handoff.focoPedidoId = numericPedidoId;
+  pushTrilhaSessao(
+    "info",
+    "reorganizacao da fila",
+    `Pedido #${numericPedidoId} movido para posicao ${nextIndex + 1}.`
+  );
+  return true;
+}
+
+function buildPedidoStatusIndex() {
+  const mapa = new Map();
+  buildPedidosRowsFromPainel(painelOrDefault()).forEach((item) => {
+    const pedidoId = Number(item?.pedidoId || 0);
+    if (Number.isInteger(pedidoId) && pedidoId > 0) {
+      mapa.set(pedidoId, String(item?.status || "").toUpperCase());
+    }
+  });
+
+  const timelinePayload = appState.apiResults?.timeline?.payload;
+  const timelinePedidoId = Number(timelinePayload?.pedidoId || 0);
+  if (Number.isInteger(timelinePedidoId) && timelinePedidoId > 0) {
+    mapa.set(timelinePedidoId, String(timelinePayload?.status || "").toUpperCase());
+  }
+
+  return mapa;
+}
+
+function resolvePedidoStatus(pedidoId, pedidoStatusIndex) {
+  const numeric = Number(pedidoId);
+  if (!Number.isInteger(numeric) || numeric <= 0) {
+    return "INVALIDO";
+  }
+  const map = pedidoStatusIndex || buildPedidoStatusIndex();
+  return String(map.get(numeric) || "SEM_VISIBILIDADE");
+}
+
+function isPedidoStatusOpen(status) {
+  return OPEN_PEDIDO_STATUSES.has(String(status || "").toUpperCase());
+}
+
+function findOpenPedidoForPhone(telefoneNormalizado, pedidoStatusIndex) {
+  const normalized = normalizePhoneDigits(telefoneNormalizado);
+  if (!normalized) {
+    return null;
+  }
+  const handoff = ensureHandoffState();
+  const map = pedidoStatusIndex || buildPedidoStatusIndex();
+  const rows = handoff.atendimentosSessao.filter((item) => item?.telefoneNormalizado === normalized);
+  for (const item of rows) {
+    const pedidoId = Number(item?.pedidoId || 0);
+    if (!Number.isInteger(pedidoId) || pedidoId <= 0) {
+      continue;
+    }
+    const status = resolvePedidoStatus(pedidoId, map);
+    if (isPedidoStatusOpen(status)) {
+      return {
+        pedidoId,
+        status,
+        item
+      };
+    }
+  }
+  return null;
+}
+
+function validateAtendimentoPreflight(payload) {
+  const telefoneNormalizado = normalizePhoneDigits(payload?.telefone);
+  if (!telefoneNormalizado) {
+    return {
+      ok: false,
+      motivo: "Telefone invalido para atendimento."
+    };
+  }
+
+  const pedidoStatusIndex = buildPedidoStatusIndex();
+  const aberto = findOpenPedidoForPhone(telefoneNormalizado, pedidoStatusIndex);
+  if (!aberto) {
+    return { ok: true };
+  }
+
+  const externalCallId = String(payload?.externalCallId || payload?.manualRequestId || payload?.sourceEventId || "");
+  const externalOpen = String(aberto.item?.externalCallId || "");
+  if (externalCallId && externalOpen && externalCallId === externalOpen) {
+    return { ok: true };
+  }
+
+  return {
+    ok: false,
+    motivo: `Cliente ja possui pedido aberto #${aberto.pedidoId} (${aberto.status}). Concluir ou evoluir esse pedido antes de criar outro.`,
+    pedidoId: aberto.pedidoId
+  };
+}
+
+function validateEventoManualPreflight(payload) {
+  const eventType = String(payload?.eventType || "").toUpperCase();
+  const painel = painelOrDefault();
+  const layerSnapshot = buildFleetLayerSnapshot(painel);
+  const allowedEventTypes = new Set(["ROTA_INICIADA", "PEDIDO_ENTREGUE", "PEDIDO_FALHOU", "PEDIDO_CANCELADO"]);
+  if (!eventType) {
+    return { ok: false, motivo: "Tipo de evento obrigatorio." };
+  }
+  if (!allowedEventTypes.has(eventType)) {
+    return { ok: false, motivo: `Tipo de evento ${eventType} nao permitido para operacao manual.` };
+  }
+
+  if (eventType === "ROTA_INICIADA") {
+    if (layerSnapshot.hasAnomaly) {
+      return {
+        ok: false,
+        motivo: `Camadas inconsistentes no painel (${layerSnapshot.anomalyMessages.join(" ")}). Corrija antes de iniciar rota manualmente.`
+      };
+    }
+
+    if (!layerSnapshot.secundaria) {
+      return {
+        ok: false,
+        motivo: "Nao existe rota da frota SECUNDARIA pronta para iniciar neste painel."
+      };
+    }
+
+    const rotaId = Number(payload?.rotaId || 0);
+    if (!Number.isInteger(rotaId) || rotaId <= 0) {
+      return { ok: false, motivo: "ROTA_INICIADA exige rotaId valido." };
+    }
+    const rotaSecundariaId = Number(layerSnapshot.secundaria?.rotaId || 0);
+    if (rotaId !== rotaSecundariaId) {
+      return {
+        ok: false,
+        motivo: `ROTA_INICIADA so pode atuar na frota SECUNDARIA ativa (rota ${rotaSecundariaId}).`
+      };
+    }
+    return { ok: true };
+  }
+
+  const entregaId = Number(payload?.entregaId || 0);
+  if (!Number.isInteger(entregaId) || entregaId <= 0) {
+    return { ok: false, motivo: `${eventType} exige entregaId valido.` };
+  }
+
+  const entregaAtiva = (Array.isArray(painel.filas?.emRotaPrimaria) ? painel.filas.emRotaPrimaria : [])
+    .find((item) => Number(item?.entregaId) === entregaId);
+  if (!entregaAtiva) {
+    return {
+      ok: false,
+      motivo: `Entrega ${entregaId} nao aparece em rota primaria ativa. Operacao bloqueada para evitar quebra de regra.`
+    };
+  }
+
+  if (layerSnapshot.hasAnomaly) {
+    return {
+      ok: false,
+      motivo: `Camadas inconsistentes no painel (${layerSnapshot.anomalyMessages.join(" ")}). Evento terminal bloqueado para evitar quebra de regra.`
+    };
+  }
+
+  const rotaPrimariaId = Number(layerSnapshot.primaria?.rotaId || 0);
+  const rotaDaEntrega = Number(entregaAtiva?.rotaId || 0);
+  if (rotaPrimariaId > 0 && rotaDaEntrega > 0 && rotaDaEntrega !== rotaPrimariaId) {
+    return {
+      ok: false,
+      motivo: `Entrega ${entregaId} pertence a rota ${rotaDaEntrega}, mas a frota PRIMARIA ativa e rota ${rotaPrimariaId}. Operacao bloqueada.`
+    };
+  }
+
+  const statusEntrega = String(entregaAtiva?.statusEntrega || "").toUpperCase();
+  if (eventType !== "ROTA_INICIADA" && statusEntrega !== "EM_EXECUCAO") {
+    return {
+      ok: false,
+      motivo: `Entrega ${entregaId} esta em ${statusEntrega || "estado desconhecido"}; evento terminal so permitido em EM_EXECUCAO.`
+    };
+  }
+
+  return { ok: true };
+}
+
+function formatHandoffTime(isoTimestamp) {
+  if (!isoTimestamp) {
+    return "--:--:--";
+  }
+  const date = new Date(isoTimestamp);
+  if (Number.isNaN(date.getTime())) {
+    return "--:--:--";
+  }
+  return date.toLocaleTimeString("pt-BR");
+}
+
+function pushAtendimentoHandoff(resultPayload, requestPayload) {
+  const handoff = ensureHandoffState();
+  const pedidoId = Number(resultPayload?.pedidoId || 0);
+  if (!Number.isInteger(pedidoId) || pedidoId <= 0) {
+    return;
+  }
+
+  const clienteId = Number(resultPayload?.clienteId || 0);
+  const metodoPagamento = String(requestPayload?.metodoPagamento || "NAO_INFORMADO");
+  const telefoneRaw = String(requestPayload?.telefone || "");
+  const entry = {
+    pedidoId,
+    clienteId: Number.isInteger(clienteId) && clienteId > 0 ? clienteId : null,
+    telefone: telefoneRaw,
+    telefoneNormalizado: normalizePhoneDigits(telefoneRaw),
+    externalCallId: String(
+      requestPayload?.externalCallId || requestPayload?.manualRequestId || requestPayload?.sourceEventId || ""
+    ),
+    origemCanal: String(requestPayload?.origemCanal || "MANUAL"),
+    quantidadeGaloes: Number(requestPayload?.quantidadeGaloes || 0),
+    janelaTipo: String(requestPayload?.janelaTipo || "ASAP"),
+    metodoPagamento,
+    idempotente: Boolean(resultPayload?.idempotente),
+    criadoEm: new Date().toISOString()
+  };
+
+  const withoutSamePedido = handoff.atendimentosSessao.filter((item) => Number(item?.pedidoId) !== pedidoId);
+  handoff.atendimentosSessao = [entry, ...withoutSamePedido].slice(0, 20);
+  handoff.focoPedidoId = pedidoId;
+}
+
+function renderAtendimentoHandoffSection() {
+  const handoff = ensureHandoffState();
+  const items = handoff.atendimentosSessao;
+  if (items.length === 0) {
+    return `
+      <div class="result-box" style="margin-top: 0.75rem;">
+        <p><strong>Handoff Atendimento -> Despacho</strong></p>
+        <p>Nenhum atendimento confirmado nesta sessao.</p>
+      </div>
+    `;
+  }
+
+  const pedidoStatusIndex = buildPedidoStatusIndex();
+  const rows = items.map((item, index) => {
+    const pedidoId = Number(item?.pedidoId || 0);
+    const status = resolvePedidoStatus(pedidoId, pedidoStatusIndex);
+    const focus = Number(handoff.focoPedidoId || 0) === pedidoId;
+    const focusTag = focus ? tonePill("em foco", "info") : "";
+    const isTop = index === 0;
+    const isBottom = index === items.length - 1;
+    return `
+      <tr>
+        <td class="mono">${escapeHtml(String(index + 1))}</td>
+        <td class="mono">#${escapeHtml(String(pedidoId))}</td>
+        <td>${statusPill(status)}</td>
+        <td class="mono">${escapeHtml(formatPhoneForDisplay(item?.telefone || ""))}</td>
+        <td>${escapeHtml(atendenteActionHintByPedidoStatus(status))}</td>
+        <td>
+          <div class="reorder-actions">
+            <button
+              class="btn btn-tiny"
+              type="button"
+              data-action="handoff-move"
+              data-direction="up"
+              data-pedido-id="${escapeAttr(String(pedidoId))}"
+              ${isTop ? "disabled" : ""}
+            >
+              Subir
+            </button>
+            <button
+              class="btn btn-tiny"
+              type="button"
+              data-action="handoff-move"
+              data-direction="down"
+              data-pedido-id="${escapeAttr(String(pedidoId))}"
+              ${isBottom ? "disabled" : ""}
+            >
+              Descer
+            </button>
+          </div>
+        </td>
+        <td>
+          <button
+            class="btn"
+            type="button"
+            data-action="go-to-despacho"
+            data-pedido-id="${escapeAttr(String(pedidoId))}"
+          >
+            Despacho
+          </button>
+          <button
+            class="btn"
+            type="button"
+            data-action="handoff-open-timeline"
+            data-pedido-id="${escapeAttr(String(pedidoId))}"
+          >
+            Timeline
+          </button>
+          ${focusTag}
+        </td>
+      </tr>
+    `;
+  }).join("");
+
+  return `
+    <div class="result-box" style="margin-top: 0.75rem;">
+      <p><strong>Handoff Atendimento -> Despacho</strong></p>
+      <p class="mono">A reorganizacao da fila e local da sessao; nao quebra regra de negocio no backend.</p>
+      <div class="table-scroll table-scroll-vertical" style="margin-top: 0.5rem;">
+        <table class="entity-table compact">
+          <thead>
+            <tr>
+              <th>Pos</th>
+              <th>Pedido</th>
+              <th>Status</th>
+              <th>Telefone</th>
+              <th>Proximo passo</th>
+              <th>Reordenar</th>
+              <th>Atalhos</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
+        </table>
+      </div>
     </div>
   `;
 }
 
-function statusForRun(state) {
-  if (state === "sucesso") {
-    return "ok";
-  }
-  if (state === "executando") {
-    return "info";
-  }
-  return "danger";
-}
-
-function renderGuidedRunBox() {
-  const run = appState.e2e.lastRun;
-  if (!run) {
+function renderDespachoHandoffSection() {
+  const handoff = ensureHandoffState();
+  if (!Array.isArray(handoff.atendimentosSessao) || handoff.atendimentosSessao.length === 0) {
     return "";
   }
 
-  const steps = (run.steps || [])
-    .map((step) => {
-      const tone = step.ok ? "ok" : "danger";
-      const details = step.detail ? `<p class="mono e2e-detail">${escapeHtml(step.detail)}</p>` : "";
-      return `
-        <li class="e2e-step">
-          ${tonePill(step.ok ? "OK" : "FALHA", tone)} <strong>${escapeHtml(step.title)}</strong>
-          ${details}
-        </li>
-      `;
-    })
-    .join("");
-
-  const resumo = [];
-  if (run.pedidoId) {
-    resumo.push(`pedidoId=${run.pedidoId}`);
-  }
-  if (run.rotaId) {
-    resumo.push(`rotaId=${run.rotaId}`);
-  }
-  if (run.entregaId) {
-    resumo.push(`entregaId=${run.entregaId}`);
-  }
-  if (run.timelineStatus) {
-    resumo.push(`timeline=${run.timelineStatus}`);
-  }
-  if (run.expectedStatus) {
-    resumo.push(`esperado=${run.expectedStatus}`);
-  }
-
-  const runState = run.state || "erro";
-  const runStateTone = statusForRun(runState);
-  const stateLabel = runState === "sucesso" ? "sucesso" : runState === "executando" ? "executando" : "erro";
+  const focoPedidoId = Number(handoff.focoPedidoId || 0);
+  const foco = handoff.atendimentosSessao.find((item) => Number(item?.pedidoId || 0) === focoPedidoId)
+    || handoff.atendimentosSessao[0];
+  const pedido = Number(foco?.pedidoId || 0);
+  const cliente = Number(foco?.clienteId || 0);
+  const pagamento = String(foco?.metodoPagamento || "-");
 
   return `
-    <div class="result-box">
-      <p>
-        <strong>Fluxo guiado E2E</strong>
-        · ${tonePill(stateLabel, runStateTone)}
+    <section class="panel" style="margin-top: 1rem;">
+      <div class="panel-header">
+        <h3>Handoff ativo de atendimento</h3>
+        <span class="pill info">sessao atual</span>
+      </div>
+      <p class="mono">
+        Pedido #${escapeHtml(String(pedido > 0 ? pedido : "-"))}
+        · Cliente ${escapeHtml(String(cliente > 0 ? cliente : "-"))}
+        · Pagamento ${escapeHtml(pagamento)}
+        · ${escapeHtml(formatHandoffTime(foco?.criadoEm))}
       </p>
-      ${resumo.length > 0 ? `<p class="mono">${escapeHtml(resumo.join(" · "))}</p>` : ""}
-      ${run.error ? `<p class="mono">${escapeHtml(run.error)}</p>` : ""}
-      <ul class="e2e-steps">${steps}</ul>
+      <div class="form-grid" style="margin-top: 0.5rem;">
+        <button
+          class="btn"
+          type="button"
+          data-action="go-to-pedidos"
+          data-pedido-id="${escapeAttr(String(pedido > 0 ? pedido : ""))}"
+        >
+          Voltar para atendimento
+        </button>
+      </div>
+    </section>
+  `;
+}
+
+function buildHistoricoPorTelefone(telefoneNormalizado) {
+  const normalized = normalizePhoneDigits(telefoneNormalizado);
+  if (!normalized) {
+    return {
+      telefoneNormalizado: "",
+      historico: [],
+      pedidoAberto: null,
+      ultimoPedido: null
+    };
+  }
+
+  const handoff = ensureHandoffState();
+  const pedidoStatusIndex = buildPedidoStatusIndex();
+  const historico = handoff.atendimentosSessao
+    .filter((item) => item?.telefoneNormalizado === normalized)
+    .map((item) => {
+      const pedidoId = Number(item?.pedidoId || 0);
+      const status = resolvePedidoStatus(pedidoId, pedidoStatusIndex);
+      return {
+        ...item,
+        pedidoId,
+        statusAtual: status
+      };
+    })
+    .sort((a, b) => new Date(b?.criadoEm || 0).getTime() - new Date(a?.criadoEm || 0).getTime());
+
+  const pedidoAberto = historico.find((item) => isPedidoStatusOpen(item?.statusAtual || ""));
+  const pedidosConcluidos = historico.filter((item) => CLOSED_PEDIDO_STATUSES.has(String(item?.statusAtual || ""))).length;
+  return {
+    telefoneNormalizado: normalized,
+    historico,
+    pedidoAberto: pedidoAberto || null,
+    ultimoPedido: historico[0] || null,
+    pedidosConcluidos
+  };
+}
+
+function renderSidebarTools() {
+  if (!sidebarPhoneSearchRoot) {
+    return;
+  }
+
+  const atendente = ensureAtendenteState();
+  const busca = atendente.buscaTelefone || {};
+  const historicoTelefone = buildHistoricoPorTelefone(busca.telefoneNormalizado || "");
+  const temBusca = Boolean(busca.telefoneNormalizado);
+  const historico = historicoTelefone.historico || [];
+  const pedidoAberto = historicoTelefone.pedidoAberto;
+  const ultimoPedido = historicoTelefone.ultimoPedido;
+
+  const historicoRows = historico.map((item) => `
+    <tr>
+      <td class="mono">#${escapeHtml(String(item?.pedidoId || "-"))}</td>
+      <td>${statusPill(item?.statusAtual || "-")}</td>
+      <td class="mono">${escapeHtml(formatHandoffTime(item?.criadoEm))}</td>
+      <td>${escapeHtml(String(item?.metodoPagamento || "-"))}</td>
+      <td>
+        <button
+          type="button"
+          class="btn"
+          data-action="usar-pedido-timeline"
+          data-pedido-id="${escapeAttr(String(item?.pedidoId || ""))}"
+        >
+          Timeline
+        </button>
+      </td>
+    </tr>
+  `).join("");
+
+  const trilhaRows = atendente.trilhaSessao
+    .slice(0, 10)
+    .map((item) => `
+      <li class="sidebar-log-item">
+        <p class="mono">${escapeHtml(formatHandoffTime(item?.quando))} · ${tonePill(String(item?.acao || "-"), String(item?.tipo || "info"))}</p>
+        <p>${escapeHtml(String(item?.detalhe || "-"))}</p>
+      </li>
+    `)
+    .join("");
+
+  sidebarPhoneSearchRoot.innerHTML = `
+    <div class="sidebar-tools-box">
+      <p class="legend-title">Busca por telefone</p>
+      <form id="sidebar-phone-search-form" class="form-grid">
+        <div class="form-row">
+          <label for="sidebar-phone-input">Telefone cliente</label>
+          <input
+            id="sidebar-phone-input"
+            name="telefone"
+            placeholder="(38) 99876-8001"
+            value="${escapeAttr(String(busca.telefone || ""))}"
+          />
+        </div>
+        <div class="sidebar-actions">
+          <button class="btn" type="submit">Pesquisar</button>
+          <button class="btn" type="button" data-action="limpar-busca-telefone">Limpar</button>
+        </div>
+      </form>
+      ${temBusca
+        ? `
+          <div class="result-box" style="margin-top: 0.5rem;">
+            <p><strong>Resultado da busca</strong></p>
+            <p class="mono">Telefone: ${escapeHtml(formatPhoneForDisplay(busca.telefoneNormalizado || busca.telefone || ""))}</p>
+            <p class="mono">Historico na sessao: ${escapeHtml(String(historico.length))}</p>
+            <p class="mono">Pedidos concluidos na sessao: ${escapeHtml(String(historicoTelefone.pedidosConcluidos || 0))}</p>
+            <p class="mono">
+              Ultimo pedido: ${ultimoPedido ? `#${escapeHtml(String(ultimoPedido.pedidoId))} · ${escapeHtml(String(ultimoPedido.statusAtual || "-"))}` : "-"}
+            </p>
+            <p class="mono">
+              Pedido em aberto: ${pedidoAberto ? `SIM (#${escapeHtml(String(pedidoAberto.pedidoId))} · ${escapeHtml(String(pedidoAberto.statusAtual || "-"))})` : "NAO"}
+            </p>
+            ${historico.length > 0
+              ? `
+                <div class="table-scroll" style="margin-top: 0.5rem;">
+                  <table class="entity-table compact">
+                    <thead>
+                      <tr>
+                        <th>Pedido</th>
+                        <th>Status</th>
+                        <th>Hora</th>
+                        <th>Pgto</th>
+                        <th>Acao</th>
+                      </tr>
+                    </thead>
+                    <tbody>${historicoRows}</tbody>
+                  </table>
+                </div>
+              `
+              : "<p class=\"mono\">Nenhum pedido desse telefone registrado nesta sessao.</p>"}
+          </div>
+        `
+        : "<p class=\"ops-empty\">Pesquisa local por historico da sessao atual da atendente.</p>"}
+    </div>
+    <div class="sidebar-tools-box" style="margin-top: 0.75rem;">
+      <p class="legend-title">Trilha de validacao manual</p>
+      <p class="ops-empty">Operacoes invalidas sao bloqueadas antes da API.</p>
+      <ul class="sidebar-log-list">${trilhaRows || "<li class=\"ops-empty\">Sem ocorrencias na sessao.</li>"}</ul>
     </div>
   `;
+}
+
+function handleSidebarPhoneSearchSubmit(event) {
+  event.preventDefault();
+  const formData = new FormData(event.currentTarget);
+  const telefone = String(formData.get("telefone") || "").trim();
+  const normalized = normalizePhoneDigits(telefone);
+  const atendente = ensureAtendenteState();
+  atendente.buscaTelefone.telefone = telefone;
+  atendente.buscaTelefone.telefoneNormalizado = normalized;
+  atendente.buscaTelefone.atualizadaEm = new Date().toISOString();
+  if (!normalized) {
+    pushTrilhaSessao("warn", "busca telefone", "Telefone vazio ou invalido para pesquisa.");
+  } else {
+    pushTrilhaSessao("info", "busca telefone", `Pesquisa por telefone ${formatPhoneForDisplay(normalized)}.`);
+  }
+  render();
+}
+
+function bindSidebarEvents() {
+  if (!sidebarPhoneSearchRoot) {
+    return;
+  }
+
+  const form = sidebarPhoneSearchRoot.querySelector("#sidebar-phone-search-form");
+  if (form) {
+    form.addEventListener("submit", handleSidebarPhoneSearchSubmit);
+  }
+
+  const clearButton = sidebarPhoneSearchRoot.querySelector('[data-action="limpar-busca-telefone"]');
+  if (clearButton) {
+    clearButton.addEventListener("click", () => {
+      const atendente = ensureAtendenteState();
+      atendente.buscaTelefone = {
+        telefone: "",
+        telefoneNormalizado: "",
+        atualizadaEm: new Date().toISOString()
+      };
+      render();
+    });
+  }
+
+  sidebarPhoneSearchRoot.querySelectorAll('[data-action="usar-pedido-timeline"]').forEach((button) => {
+    button.addEventListener("click", () => {
+      const pedidoId = Number(button.dataset.pedidoId || 0);
+      if (!Number.isInteger(pedidoId) || pedidoId <= 0) {
+        return;
+      }
+      appState.examples.timelineRequest = { pedidoId };
+      ensureHandoffState().focoPedidoId = pedidoId;
+      setView("pedidos");
+    });
+  });
 }
 
 function updateApiStatus() {
@@ -347,7 +1003,9 @@ function updateApiStatus() {
 }
 
 function applyApiBaseFromInput() {
-  const nextBase = apiInput.value.trim().replace(/\/+$/, "");
+  const nextBase = typeof StorageModule.sanitizeBaseUrl === "function"
+    ? StorageModule.sanitizeBaseUrl(apiInput.value)
+    : apiInput.value.trim().replace(/\/+$/, "");
   if (!nextBase) {
     return;
   }
@@ -356,22 +1014,33 @@ function applyApiBaseFromInput() {
 }
 
 function persistApiBase(baseUrl) {
+  if (typeof StorageModule.persistApiBase === "function") {
+    StorageModule.persistApiBase(baseUrl);
+    return;
+  }
   try {
-    window.localStorage.setItem(API_BASE_STORAGE_KEY, baseUrl);
+    window.localStorage.setItem("aguaVivaApiBaseUrl", baseUrl);
   } catch (_) {
     // Sem persistencia local.
   }
 }
 
 function clearStoredApiBase() {
+  if (typeof StorageModule.clearStoredApiBase === "function") {
+    StorageModule.clearStoredApiBase();
+    return;
+  }
   try {
-    window.localStorage.removeItem(API_BASE_STORAGE_KEY);
+    window.localStorage.removeItem("aguaVivaApiBaseUrl");
   } catch (_) {
     // Sem persistencia local.
   }
 }
 
 async function requestApi(path, options = {}) {
+  if (typeof ApiModule.requestJson === "function") {
+    return ApiModule.requestJson(appState.api.baseUrl, path, options);
+  }
   const url = `${appState.api.baseUrl}${path}`;
   const response = await fetch(url, {
     method: options.method || "GET",
@@ -1096,6 +1765,430 @@ function buildRotasRowsFromPainel(painel) {
   return { emAndamento, planejadas };
 }
 
+function resolveCamadaFromRota(rota) {
+  const camada = String(rota?.camada || "").toUpperCase();
+  if (camada.includes("PRIMARIA")) {
+    return "PRIMARIA";
+  }
+  if (camada.includes("SECUNDARIA")) {
+    return "SECUNDARIA";
+  }
+
+  const statusRota = String(rota?.statusRota || "").toUpperCase();
+  if (statusRota === "EM_ANDAMENTO") {
+    return "PRIMARIA";
+  }
+  if (statusRota === "PLANEJADA") {
+    return "SECUNDARIA";
+  }
+  return "DESCONHECIDA";
+}
+
+function buildFleetLayerSnapshotFromRotas(rotasRows) {
+  const rows = (Array.isArray(rotasRows) ? rotasRows : [])
+    .filter((rota) => Number.isInteger(Number(rota?.rotaId || 0)) && Number(rota?.rotaId || 0) > 0)
+    .slice()
+    .sort((a, b) => Number(a?.rotaId || 0) - Number(b?.rotaId || 0));
+
+  const primarias = [];
+  const secundarias = [];
+  const desconhecidas = [];
+  rows.forEach((rota) => {
+    const camada = resolveCamadaFromRota(rota);
+    if (camada === "PRIMARIA") {
+      primarias.push(rota);
+      return;
+    }
+    if (camada === "SECUNDARIA") {
+      secundarias.push(rota);
+      return;
+    }
+    desconhecidas.push(rota);
+  });
+
+  const anomalyMessages = [];
+  if (primarias.length > 1) {
+    anomalyMessages.push(`Foram detectadas ${primarias.length} rotas na camada PRIMARIA (esperado: 1).`);
+  }
+  if (secundarias.length > 1) {
+    anomalyMessages.push(`Foram detectadas ${secundarias.length} rotas na camada SECUNDARIA (esperado: 1).`);
+  }
+  if (desconhecidas.length > 0) {
+    anomalyMessages.push(`${desconhecidas.length} rota(s) sem camada reconhecida (PRIMARIA/SECUNDARIA).`);
+  }
+
+  return {
+    primaria: primarias[0] || null,
+    secundaria: secundarias[0] || null,
+    primarias,
+    secundarias,
+    desconhecidas,
+    hasAnomaly: anomalyMessages.length > 0,
+    anomalyMessages
+  };
+}
+
+function buildFleetLayerSnapshot(painel) {
+  const rotas = buildRotasRowsFromPainel(painel);
+  return buildFleetLayerSnapshotFromRotas([...rotas.emAndamento, ...rotas.planejadas]);
+}
+
+function renderFleetLayerCard(title, tone, rota, emptyMessage) {
+  if (!rota) {
+    return `
+      <article class="frota-layer-card">
+        <p class="entity-title">${escapeHtml(title)}</p>
+        <p class="ops-empty">${escapeHtml(emptyMessage)}</p>
+      </article>
+    `;
+  }
+
+  const pedidosAssoc = (Array.isArray(rota?.pedidos) ? rota.pedidos : [])
+    .map((pedido) => {
+      const pedidoId = Number(pedido?.pedidoId || 0);
+      const ordem = Number(pedido?.ordemNaRota || 0);
+      return `<span class="pill ${tone} mono">#${escapeHtml(String(pedidoId > 0 ? pedidoId : "?"))}${ordem > 0 ? ` · O${escapeHtml(String(ordem))}` : ""}</span>`;
+    })
+    .join("");
+
+  return `
+    <article class="frota-layer-card">
+      <p class="entity-title">${escapeHtml(title)}</p>
+      <p class="mono">Rota: <strong>R${escapeHtml(String(rota?.rotaId || "-"))}</strong> · Entregador: <strong>${escapeHtml(String(rota?.entregadorId || "-"))}</strong></p>
+      <p class="mono">
+        Status: ${escapeHtml(String(rota?.statusRota || "-"))}
+        · Pendentes: ${escapeHtml(String(rota?.pendentes || 0))}
+        · Em execucao: ${escapeHtml(String(rota?.emExecucao || 0))}
+      </p>
+      <p class="mono">Proximo passo: ${escapeHtml(rotaActionHintByStatus(rota?.statusRota || "-"))}</p>
+      <div class="entity-pills">${pedidosAssoc || "<span class=\"mono\">Sem pedidos associados.</span>"}</div>
+    </article>
+  `;
+}
+
+function buildAtendenteOrientacaoPedidos(painel) {
+  const rows = [];
+  const filas = painel?.filas || {};
+
+  (Array.isArray(filas.pendentesElegiveis) ? filas.pendentesElegiveis : []).forEach((item) => {
+    rows.push({
+      pedidoId: Number(item?.pedidoId || 0),
+      statusPedido: "PENDENTE",
+      rotaId: null,
+      entregaId: null,
+      ordemNaRota: null,
+      entregadorId: null,
+      quantidadeGaloes: Number(item?.quantidadeGaloes || 0),
+      janelaTipo: String(item?.janelaTipo || "ASAP"),
+      origem: "FILA_PENDENTE"
+    });
+  });
+
+  (Array.isArray(filas.confirmadosSecundaria) ? filas.confirmadosSecundaria : []).forEach((item) => {
+    rows.push({
+      pedidoId: Number(item?.pedidoId || 0),
+      statusPedido: "CONFIRMADO",
+      rotaId: Number(item?.rotaId || 0),
+      entregaId: null,
+      ordemNaRota: Number(item?.ordemNaRota || 0),
+      entregadorId: Number(item?.entregadorId || 0),
+      quantidadeGaloes: Number(item?.quantidadeGaloes || 0),
+      janelaTipo: "-",
+      origem: "SECUNDARIA"
+    });
+  });
+
+  (Array.isArray(filas.emRotaPrimaria) ? filas.emRotaPrimaria : []).forEach((item) => {
+    rows.push({
+      pedidoId: Number(item?.pedidoId || 0),
+      statusPedido: "EM_ROTA",
+      rotaId: Number(item?.rotaId || 0),
+      entregaId: Number(item?.entregaId || 0),
+      ordemNaRota: null,
+      entregadorId: Number(item?.entregadorId || 0),
+      quantidadeGaloes: Number(item?.quantidadeGaloes || 0),
+      janelaTipo: "-",
+      origem: String(item?.statusEntrega || "PRIMARIA")
+    });
+  });
+
+  rows.sort((a, b) => Number(a.pedidoId || 0) - Number(b.pedidoId || 0));
+  return rows;
+}
+
+function buildAtendenteOrientacaoRotas(painel, pedidosRows) {
+  const rotas = buildRotasRowsFromPainel(painel);
+  const rows = [];
+  const pedidosByRota = new Map();
+  (Array.isArray(pedidosRows) ? pedidosRows : []).forEach((pedido) => {
+    const rotaId = Number(pedido?.rotaId || 0);
+    if (!Number.isInteger(rotaId) || rotaId <= 0) {
+      return;
+    }
+    if (!pedidosByRota.has(rotaId)) {
+      pedidosByRota.set(rotaId, []);
+    }
+    pedidosByRota.get(rotaId).push(pedido);
+  });
+
+  const allRotas = [...rotas.emAndamento, ...rotas.planejadas];
+  const seen = new Set();
+  allRotas.forEach((rota) => {
+    const rotaId = Number(rota?.rotaId || 0);
+    if (!Number.isInteger(rotaId) || rotaId <= 0 || seen.has(rotaId)) {
+      return;
+    }
+    seen.add(rotaId);
+    rows.push({
+      rotaId,
+      statusRota: String(rota?.statusRota || "-"),
+      entregadorId: Number(rota?.entregadorId || 0),
+      camada: String(rota?.camada || "-"),
+      pendentes: Number(rota?.pendentes || 0),
+      emExecucao: Number(rota?.emExecucao || 0),
+      pedidos: pedidosByRota.get(rotaId) || []
+    });
+  });
+
+  rows.sort((a, b) => a.rotaId - b.rotaId);
+  return rows;
+}
+
+function renderAtendenteSessionOverview(painel, historicoBusca) {
+  const handoff = ensureHandoffState();
+  const atendente = ensureAtendenteState();
+  const pedidoStatusIndex = buildPedidoStatusIndex();
+  const bloqueios = atendente.trilhaSessao.filter((item) => item?.tipo === "danger").length;
+  const abertosNaSessao = handoff.atendimentosSessao
+    .filter((item) => isPedidoStatusOpen(resolvePedidoStatus(item?.pedidoId, pedidoStatusIndex)))
+    .length;
+  const pedidosNoPainel = Number(painel?.pedidosPorStatus?.pendente || 0)
+    + Number(painel?.pedidosPorStatus?.confirmado || 0)
+    + Number(painel?.pedidosPorStatus?.emRota || 0);
+
+  const cards = [
+    {
+      label: "Pedidos no painel",
+      value: String(pedidosNoPainel),
+      detail: "pendente + confirmado + em rota",
+      tone: "info"
+    },
+    {
+      label: "Abertos na sessao",
+      value: String(abertosNaSessao),
+      detail: "validado por status atual",
+      tone: abertosNaSessao > 0 ? "warn" : "ok"
+    },
+    {
+      label: "Bloqueios de regra",
+      value: String(bloqueios),
+      detail: "acoes manuais barradas no front",
+      tone: bloqueios > 0 ? "danger" : "ok"
+    },
+    {
+      label: "Busca por telefone",
+      value: historicoBusca?.telefoneNormalizado
+        ? formatPhoneForDisplay(historicoBusca.telefoneNormalizado)
+        : "Sem busca",
+      detail: historicoBusca?.pedidoAberto
+        ? `pedido aberto #${historicoBusca.pedidoAberto.pedidoId}`
+        : "sem pedido aberto no telefone atual",
+      tone: historicoBusca?.pedidoAberto ? "warn" : "info"
+    }
+  ];
+
+  return `
+    <section class="panel">
+      <div class="panel-header">
+        <h3>Resumo operacional da atendente</h3>
+        <span class="pill info">visao da sessao</span>
+      </div>
+      <div class="atendente-overview-grid">
+        ${cards.map((card) => `
+          <article class="overview-card ${card.tone}">
+            <p class="overview-label">${escapeHtml(card.label)}</p>
+            <p class="overview-value">${escapeHtml(card.value)}</p>
+            <p class="overview-detail mono">${escapeHtml(card.detail)}</p>
+          </article>
+        `).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderAtendenteFlowBoard(historicoBusca) {
+  const handoff = ensureHandoffState();
+  const atendente = ensureAtendenteState();
+  const trilha = atendente.trilhaSessao;
+  const buscaAtiva = Boolean(atendente.buscaTelefone?.telefoneNormalizado);
+  const pedidoAberto = historicoBusca?.pedidoAberto || null;
+  const ultimoAtendimento = trilha.find(
+    (item) => item?.tipo === "ok" && String(item?.acao || "").includes("atendimento registrado")
+  );
+  const focoPedidoId = Number(handoff.focoPedidoId || 0);
+
+  const steps = [
+    {
+      title: "1) Buscar cliente",
+      detail: buscaAtiva
+        ? `Telefone ativo: ${formatPhoneForDisplay(atendente.buscaTelefone.telefoneNormalizado)}`
+        : "Use a barra lateral para localizar cliente por telefone.",
+      status: buscaAtiva ? "done" : "active"
+    },
+    {
+      title: "2) Validar historico",
+      detail: !buscaAtiva
+        ? "Sem busca ativa."
+        : pedidoAberto
+          ? `Cliente com pedido aberto #${pedidoAberto.pedidoId}. Reaproveite o fluxo existente.`
+          : "Sem pedido aberto para o telefone pesquisado.",
+      status: !buscaAtiva ? "pending" : pedidoAberto ? "blocked" : "done"
+    },
+    {
+      title: "3) Registrar pedido",
+      detail: ultimoAtendimento
+        ? `Ultimo registro em ${formatHandoffTime(ultimoAtendimento.quando)}.`
+        : "Preencha os campos obrigatorios e registre o pedido.",
+      status: ultimoAtendimento ? "done" : buscaAtiva && !pedidoAberto ? "active" : "pending"
+    },
+    {
+      title: "4) Encaminhar despacho",
+      detail: focoPedidoId > 0
+        ? `Pedido em foco para despacho: #${focoPedidoId}.`
+        : "Selecione um pedido da fila para seguir ao despacho.",
+      status: focoPedidoId > 0 ? "done" : ultimoAtendimento ? "active" : "pending"
+    }
+  ];
+
+  const statusMeta = {
+    done: { label: "concluido", tone: "ok" },
+    active: { label: "em curso", tone: "info" },
+    blocked: { label: "bloqueado", tone: "danger" },
+    pending: { label: "pendente", tone: "warn" }
+  };
+
+  return `
+    <section class="panel">
+      <div class="panel-header">
+        <h3>Fluxo guiado da atendente</h3>
+        <span class="pill info">operacao assistida</span>
+      </div>
+      <div class="flow-grid">
+        ${steps.map((step) => {
+          const meta = statusMeta[step.status] || statusMeta.pending;
+          return `
+            <article class="flow-step ${escapeAttr(step.status)}">
+              <div class="flow-step-head">
+                <p class="flow-step-title">${escapeHtml(step.title)}</p>
+                ${tonePill(meta.label, meta.tone)}
+              </div>
+              <p class="flow-step-detail mono">${escapeHtml(step.detail)}</p>
+            </article>
+          `;
+        }).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function renderAtendenteOrientacaoBoard(painel) {
+  const pedidos = buildAtendenteOrientacaoPedidos(painel);
+  const rotas = buildAtendenteOrientacaoRotas(painel, pedidos);
+  const layerSnapshot = buildFleetLayerSnapshotFromRotas(rotas);
+  const bloqueios = ensureAtendenteState().trilhaSessao.filter((item) => item?.tipo === "danger").length;
+  const pedidosAbertos = pedidos.filter((item) => isPedidoStatusOpen(item?.statusPedido)).length;
+  const primariaId = Number(layerSnapshot.primaria?.rotaId || 0);
+  const secundariaId = Number(layerSnapshot.secundaria?.rotaId || 0);
+
+  const pedidoRows = pedidos.map((item) => `
+    <tr>
+      <td class="mono">#${escapeHtml(String(item?.pedidoId || "-"))}</td>
+      <td>${statusPill(item?.statusPedido || "-")}</td>
+      <td class="mono">${escapeHtml(String(item?.rotaId > 0 ? item.rotaId : "-"))}</td>
+      <td class="mono">${escapeHtml(String(item?.ordemNaRota > 0 ? item.ordemNaRota : "-"))}</td>
+      <td class="mono">${escapeHtml(String(item?.entregadorId > 0 ? item.entregadorId : "-"))}</td>
+      <td>${escapeHtml(atendenteActionHintByPedidoStatus(item?.statusPedido || "-"))}</td>
+    </tr>
+  `).join("");
+
+  const camadaAlert = layerSnapshot.hasAnomaly
+    ? `
+      <div class="atendente-callout danger" style="margin-top: 0.65rem;">
+        <p><strong>Inconsistencia de camadas detectada</strong></p>
+        <ul class="layer-alert-list">
+          ${layerSnapshot.anomalyMessages.map((message) => `<li class="mono">${escapeHtml(message)}</li>`).join("")}
+        </ul>
+        <p class="mono">Enquanto essa inconsistencia existir, a iniciacao manual de rota fica bloqueada.</p>
+      </div>
+    `
+    : `
+      <div class="atendente-callout ok" style="margin-top: 0.65rem;">
+        <p><strong>Modelo de frota consistente</strong></p>
+        <p class="mono">
+          Primaria: ${primariaId > 0 ? `R${escapeHtml(String(primariaId))}` : "sem rota"}
+          · Secundaria: ${secundariaId > 0 ? `R${escapeHtml(String(secundariaId))}` : "sem rota"}
+        </p>
+      </div>
+    `;
+
+  return `
+    <section class="panel">
+      <div class="panel-header">
+        <h3>Quadro operacional</h3>
+        <span class="pill info">visao compacta</span>
+      </div>
+      <p class="mono">
+        Bloqueios de operacao na sessao: ${escapeHtml(String(bloqueios))}
+        · Regras invalidas sao barradas antes da API.
+      </p>
+      <div class="entity-summary">
+        ${tonePill(`pedidos ${pedidos.length}`, "info")}
+        ${tonePill(`abertos ${pedidosAbertos}`, pedidosAbertos > 0 ? "warn" : "ok")}
+        ${tonePill(`frota primaria ${primariaId > 0 ? `R${primariaId}` : "vazia"}`, "info")}
+        ${tonePill(`frota secundaria ${secundariaId > 0 ? `R${secundariaId}` : "vazia"}`, "warn")}
+      </div>
+      ${camadaAlert}
+      <div class="entity-grid">
+        <article class="entity-card">
+          <p class="entity-title">Pedidos</p>
+          <div class="table-scroll table-scroll-vertical">
+            <table class="entity-table compact">
+              <thead>
+                <tr>
+                  <th>Pedido</th>
+                  <th>Status</th>
+                  <th>Rota</th>
+                  <th>Ordem</th>
+                  <th>Entregador</th>
+                  <th>Proximo passo</th>
+                </tr>
+              </thead>
+              <tbody>${pedidoRows || "<tr><td colspan=\"6\">Sem pedidos no quadro atual.</td></tr>"}</tbody>
+            </table>
+          </div>
+        </article>
+        <article class="entity-card">
+          <p class="entity-title">Frotas fixas (1 primaria + 1 secundaria)</p>
+          <div class="frota-layer-grid">
+            ${renderFleetLayerCard(
+              "Frota primaria (execucao)",
+              "info",
+              layerSnapshot.primaria,
+              "Sem rota primaria ativa no momento."
+            )}
+            ${renderFleetLayerCard(
+              "Frota secundaria (planejamento)",
+              "warn",
+              layerSnapshot.secundaria,
+              "Sem rota secundaria planejada no momento."
+            )}
+          </div>
+        </article>
+      </div>
+    </section>
+  `;
+}
+
 function splitPedidosForVisualBoard(pedidos) {
   const buckets = {
     emRota: [],
@@ -1179,37 +2272,49 @@ function renderOpsBucket(title, tone, items, renderItem, emptyMessage) {
 
 function renderOperationalSplitBoard(painel) {
   const rotas = buildRotasRowsFromPainel(painel);
+  const layerSnapshot = buildFleetLayerSnapshotFromRotas([...rotas.emAndamento, ...rotas.planejadas]);
   const pedidosBuckets = splitPedidosForVisualBoard(buildPedidosRowsFromPainel(painel));
 
-  const totalRotas = rotas.emAndamento.length + rotas.planejadas.length;
+  const totalRotas = (layerSnapshot.primaria ? 1 : 0) + (layerSnapshot.secundaria ? 1 : 0);
   const totalPedidos = pedidosBuckets.emRota.length + pedidosBuckets.confirmados.length + pedidosBuckets.pendentes.length;
+  const camadaAlert = layerSnapshot.hasAnomaly
+    ? `
+      <div class="atendente-callout danger" style="margin-top: 0.75rem;">
+        <p><strong>Anomalia de camadas</strong></p>
+        <ul class="layer-alert-list">
+          ${layerSnapshot.anomalyMessages.map((message) => `<li class="mono">${escapeHtml(message)}</li>`).join("")}
+        </ul>
+      </div>
+    `
+    : "";
 
   return `
     <section class="panel">
       <div class="panel-header">
-        <h3>Separacao visual operacional: Rotas x Pedidos</h3>
+        <h3>Separacao visual operacional: Frotas fixas x Pedidos</h3>
         <span class="pill info">/api/operacao/painel</span>
       </div>
       <div class="ops-split-grid">
         <article class="ops-lane ops-lane-rotas">
           <div class="ops-lane-header">
-            <h4>Rotas</h4>
+            <h4>Frotas</h4>
             ${tonePill(`total ${totalRotas}`, "info")}
           </div>
           ${renderOpsBucket(
-            "Em andamento",
+            "Frota primaria (execucao)",
             "info",
-            rotas.emAndamento,
+            layerSnapshot.primaria ? [layerSnapshot.primaria] : [],
             renderRotaCardForVisualBoard,
-            "Nenhuma rota em andamento no momento."
+            "Nenhuma rota ativa na frota primaria."
           )}
           ${renderOpsBucket(
-            "Planejadas",
+            "Frota secundaria (planejada)",
             "warn",
-            rotas.planejadas,
+            layerSnapshot.secundaria ? [layerSnapshot.secundaria] : [],
             renderRotaCardForVisualBoard,
-            "Nenhuma rota planejada disponivel."
+            "Nenhuma rota ativa na frota secundaria."
           )}
+          ${camadaAlert}
         </article>
         <article class="ops-lane ops-lane-pedidos">
           <div class="ops-lane-header">
@@ -1302,71 +2407,94 @@ function renderPedidos() {
   const painel = painelOrDefault();
   const atendimentoExample = appState.examples.atendimentoRequest;
   const timelineExample = appState.examples.timelineRequest;
-  const pedidos = buildPedidosRowsFromPainel(painel);
+  const atendente = ensureAtendenteState();
+  const buscaTelefone = atendente.buscaTelefone || {};
+  const historicoBusca = buildHistoricoPorTelefone(buscaTelefone.telefoneNormalizado || "");
+  const ultimoBloqueio = atendente.trilhaSessao.find((item) => item?.tipo === "danger");
+  const ultimaAcao = atendente.trilhaSessao[0] || null;
 
-  const linhas = pedidos
-    .map((pedido) => {
-      const eventos = (pedido.eventos || [])
-        .map((ev) => `<li class="mono">${escapeHtml(ev.hora)} · ${escapeHtml(ev.de)} -> ${escapeHtml(ev.para)} (${escapeHtml(ev.origem)})</li>`)
-        .join("");
+  const blocoBusca = buscaTelefone.telefoneNormalizado
+    ? `
+      <div class="atendente-callout info">
+        <p><strong>Cliente pesquisado</strong></p>
+        <p class="mono">
+          ${escapeHtml(formatPhoneForDisplay(buscaTelefone.telefoneNormalizado))}
+          · historico(sessao): ${escapeHtml(String(historicoBusca.historico.length))}
+        </p>
+        <p class="mono">
+          Pedido em aberto: ${historicoBusca.pedidoAberto ? `SIM (#${escapeHtml(String(historicoBusca.pedidoAberto.pedidoId))} · ${escapeHtml(String(historicoBusca.pedidoAberto.statusAtual || "-"))})` : "NAO"}
+        </p>
+      </div>
+    `
+    : `
+      <div class="atendente-callout warn">
+        <p><strong>Sem cliente focado</strong></p>
+        <p class="mono">Use a barra lateral para pesquisar telefone e abrir historico da sessao.</p>
+      </div>
+    `;
 
-      return `
-        <tr>
-          <td class="mono">#${escapeHtml(String(pedido.pedidoId))}</td>
-          <td>${escapeHtml(pedido.cliente || "-")}</td>
-          <td>${statusPill(pedido.status)}</td>
-          <td>${pedido.idempotente ? statusPill("IDEMPOTENTE") : "-"}</td>
-          <td><ul>${eventos}</ul></td>
-        </tr>
-      `;
-    })
-    .join("");
+  const blocoAberto = historicoBusca.pedidoAberto
+    ? `
+      <div class="atendente-callout danger">
+        <p><strong>Atencao: pedido em aberto do cliente</strong></p>
+        <p class="mono">
+          Pedido #${escapeHtml(String(historicoBusca.pedidoAberto.pedidoId))}
+          · status ${escapeHtml(String(historicoBusca.pedidoAberto.statusAtual || "-"))}
+        </p>
+        <button
+          class="btn"
+          type="button"
+          data-action="go-to-despacho"
+          data-pedido-id="${escapeAttr(String(historicoBusca.pedidoAberto.pedidoId || ""))}"
+        >
+          Ir para despacho desse pedido
+        </button>
+      </div>
+    `
+    : "";
+
+  const blocoBloqueio = ultimoBloqueio
+    ? `
+      <div class="atendente-callout danger">
+        <p><strong>Ultimo bloqueio de regra</strong></p>
+        <p class="mono">${escapeHtml(formatHandoffTime(ultimoBloqueio.quando))} · ${escapeHtml(String(ultimoBloqueio.acao || "-"))}</p>
+        <p>${escapeHtml(String(ultimoBloqueio.detalhe || "-"))}</p>
+      </div>
+    `
+    : `
+      <div class="atendente-callout ok">
+        <p><strong>Sessao sem bloqueios recentes</strong></p>
+        <p class="mono">Operacoes manuais recentes nao violaram regras de negocio no front.</p>
+      </div>
+    `;
+
+  const blocoUltimaAcao = ultimaAcao
+    ? `
+      <div class="atendente-callout info">
+        <p><strong>Ultima acao registrada</strong></p>
+        <p class="mono">${escapeHtml(formatHandoffTime(ultimaAcao.quando))} · ${escapeHtml(String(ultimaAcao.acao || "-"))}</p>
+        <p>${escapeHtml(String(ultimaAcao.detalhe || "-"))}</p>
+      </div>
+    `
+    : "";
 
   return renderStateShell(`
-    <div class="panel-grid">
+    <div class="panel-grid atendente-main-grid">
       <section class="panel">
         <div class="panel-header">
-          <h3>Timeline de pedidos (read model real)</h3>
-          <span class="pill info">/api/operacao/painel</span>
-        </div>
-        <table>
-          <thead>
-            <tr>
-              <th>Pedido</th>
-              <th>Cliente</th>
-              <th>Status</th>
-              <th>Idempotencia</th>
-              <th>Eventos</th>
-            </tr>
-          </thead>
-          <tbody>${linhas || "<tr><td colspan=\"5\">Sem pedidos operacionais visiveis.</td></tr>"}</tbody>
-        </table>
-      </section>
-      <section class="panel">
-        <div class="panel-header">
-          <h3>Novo pedido (API real)</h3>
+          <h3>Operacao da atendente</h3>
           <span class="pill info">/api/atendimento/pedidos</span>
         </div>
+        <p class="mono">Fluxo recomendado: buscar cliente -> validar historico -> registrar pedido -> encaminhar despacho.</p>
         <form id="atendimento-form" class="form-grid">
-          <div class="form-row">
-            <label for="telefone">Telefone</label>
-            <input
-              id="telefone"
-              name="telefone"
-              placeholder="(38) 99876-8001"
-              value="${escapeAttr(atendimentoExample.telefone)}"
-              required
-            />
-          </div>
           <div class="form-row two">
             <div class="form-row">
-              <label for="quantidadeGaloes">Quantidade de galoes</label>
+              <label for="telefone">Telefone</label>
               <input
-                id="quantidadeGaloes"
-                name="quantidadeGaloes"
-                type="number"
-                min="1"
-                value="${atendimentoExample.quantidadeGaloes}"
+                id="telefone"
+                name="telefone"
+                placeholder="(38) 99876-8001"
+                value="${escapeAttr(atendimentoExample.telefone)}"
                 required
               />
             </div>
@@ -1382,29 +2510,44 @@ function renderPedidos() {
               />
             </div>
           </div>
-          <div class="form-row">
-            <label for="externalCallId">External call id (opcional, manual se vazio)</label>
-            <input
-              id="externalCallId"
-              name="externalCallId"
-              placeholder="call-20260213-0001"
-              value="${escapeAttr(atendimentoExample.externalCallId || "")}"
-            />
-          </div>
-          <div class="form-row">
-            <label for="metodoPagamento">Metodo de pagamento</label>
-            <select id="metodoPagamento" name="metodoPagamento">
-              <option value="NAO_INFORMADO" ${atendimentoExample.metodoPagamento === "NAO_INFORMADO" ? "selected" : ""}>NAO_INFORMADO</option>
-              <option value="DINHEIRO" ${atendimentoExample.metodoPagamento === "DINHEIRO" ? "selected" : ""}>DINHEIRO</option>
-              <option value="PIX" ${atendimentoExample.metodoPagamento === "PIX" ? "selected" : ""}>PIX</option>
-              <option value="CARTAO" ${atendimentoExample.metodoPagamento === "CARTAO" ? "selected" : ""}>CARTAO</option>
-              <option value="VALE" ${atendimentoExample.metodoPagamento === "VALE" ? "selected" : ""}>VALE</option>
-            </select>
+          <div class="form-row two">
+            <div class="form-row">
+              <label for="quantidadeGaloes">Quantidade de galoes</label>
+              <input
+                id="quantidadeGaloes"
+                name="quantidadeGaloes"
+                type="number"
+                min="1"
+                value="${atendimentoExample.quantidadeGaloes}"
+                required
+              />
+            </div>
+            <div class="form-row">
+              <label for="metodoPagamento">Metodo de pagamento</label>
+              <select id="metodoPagamento" name="metodoPagamento">
+                <option value="NAO_INFORMADO" ${atendimentoExample.metodoPagamento === "NAO_INFORMADO" ? "selected" : ""}>NAO_INFORMADO</option>
+                <option value="DINHEIRO" ${atendimentoExample.metodoPagamento === "DINHEIRO" ? "selected" : ""}>DINHEIRO</option>
+                <option value="PIX" ${atendimentoExample.metodoPagamento === "PIX" ? "selected" : ""}>PIX</option>
+                <option value="CARTAO" ${atendimentoExample.metodoPagamento === "CARTAO" ? "selected" : ""}>CARTAO</option>
+                <option value="VALE" ${atendimentoExample.metodoPagamento === "VALE" ? "selected" : ""}>VALE</option>
+              </select>
+            </div>
           </div>
           <div class="form-row two">
             <div class="form-row">
+              <label for="origemCanal">Origem canal</label>
+              <select id="origemCanal" name="origemCanal">
+                <option value="" ${!atendimentoExample.origemCanal ? "selected" : ""}>AUTO (backend decide)</option>
+                <option value="MANUAL" ${atendimentoExample.origemCanal === "MANUAL" ? "selected" : ""}>MANUAL</option>
+                <option value="WHATSAPP" ${atendimentoExample.origemCanal === "WHATSAPP" ? "selected" : ""}>WHATSAPP</option>
+                <option value="BINA_FIXO" ${atendimentoExample.origemCanal === "BINA_FIXO" ? "selected" : ""}>BINA_FIXO</option>
+                <option value="TELEFONIA_FIXO" ${atendimentoExample.origemCanal === "TELEFONIA_FIXO" ? "selected" : ""}>TELEFONIA_FIXO</option>
+              </select>
+            </div>
+            <div class="form-row">
               <label for="janelaTipo">Janela tipo</label>
               <select id="janelaTipo" name="janelaTipo">
+                <option value="ASAP" ${atendimentoExample.janelaTipo === "ASAP" ? "selected" : ""}>ASAP</option>
                 <option value="FLEXIVEL" ${atendimentoExample.janelaTipo === "FLEXIVEL" ? "selected" : ""}>FLEXIVEL</option>
                 <option value="HARD" ${atendimentoExample.janelaTipo === "HARD" ? "selected" : ""}>HARD</option>
               </select>
@@ -1418,114 +2561,127 @@ function renderPedidos() {
               <input id="janelaFim" name="janelaFim" placeholder="10:30" value="${escapeAttr(atendimentoExample.janelaFim || "")}" />
             </div>
           </div>
+          <details class="form-collapsible">
+            <summary class="diag-summary">IDs operacionais e dados opcionais</summary>
+            <div class="form-grid" style="margin-top: 0.75rem;">
+              <div class="form-row two">
+                <div class="form-row">
+                  <label for="sourceEventId">sourceEventId (canal automatico)</label>
+                  <input
+                    id="sourceEventId"
+                    name="sourceEventId"
+                    placeholder="src-20260224-001"
+                    value="${escapeAttr(atendimentoExample.sourceEventId || "")}"
+                  />
+                </div>
+                <div class="form-row">
+                  <label for="manualRequestId">manualRequestId (canal manual)</label>
+                  <input
+                    id="manualRequestId"
+                    name="manualRequestId"
+                    placeholder="manual-20260224-001"
+                    value="${escapeAttr(atendimentoExample.manualRequestId || "")}"
+                  />
+                </div>
+              </div>
+              <div class="form-row">
+                <label for="externalCallId">externalCallId (legado/idempotencia)</label>
+                <input
+                  id="externalCallId"
+                  name="externalCallId"
+                  placeholder="call-20260213-0001"
+                  value="${escapeAttr(atendimentoExample.externalCallId || "")}"
+                />
+              </div>
+              <div class="form-row">
+                <label for="nomeCliente">Nome cliente (opcional)</label>
+                <input
+                  id="nomeCliente"
+                  name="nomeCliente"
+                  placeholder="Maria Clara"
+                  value="${escapeAttr(atendimentoExample.nomeCliente || "")}"
+                />
+              </div>
+              <div class="form-row">
+                <label for="endereco">Endereco (opcional)</label>
+                <input
+                  id="endereco"
+                  name="endereco"
+                  placeholder="Rua A, 10 - Montes Claros"
+                  value="${escapeAttr(atendimentoExample.endereco || "")}"
+                />
+              </div>
+              <div class="form-row two">
+                <div class="form-row">
+                  <label for="latitude">Latitude (opcional)</label>
+                  <input
+                    id="latitude"
+                    name="latitude"
+                    placeholder="-16.7310"
+                    value="${escapeAttr(atendimentoExample.latitude || "")}"
+                  />
+                </div>
+                <div class="form-row">
+                  <label for="longitude">Longitude (opcional)</label>
+                  <input
+                    id="longitude"
+                    name="longitude"
+                    placeholder="-43.8710"
+                    value="${escapeAttr(atendimentoExample.longitude || "")}"
+                  />
+                </div>
+              </div>
+            </div>
+          </details>
+          <div class="rules-list">
+            <p class="mono">Regra 1: canal automatico exige sourceEventId; canal manual usa manualRequestId.</p>
+            <p class="mono">Regra 2: cliente com pedido aberto nao pode gerar novo pedido.</p>
+            <p class="mono">Regra 3: latitude e longitude devem ser informadas juntas.</p>
+          </div>
           <button class="btn" type="submit">Registrar pedido</button>
         </form>
         ${renderResultBox("Resposta atendimento", appState.apiResults.atendimento)}
-        <hr style="border-color: rgba(73, 104, 121, 0.4); margin: 1rem 0;" />
-        <form id="timeline-form" class="form-grid">
-          <div class="form-row">
-            <label for="timelinePedidoId">Consultar timeline (pedidoId)</label>
-            <input
-              id="timelinePedidoId"
-              name="pedidoId"
-              type="number"
-              min="1"
-              value="${timelineExample.pedidoId}"
-              required
-            />
-          </div>
-          <button class="btn" type="submit">Carregar timeline</button>
-        </form>
-        ${renderResultBox("Resposta timeline", appState.apiResults.timeline)}
-        <hr style="border-color: rgba(73, 104, 121, 0.4); margin: 1rem 0;" />
+        ${renderAtendimentoHandoffSection()}
+      </section>
+      <section class="panel">
         <div class="panel-header">
-          <h3>Fluxo guiado E2E (usuario)</h3>
-          <span class="pill info">PoC M1</span>
+          <h3>Contexto e diagnostico</h3>
+          <span class="pill info">apoio da sessao</span>
         </div>
-        <p>
-          Roda o ciclo operacional no backend real:
-          atendimento -> roteirizacao por evento -> rota iniciada -> evento terminal -> timeline.
-        </p>
-        <form id="e2e-form" class="form-grid">
-          <div class="form-row two">
-            <div class="form-row">
-              <label for="e2eScenario">Cenario</label>
-              <select id="e2eScenario" name="scenario">
-                <option value="feliz" ${appState.e2e.form.scenario === "feliz" ? "selected" : ""}>feliz</option>
-                <option value="falha" ${appState.e2e.form.scenario === "falha" ? "selected" : ""}>falha</option>
-                <option value="cancelamento" ${appState.e2e.form.scenario === "cancelamento" ? "selected" : ""}>cancelamento</option>
-              </select>
-            </div>
-            <div class="form-row">
-              <label for="e2eMetodoPagamento">Metodo de pagamento</label>
-              <select id="e2eMetodoPagamento" name="metodoPagamento">
-                <option value="NAO_INFORMADO" ${appState.e2e.form.metodoPagamento === "NAO_INFORMADO" ? "selected" : ""}>NAO_INFORMADO</option>
-                <option value="DINHEIRO" ${appState.e2e.form.metodoPagamento === "DINHEIRO" ? "selected" : ""}>DINHEIRO</option>
-                <option value="PIX" ${appState.e2e.form.metodoPagamento === "PIX" ? "selected" : ""}>PIX</option>
-                <option value="CARTAO" ${appState.e2e.form.metodoPagamento === "CARTAO" ? "selected" : ""}>CARTAO</option>
-                <option value="VALE" ${appState.e2e.form.metodoPagamento === "VALE" ? "selected" : ""}>VALE</option>
-              </select>
-            </div>
+        <div class="form-grid">
+          ${blocoBusca}
+          ${blocoAberto}
+          ${blocoBloqueio}
+          ${blocoUltimaAcao}
+        </div>
+        <details class="diag-details" open>
+          <summary class="diag-summary">Diagnostico de timeline (on-demand)</summary>
+          <div class="form-grid" style="margin-top: 0.75rem;">
+            <form id="timeline-form" class="form-grid">
+              <div class="form-row">
+                <label for="timelinePedidoId">Consultar timeline (pedidoId)</label>
+                <input
+                  id="timelinePedidoId"
+                  name="pedidoId"
+                  type="number"
+                  min="1"
+                  value="${timelineExample.pedidoId}"
+                  required
+                />
+              </div>
+              <button class="btn" type="submit">Carregar timeline</button>
+            </form>
+            ${renderResultBox("Resposta timeline", appState.apiResults.timeline)}
           </div>
-          <div class="form-row two">
-            <div class="form-row">
-              <label for="e2eTelefone">Telefone</label>
-              <input id="e2eTelefone" name="telefone" value="${escapeAttr(appState.e2e.form.telefone)}" required />
-            </div>
-            <div class="form-row">
-              <label for="e2eQuantidadeGaloes">Quantidade de galoes</label>
-              <input
-                id="e2eQuantidadeGaloes"
-                name="quantidadeGaloes"
-                type="number"
-                min="1"
-                value="${escapeAttr(appState.e2e.form.quantidadeGaloes)}"
-                required
-              />
-            </div>
-          </div>
-          <div class="form-row">
-            <label for="e2eAtendenteId">Atendente ID</label>
-            <input
-              id="e2eAtendenteId"
-              name="atendenteId"
-              type="number"
-              min="1"
-              value="${escapeAttr(appState.e2e.form.atendenteId)}"
-              required
-            />
-          </div>
-          <div class="form-row">
-            <label for="e2eMotivoFalha">Motivo para falha (cenario falha)</label>
-            <input id="e2eMotivoFalha" name="motivoFalha" value="${escapeAttr(appState.e2e.form.motivoFalha)}" />
-          </div>
-          <div class="form-row two">
-            <div class="form-row">
-              <label for="e2eMotivoCancelamento">Motivo para cancelamento</label>
-              <input
-                id="e2eMotivoCancelamento"
-                name="motivoCancelamento"
-                value="${escapeAttr(appState.e2e.form.motivoCancelamento)}"
-              />
-            </div>
-            <div class="form-row">
-              <label for="e2eCobrancaCancelamento">Cobranca cancelamento (centavos)</label>
-              <input
-                id="e2eCobrancaCancelamento"
-                name="cobrancaCancelamentoCentavos"
-                type="number"
-                min="0"
-                value="${escapeAttr(appState.e2e.form.cobrancaCancelamentoCentavos)}"
-              />
-            </div>
-          </div>
-          <button class="btn" type="submit" ${appState.e2e.running ? "disabled" : ""}>
-            ${appState.e2e.running ? "Executando..." : "Executar fluxo guiado"}
-          </button>
-        </form>
-        ${renderGuidedRunBox()}
+        </details>
       </section>
     </div>
+    <details class="diag-details" style="margin-top: 1rem;">
+      <summary class="diag-summary">Quadro operacional (pedidos + frotas)</summary>
+      <div style="margin-top: 0.75rem;">
+        ${renderAtendenteOrientacaoBoard(painel)}
+      </div>
+    </details>
   `);
 }
 
@@ -1595,17 +2751,16 @@ function renderOperationalEventFeed(events, emptyMessage) {
 function renderDespacho() {
   const eventoExample = appState.examples.eventoRequest;
   const painel = painelOrDefault();
+  const layerSnapshot = buildFleetLayerSnapshot(painel);
+  const rotaPrimaria = layerSnapshot.primaria;
+  const rotaSecundaria = layerSnapshot.secundaria;
+  const rotaSecundariaId = Number(rotaSecundaria?.rotaId || 0);
+  const podeIniciarSecundaria = Boolean(rotaSecundaria && !layerSnapshot.hasAnomaly);
   const eventosAgrupados = splitOperationalEvents(appState.eventosOperacionais);
-  const entregadoresComRotaPronta = [
-    ...new Set(
-      (Array.isArray(painel.rotas?.planejadas) ? painel.rotas.planejadas : [])
-        .map((rota) => Number(rota?.entregadorId))
-        .filter((entregadorId) => Number.isInteger(entregadorId) && entregadorId > 0)
-    )
-  ];
 
   return renderStateShell(`
     ${renderOperationalSplitBoard(painel)}
+    ${renderDespachoHandoffSection()}
     <div class="panel-grid" style="margin-top: 1rem;">
       <section class="panel">
         <div class="panel-header">
@@ -1645,6 +2800,17 @@ function renderDespacho() {
         ${renderMapaOperacional()}
         <div class="result-box" style="margin-top: 0.75rem;">
           <p><strong>Resumo de camadas (painel)</strong></p>
+          <p class="mono">
+            Frota primaria: ${rotaPrimaria ? `R${escapeHtml(String(rotaPrimaria.rotaId))} · E${escapeHtml(String(rotaPrimaria.entregadorId))}` : "sem rota ativa"}
+            · Frota secundaria: ${rotaSecundaria ? `R${escapeHtml(String(rotaSecundaria.rotaId))} · E${escapeHtml(String(rotaSecundaria.entregadorId))}` : "sem rota planejada"}
+          </p>
+          ${layerSnapshot.hasAnomaly
+            ? `
+              <ul class="layer-alert-list">
+                ${layerSnapshot.anomalyMessages.map((message) => `<li class="mono">${escapeHtml(message)}</li>`).join("")}
+              </ul>
+            `
+            : ""}
           <pre class="mono">${escapeHtml(JSON.stringify(painel.rotas || {}, null, 2))}</pre>
         </div>
       </section>
@@ -1677,8 +2843,14 @@ function renderDespacho() {
                 />
               </div>
               <div class="form-row">
-                <label for="rotaId">Rota ID (para ROTA_INICIADA)</label>
-                <input id="rotaId" name="rotaId" type="number" min="1" value="${escapeAttr(eventoExample.rotaId || "")}" />
+                <label for="rotaId">Rota ID da frota secundaria (ROTA_INICIADA)</label>
+                <input
+                  id="rotaId"
+                  name="rotaId"
+                  type="number"
+                  min="1"
+                  value="${escapeAttr(eventoExample.rotaId || (rotaSecundariaId > 0 ? String(rotaSecundariaId) : ""))}"
+                />
               </div>
               <div class="form-row">
                 <label for="entregaId">Entrega ID (demais eventos)</label>
@@ -1714,25 +2886,57 @@ function renderDespacho() {
           ${renderResultBox("Resposta evento", appState.apiResults.evento)}
         </div>
         <div>
-          <p class="mono">Fluxo da atendente: um clique por entregador para iniciar rota pronta.</p>
+          <p class="mono">
+            Fluxo operacional fixo: existe uma frota PRIMARIA (execucao) e uma frota SECUNDARIA (planejamento).
+            A iniciacao manual so atua na frota secundaria unica.
+          </p>
           <div class="form-grid">
-            ${entregadoresComRotaPronta.length === 0
-              ? "<p>Nenhuma rota PLANEJADA disponivel no momento.</p>"
-              : entregadoresComRotaPronta
-                  .map(
-                    (entregadorId) => `
-                      <button
-                        class="btn"
-                        type="button"
-                        data-action="iniciar-rota-pronta"
-                        data-entregador-id="${entregadorId}"
-                      >
-                        Iniciar rota pronta · Entregador ${entregadorId}
-                      </button>`
-                  )
-                  .join("")}
+            ${!rotaSecundaria
+              ? "<p>Nenhuma rota da frota SECUNDARIA disponivel para iniciar.</p>"
+              : `
+                <div class="form-row" style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+                  <button
+                    class="btn"
+                    type="button"
+                    data-action="iniciar-rota-pronta"
+                    data-entregador-id="${escapeAttr(String(rotaSecundaria.entregadorId || ""))}"
+                    data-rota-id="${escapeAttr(String(rotaSecundaria.rotaId || ""))}"
+                    ${podeIniciarSecundaria ? "" : "disabled"}
+                  >
+                    Iniciar frota secundaria · R${escapeHtml(String(rotaSecundaria.rotaId || "-"))} · Entregador ${escapeHtml(String(rotaSecundaria.entregadorId || "-"))}
+                  </button>
+                  <a
+                    class="btn"
+                    href="./entregador.html?entregadorId=${escapeAttr(String(rotaSecundaria.entregadorId || ""))}"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Abrir pagina entregador ${escapeHtml(String(rotaSecundaria.entregadorId || "-"))}
+                  </a>
+                </div>
+              `}
+            ${layerSnapshot.hasAnomaly
+              ? `
+                <div class="atendente-callout danger">
+                  <p><strong>Iniciar frota secundaria bloqueado</strong></p>
+                  <ul class="layer-alert-list">
+                    ${layerSnapshot.anomalyMessages.map((message) => `<li class="mono">${escapeHtml(message)}</li>`).join("")}
+                  </ul>
+                </div>
+              `
+              : ""}
           </div>
           ${renderResultBox("Resposta iniciar rota pronta", appState.apiResults.iniciarRotaPronta)}
+          ${ensureHandoffState().ultimoEntregadorId
+            ? `
+              <p class="mono" style="margin-top: 0.5rem;">
+                Deep-link apos inicio:
+                <a href="./entregador.html?entregadorId=${escapeAttr(String(ensureHandoffState().ultimoEntregadorId))}" target="_blank" rel="noopener noreferrer">
+                  entregador ${escapeHtml(String(ensureHandoffState().ultimoEntregadorId))}
+                </a>
+              </p>
+            `
+            : ""}
         </div>
       </div>
     </section>
@@ -1776,6 +2980,7 @@ function buildFrotaRoteiros() {
 
 function renderFrota() {
   const painel = painelOrDefault();
+  const layerSnapshot = buildFleetLayerSnapshot(painel);
   const roteiros = buildFrotaRoteiros();
 
   const resumo = {
@@ -1856,8 +3061,9 @@ function renderFrota() {
   const kpis = [
     { label: "Entregadores", value: resumo.entregadores },
     { label: "Com rota", value: resumo.comRota },
-    { label: "Em andamento", value: resumo.emAndamento },
-    { label: "Planejadas", value: resumo.planejadas },
+    { label: "Frota primaria", value: layerSnapshot.primaria ? `R${layerSnapshot.primaria.rotaId}` : "SEM_ROTA" },
+    { label: "Frota secundaria", value: layerSnapshot.secundaria ? `R${layerSnapshot.secundaria.rotaId}` : "SEM_ROTA" },
+    { label: "Anomalias camada", value: layerSnapshot.anomalyMessages.length },
     { label: "Carga remanescente", value: resumo.cargaRemanescente },
     { label: "Paradas em aberto", value: resumo.paradasPendentesExecucao },
     { label: "Paradas concluidas", value: resumo.paradasConcluidas },
@@ -1872,6 +3078,25 @@ function renderFrota() {
     `)
     .join("");
 
+  const camadaStatus = layerSnapshot.hasAnomaly
+    ? `
+      <div class="atendente-callout danger" style="margin-top: 0.75rem;">
+        <p><strong>Inconsistencia no modelo de frota (esperado 1 primaria + 1 secundaria)</strong></p>
+        <ul class="layer-alert-list">
+          ${layerSnapshot.anomalyMessages.map((message) => `<li class="mono">${escapeHtml(message)}</li>`).join("")}
+        </ul>
+      </div>
+    `
+    : `
+      <div class="atendente-callout ok" style="margin-top: 0.75rem;">
+        <p><strong>Modelo de frota consistente</strong></p>
+        <p class="mono">
+          Primaria ${layerSnapshot.primaria ? `R${escapeHtml(String(layerSnapshot.primaria.rotaId))} · E${escapeHtml(String(layerSnapshot.primaria.entregadorId))}` : "sem rota"}
+          · Secundaria ${layerSnapshot.secundaria ? `R${escapeHtml(String(layerSnapshot.secundaria.rotaId))} · E${escapeHtml(String(layerSnapshot.secundaria.entregadorId))}` : "sem rota"}
+        </p>
+      </div>
+    `;
+
   return renderStateShell(`
     <div class="panel-grid">
       <section class="panel">
@@ -1880,6 +3105,7 @@ function renderFrota() {
           <span class="pill info">/api/entregadores/{id}/roteiro</span>
         </div>
         <div class="frota-kpis">${kpis}</div>
+        ${camadaStatus}
         <div class="fleet-grid" style="margin-top: 1rem;">
           ${rows || "<p class=\"fleet-empty\">Sem entregadores com roteiro disponivel no momento.</p>"}
         </div>
@@ -1934,65 +3160,50 @@ async function syncTimelineForPedido(pedidoId) {
   appState.examples.timelineRequest = { pedidoId: timeline.pedidoId };
 }
 
-function wait(ms) {
-  return new Promise((resolve) => window.setTimeout(resolve, ms));
-}
-
-async function esperarExecucaoComRota(pedidoId, attempts = 20, pauseMs = 500) {
-  let lastPayload = null;
-  for (let tentativa = 1; tentativa <= attempts; tentativa += 1) {
-    const execucao = await requestApi(buildExecucaoPath(pedidoId), { method: "GET" });
-    lastPayload = execucao.payload;
-    const rotaId = Number(execucao.payload?.rotaId || execucao.payload?.rotaPrimariaId || 0);
-    if (Number.isInteger(rotaId) && rotaId > 0) {
-      return execucao.payload;
-    }
-    if (tentativa < attempts) {
-      await wait(pauseMs);
-    }
-  }
-  throw new Error(
-    `Execucao do pedido ${pedidoId} nao retornou rota no tempo esperado. Ultimo payload: ${JSON.stringify(lastPayload || {})}`
-  );
-}
-
 async function handleAtendimentoSubmit(event) {
   event.preventDefault();
   const formData = new FormData(event.currentTarget);
-  const externalCallId = String(formData.get("externalCallId") || "").trim();
-  const payload = {
-    telefone: String(formData.get("telefone") || "").trim(),
-    quantidadeGaloes: Number(formData.get("quantidadeGaloes")),
-    atendenteId: Number(formData.get("atendenteId"))
+  const formState = readAtendimentoFormState(formData);
+  appState.examples.atendimentoRequest = {
+    ...appState.examples.atendimentoRequest,
+    ...formState,
+    quantidadeGaloes: formState.quantidadeGaloes || appState.examples.atendimentoRequest.quantidadeGaloes,
+    atendenteId: formState.atendenteId || appState.examples.atendimentoRequest.atendenteId
   };
-  const metodoPagamento = String(formData.get("metodoPagamento") || "").trim();
-  const janelaTipo = String(formData.get("janelaTipo") || "").trim();
-  const janelaInicio = String(formData.get("janelaInicio") || "").trim();
-  const janelaFim = String(formData.get("janelaFim") || "").trim();
-  if (metodoPagamento) {
-    payload.metodoPagamento = metodoPagamento;
-  }
-  if (janelaTipo) {
-    payload.janelaTipo = janelaTipo;
-  }
-  if (janelaInicio) {
-    payload.janelaInicio = janelaInicio;
-  }
-  if (janelaFim) {
-    payload.janelaFim = janelaFim;
-  }
-  if (externalCallId) {
-    payload.externalCallId = externalCallId;
-  }
 
   try {
+    const payload = buildAtendimentoPayloadFromFormData(formData);
+    const preflight = validateAtendimentoPreflight(payload);
+    if (!preflight.ok) {
+      appState.apiResults.atendimento = {
+        source: "front-end guard",
+        payload: {
+          erro: preflight.motivo,
+          bloqueadoNoFront: true,
+          pedidoAbertoId: preflight.pedidoId || null
+        }
+      };
+      pushTrilhaSessao("danger", "atendimento bloqueado", preflight.motivo, {
+        telefone: formatPhoneForDisplay(payload.telefone)
+      });
+      render();
+      return;
+    }
+
     const result = await requestApi("/api/atendimento/pedidos", { method: "POST", body: payload });
     appState.apiResults.atendimento = {
       source: "api real",
       payload: result.payload
     };
-
+    pushAtendimentoHandoff(result.payload, payload);
     const pedidoId = Number(result.payload?.pedidoId || 0);
+    const statusRegistro = Boolean(result.payload?.idempotente) ? "idempotente" : "novo";
+    pushTrilhaSessao(
+      "ok",
+      "pedido registrado",
+      `Pedido #${pedidoId > 0 ? pedidoId : "?"} (${statusRegistro}) para ${formatPhoneForDisplay(payload.telefone)}.`
+    );
+
     if (pedidoId > 0) {
       await syncTimelineForPedido(pedidoId);
       await refreshOperationalReadModels();
@@ -2002,6 +3213,7 @@ async function handleAtendimentoSubmit(event) {
       source: "api real",
       payload: { erro: error?.message || "Falha ao registrar pedido" }
     };
+    pushTrilhaSessao("danger", "falha atendimento", error?.message || "Falha ao registrar pedido.");
   } finally {
     render();
   }
@@ -2020,222 +3232,6 @@ async function handleTimelineSubmit(event) {
       payload: { erro: error?.message || "Falha ao carregar timeline" }
     };
   } finally {
-    render();
-  }
-}
-
-function pushRunStep(steps, title, ok, detail, payload) {
-  steps.push({
-    title,
-    ok,
-    detail: detail || "",
-    payload: payload || null
-  });
-}
-
-function readE2EFormFromFormData(formData) {
-  const current = appState.e2e.form;
-  return {
-    scenario: String(formData.get("scenario") || current.scenario || "feliz").trim().toLowerCase(),
-    telefone: String(formData.get("telefone") || current.telefone || "").trim(),
-    quantidadeGaloes: toFiniteNumberOr(formData.get("quantidadeGaloes"), current.quantidadeGaloes),
-    atendenteId: toFiniteNumberOr(formData.get("atendenteId"), current.atendenteId),
-    metodoPagamento: String(formData.get("metodoPagamento") || current.metodoPagamento || "PIX").trim() || "PIX",
-    motivoFalha: String(formData.get("motivoFalha") || current.motivoFalha || "").trim(),
-    motivoCancelamento: String(formData.get("motivoCancelamento") || current.motivoCancelamento || "").trim(),
-    cobrancaCancelamentoCentavos: toFiniteNumberOr(
-      formData.get("cobrancaCancelamentoCentavos"),
-      current.cobrancaCancelamentoCentavos
-    )
-  };
-}
-
-async function handleE2EFlowSubmit(event) {
-  event.preventDefault();
-  const formData = new FormData(event.currentTarget);
-  appState.e2e.form = readE2EFormFromFormData(formData);
-  const scenario = appState.e2e.form.scenario;
-
-  const steps = [];
-  appState.e2e.running = true;
-  appState.e2e.lastRun = {
-    state: "executando",
-    scenario,
-    steps
-  };
-  render();
-
-  try {
-    const atendimentoPayload = {
-      externalCallId: `ui-e2e-${scenario}-${Date.now()}`,
-      telefone: appState.e2e.form.telefone,
-      quantidadeGaloes: appState.e2e.form.quantidadeGaloes,
-      atendenteId: appState.e2e.form.atendenteId,
-      metodoPagamento: appState.e2e.form.metodoPagamento
-    };
-    const atendimento = await requestApi("/api/atendimento/pedidos", {
-      method: "POST",
-      body: atendimentoPayload
-    });
-    appState.apiResults.atendimento = { source: "api real", payload: atendimento.payload };
-
-    const pedidoId = Number(atendimento.payload?.pedidoId || 0);
-    pushRunStep(
-      steps,
-      "Atendimento",
-      pedidoId > 0,
-      pedidoId > 0 ? `pedidoId=${pedidoId}` : "API nao retornou pedidoId",
-      atendimento.payload
-    );
-    if (pedidoId <= 0) {
-      throw new Error("API nao retornou pedidoId para o atendimento");
-    }
-
-    const execucaoComRota = await esperarExecucaoComRota(pedidoId, 24, 500);
-    pushRunStep(
-      steps,
-      "Roteirizacao por evento",
-      true,
-      `rotaId=${execucaoComRota?.rotaId || execucaoComRota?.rotaPrimariaId || "-"}`,
-      execucaoComRota
-    );
-
-    const execucaoAntesRota = { payload: execucaoComRota };
-    const rotaId = Number(execucaoAntesRota.payload?.rotaId || execucaoAntesRota.payload?.rotaPrimariaId || 0);
-    pushRunStep(
-      steps,
-      "Resolver execucao do pedido",
-      rotaId > 0,
-      `camada=${execucaoAntesRota.payload?.camada || "-"} · rotaId=${rotaId || "-"}`,
-      execucaoAntesRota.payload
-    );
-    if (!Number.isInteger(rotaId) || rotaId <= 0) {
-      throw new Error("Execucao do pedido nao retornou rotaId valido");
-    }
-
-    let entregaId = 0;
-    let execucaoAposRota = null;
-    const maxTentativasRota = 12;
-    for (let tentativa = 1; tentativa <= maxTentativasRota; tentativa += 1) {
-      const rotaIniciada = await requestApi("/api/eventos", {
-        method: "POST",
-        body: { eventType: "ROTA_INICIADA", rotaId }
-      });
-      appState.apiResults.evento = { source: "api real", payload: rotaIniciada.payload };
-      const pedidoEvento = Number(rotaIniciada.payload?.pedidoId || 0);
-      const entregaEvento = Number(rotaIniciada.payload?.entregaId || 0);
-      pushRunStep(
-        steps,
-        "Rota iniciada",
-        true,
-        `tentativa=${tentativa} · rotaId=${rotaId} · pedidoId=${pedidoEvento || "-"}`,
-        rotaIniciada.payload
-      );
-
-      if (pedidoEvento > 0 && pedidoEvento !== pedidoId && entregaEvento > 0) {
-        const liberarFila = await requestApi("/api/eventos", {
-          method: "POST",
-          body: { eventType: "PEDIDO_ENTREGUE", entregaId: entregaEvento }
-        });
-        appState.apiResults.evento = { source: "api real", payload: liberarFila.payload };
-        pushRunStep(
-          steps,
-          "Liberar fila da rota",
-          true,
-          `pedidoId=${pedidoEvento} concluido para liberar pedido alvo ${pedidoId}`,
-          liberarFila.payload
-        );
-      }
-
-      execucaoAposRota = await requestApi(buildExecucaoPath(pedidoId), { method: "GET" });
-      entregaId = Number(execucaoAposRota.payload?.entregaAtivaId || execucaoAposRota.payload?.entregaId || 0);
-      const camadaExecucao = String(execucaoAposRota.payload?.camada || "");
-      const alvoEmExecucao = camadaExecucao === "PRIMARIA_EM_EXECUCAO" && Number.isInteger(entregaId) && entregaId > 0;
-      pushRunStep(
-        steps,
-        "Resolver entrega ativa",
-        true,
-        `tentativa=${tentativa} · camada=${camadaExecucao || "-"} · entregaId=${entregaId || "-"}${
-          alvoEmExecucao ? "" : " · aguardando vez na rota"
-        }`,
-        execucaoAposRota.payload
-      );
-      if (alvoEmExecucao) {
-        break;
-      }
-    }
-
-    const entregaAtivaValida = Number.isInteger(entregaId) && entregaId > 0;
-    const camadaFinal = String(execucaoAposRota?.payload?.camada || "");
-    if (!entregaAtivaValida || camadaFinal !== "PRIMARIA_EM_EXECUCAO") {
-      throw new Error("Pedido alvo nao entrou em execucao na rota dentro do limite de tentativas.");
-    }
-
-    const eventoTerminalPayload = buildTerminalEventPayload({
-      scenario,
-      entregaId,
-      motivoFalha: appState.e2e.form.motivoFalha,
-      motivoCancelamento: appState.e2e.form.motivoCancelamento,
-      cobrancaCancelamentoCentavos: appState.e2e.form.cobrancaCancelamentoCentavos
-    });
-    const eventoTerminal = await requestApi("/api/eventos", {
-      method: "POST",
-      body: eventoTerminalPayload
-    });
-    appState.apiResults.evento = { source: "api real", payload: eventoTerminal.payload };
-    pushRunStep(
-      steps,
-      "Evento terminal",
-      true,
-      `${eventoTerminalPayload.eventType} aplicado`,
-      eventoTerminal.payload
-    );
-
-    await syncTimelineForPedido(pedidoId);
-    const timeline = appState.apiResults.timeline?.payload;
-    const timelineStatus = String(timeline?.status || "").toUpperCase() || "INDEFINIDO";
-    const expectedStatus = expectedStatusForScenario(scenario);
-    const statusOk = timelineStatus === expectedStatus;
-    pushRunStep(
-      steps,
-      "Timeline final",
-      statusOk,
-      `status=${timelineStatus} · esperado=${expectedStatus}`,
-      timeline
-    );
-
-    appState.e2e.lastRun = {
-      state: statusOk ? "sucesso" : "erro",
-      scenario,
-      pedidoId,
-      rotaId,
-      entregaId,
-      expectedStatus,
-      timelineStatus,
-      steps,
-      error: statusOk ? "" : "Timeline final diferente do esperado para o cenario."
-    };
-  } catch (error) {
-    pushRunStep(
-      steps,
-      "Falha de execucao",
-      false,
-      error?.message || "Falha inesperada ao executar fluxo guiado",
-      null
-    );
-    appState.e2e.lastRun = {
-      state: "erro",
-      scenario,
-      steps,
-      error: error?.message || "Falha inesperada ao executar fluxo guiado"
-    };
-  } finally {
-    try {
-      await refreshOperationalReadModels();
-    } catch (_) {
-      // Estado offline ja indicado no status.
-    }
-    appState.e2e.running = false;
     render();
   }
 }
@@ -2271,18 +3267,38 @@ async function handleEventoSubmit(event) {
     payload.cobrancaCancelamentoCentavos = cobrancaCancelamentoCentavos;
   }
 
+  const preflight = validateEventoManualPreflight(payload);
+  if (!preflight.ok) {
+    appState.apiResults.evento = {
+      source: "front-end guard",
+      payload: {
+        erro: preflight.motivo,
+        bloqueadoNoFront: true
+      }
+    };
+    pushTrilhaSessao("danger", "evento bloqueado", preflight.motivo, payload);
+    render();
+    return;
+  }
+
   try {
     const result = await requestApi("/api/eventos", { method: "POST", body: payload });
     appState.apiResults.evento = {
       source: "api real",
       payload: result.payload
     };
+    pushTrilhaSessao(
+      "ok",
+      "evento manual",
+      `${eventType} aplicado${payload.rotaId ? ` na rota ${payload.rotaId}` : ""}${payload.entregaId ? ` na entrega ${payload.entregaId}` : ""}.`
+    );
     await refreshOperationalReadModels();
   } catch (error) {
     appState.apiResults.evento = {
       source: "api real",
       payload: { erro: error?.message || "Falha ao enviar evento operacional" }
     };
+    pushTrilhaSessao("danger", "falha evento manual", error?.message || "Falha ao enviar evento operacional.", payload);
   } finally {
     render();
   }
@@ -2290,11 +3306,81 @@ async function handleEventoSubmit(event) {
 
 async function handleIniciarRotaProntaClick(event) {
   const entregadorId = Number(event.currentTarget?.dataset?.entregadorId || 0);
+  const rotaIdFromButton = Number(event.currentTarget?.dataset?.rotaId || 0);
   if (!Number.isInteger(entregadorId) || entregadorId <= 0) {
     appState.apiResults.iniciarRotaPronta = {
-      source: "api real",
+      source: "front-end guard",
       payload: { erro: "entregadorId invalido para iniciar rota pronta" }
     };
+    pushTrilhaSessao("danger", "rota pronta bloqueada", "entregadorId invalido.");
+    render();
+    return;
+  }
+
+  const painel = painelOrDefault();
+  const layerSnapshot = buildFleetLayerSnapshot(painel);
+  if (layerSnapshot.hasAnomaly) {
+    appState.apiResults.iniciarRotaPronta = {
+      source: "front-end guard",
+      payload: {
+        erro: `Camadas inconsistentes: ${layerSnapshot.anomalyMessages.join(" ")}`,
+        bloqueadoNoFront: true
+      }
+    };
+    pushTrilhaSessao(
+      "danger",
+      "rota pronta bloqueada",
+      "Camadas inconsistentes; inicio manual de rota bloqueado."
+    );
+    render();
+    return;
+  }
+
+  if (!layerSnapshot.secundaria) {
+    appState.apiResults.iniciarRotaPronta = {
+      source: "front-end guard",
+      payload: {
+        erro: "Nao existe rota da frota SECUNDARIA para iniciar no painel atual.",
+        bloqueadoNoFront: true
+      }
+    };
+    pushTrilhaSessao("danger", "rota pronta bloqueada", "Frota secundaria sem rota planejada.");
+    render();
+    return;
+  }
+
+  const secondaryEntregadorId = Number(layerSnapshot.secundaria?.entregadorId || 0);
+  const secondaryRotaId = Number(layerSnapshot.secundaria?.rotaId || 0);
+  if (entregadorId !== secondaryEntregadorId) {
+    appState.apiResults.iniciarRotaPronta = {
+      source: "front-end guard",
+      payload: {
+        erro: `Somente a frota SECUNDARIA ativa pode iniciar (entregador ${secondaryEntregadorId}).`,
+        bloqueadoNoFront: true
+      }
+    };
+    pushTrilhaSessao(
+      "danger",
+      "rota pronta bloqueada",
+      `Entregador ${entregadorId} diverge da frota secundaria ativa (${secondaryEntregadorId}).`
+    );
+    render();
+    return;
+  }
+
+  if (rotaIdFromButton > 0 && secondaryRotaId > 0 && rotaIdFromButton !== secondaryRotaId) {
+    appState.apiResults.iniciarRotaPronta = {
+      source: "front-end guard",
+      payload: {
+        erro: `Botao aponta rota ${rotaIdFromButton}, mas frota SECUNDARIA ativa e rota ${secondaryRotaId}.`,
+        bloqueadoNoFront: true
+      }
+    };
+    pushTrilhaSessao(
+      "danger",
+      "rota pronta bloqueada",
+      `Rota do botao (${rotaIdFromButton}) divergente da secundaria ativa (${secondaryRotaId}).`
+    );
     render();
     return;
   }
@@ -2308,12 +3394,19 @@ async function handleIniciarRotaProntaClick(event) {
       source: "api real",
       payload: result.payload
     };
+    ensureHandoffState().ultimoEntregadorId = entregadorId;
+    pushTrilhaSessao("ok", "rota pronta iniciada", `Entregador ${entregadorId} iniciou rota pronta.`);
     await refreshOperationalReadModels();
   } catch (error) {
     appState.apiResults.iniciarRotaPronta = {
       source: "api real",
       payload: { erro: error?.message || "Falha ao iniciar rota pronta" }
     };
+    pushTrilhaSessao(
+      "danger",
+      "falha rota pronta",
+      error?.message || `Falha ao iniciar rota pronta para entregador ${entregadorId}.`
+    );
   } finally {
     render();
   }
@@ -2343,17 +3436,6 @@ function bindViewEvents() {
     timelineForm.addEventListener("submit", handleTimelineSubmit);
   }
 
-  const e2eForm = viewRoot.querySelector("#e2e-form");
-  if (e2eForm) {
-    const syncE2EFormState = () => {
-      appState.e2e.form = readE2EFormFromFormData(new FormData(e2eForm));
-    };
-    syncE2EFormState();
-    e2eForm.addEventListener("input", syncE2EFormState);
-    e2eForm.addEventListener("change", syncE2EFormState);
-    e2eForm.addEventListener("submit", handleE2EFlowSubmit);
-  }
-
   const eventoForm = viewRoot.querySelector("#evento-form");
   if (eventoForm) {
     eventoForm.addEventListener("submit", handleEventoSubmit);
@@ -2362,15 +3444,60 @@ function bindViewEvents() {
   viewRoot.querySelectorAll('[data-action="iniciar-rota-pronta"]').forEach((button) => {
     button.addEventListener("click", handleIniciarRotaProntaClick);
   });
+
+  viewRoot.querySelectorAll('[data-action="go-to-despacho"]').forEach((button) => {
+    button.addEventListener("click", () => {
+      const pedidoId = Number(button.dataset.pedidoId || 0);
+      if (Number.isInteger(pedidoId) && pedidoId > 0) {
+        ensureHandoffState().focoPedidoId = pedidoId;
+      }
+      setView("despacho");
+    });
+  });
+
+  viewRoot.querySelectorAll('[data-action="handoff-open-timeline"]').forEach((button) => {
+    button.addEventListener("click", () => {
+      const pedidoId = Number(button.dataset.pedidoId || 0);
+      if (!Number.isInteger(pedidoId) || pedidoId <= 0) {
+        return;
+      }
+      ensureHandoffState().focoPedidoId = pedidoId;
+      appState.examples.timelineRequest = { pedidoId };
+      setView("pedidos");
+    });
+  });
+
+  viewRoot.querySelectorAll('[data-action="handoff-move"]').forEach((button) => {
+    button.addEventListener("click", () => {
+      const pedidoId = Number(button.dataset.pedidoId || 0);
+      const direction = String(button.dataset.direction || "");
+      if (moveHandoffOrder(pedidoId, direction)) {
+        render();
+      }
+    });
+  });
+
+  viewRoot.querySelectorAll('[data-action="go-to-pedidos"]').forEach((button) => {
+    button.addEventListener("click", () => {
+      const pedidoId = Number(button.dataset.pedidoId || 0);
+      if (Number.isInteger(pedidoId) && pedidoId > 0) {
+        ensureHandoffState().focoPedidoId = pedidoId;
+        appState.examples.timelineRequest = { pedidoId };
+      }
+      setView("pedidos");
+    });
+  });
 }
 
 function render() {
   destroyCityMaps();
   renderMetrics();
+  renderSidebarTools();
   viewRoot.innerHTML = getViewContent();
   setActiveNav(appState.view);
   setActiveMode(appState.mode);
   bindViewEvents();
+  bindSidebarEvents();
   initCityMaps();
 }
 
