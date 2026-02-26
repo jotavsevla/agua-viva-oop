@@ -45,14 +45,6 @@ function terminalEventTypeForScenario(scenario) {
   return "PEDIDO_CANCELADO";
 }
 
-function extractPedidoId(text) {
-  const match = String(text || "").match(/pedidoId=(\d+)/);
-  if (!match) {
-    throw new Error(`pedidoId nao encontrado no resumo: ${text}`);
-  }
-  return Number(match[1]);
-}
-
 function fetchEntregaRotaByPedidoId(pedidoId) {
   const safePedidoId = Number(pedidoId);
   if (!Number.isInteger(safePedidoId) || safePedidoId <= 0) {
@@ -196,45 +188,25 @@ async function ensureApiConnected(page) {
   throw lastError || new Error("nao foi possivel conectar API no prototipo");
 }
 
-function extractNumberFromSummary(text, label) {
-  const match = String(text || "").match(new RegExp(`${label}=(\\d+)`));
-  return match ? Number(match[1]) : 0;
-}
-
-async function runGuidedFlow(page, scenario, seed = {}) {
-  await page.click('button[data-view="pedidos"]');
-  await page.selectOption("#e2eScenario", scenario);
-  await page.selectOption("#e2eMetodoPagamento", "PIX");
-  await page.fill("#e2eTelefone", String(seed.telefone || "(38) 99876-9901"));
-  await page.fill("#e2eAtendenteId", String(seed.atendenteId || "1"));
-  await page.click('#e2e-form button[type="submit"]');
-
-  const runBox = page.locator(".result-box").filter({ hasText: "Fluxo guiado E2E" }).first();
-  await expect(runBox).toContainText("sucesso", { timeout: 30000 });
-  const resumo = await runBox.innerText();
-  const pedidoId = extractPedidoId(resumo);
-  return {
-    pedidoId,
-    rotaId: extractNumberFromSummary(resumo, "rotaId"),
-    entregaId: extractNumberFromSummary(resumo, "entregaId"),
-    resumo
-  };
-}
-
-function seedForGuidedScenario(scenario) {
-  const normalized = normalizeScenario(scenario);
-  const suffix = normalized === "feliz" ? "41" : normalized === "falha" ? "42" : "43";
-  const telefone = `(38) 99876-95${suffix}`;
-  const atendenteId = ensureAtendenteId(`pw-guided-${normalized}@aguaviva.local`);
-  ensureClienteSaldo(telefone, 12);
-  return { telefone, atendenteId };
-}
-
 async function postApi(page, path, payload) {
   const response = await page.request.post(`${API_BASE}${path}`, {
     headers: { "Content-Type": "application/json" },
     data: payload
   });
+  let body;
+  try {
+    body = await response.json();
+  } catch (_) {
+    body = {};
+  }
+  if (!response.ok()) {
+    throw new Error(`${path} falhou com HTTP ${response.status()}: ${JSON.stringify(body)}`);
+  }
+  return body;
+}
+
+async function getApi(page, path) {
+  const response = await page.request.get(`${API_BASE}${path}`);
   let body;
   try {
     body = await response.json();
@@ -284,6 +256,96 @@ function buildTerminalPayload(scenario, entregaId) {
   };
 }
 
+async function waitForExecucaoComRota(page, pedidoId, attempts = 24, pauseMs = 500) {
+  let lastPayload = null;
+  for (let tentativa = 1; tentativa <= attempts; tentativa += 1) {
+    lastPayload = await getApi(page, `/api/pedidos/${pedidoId}/execucao`);
+    const rotaId = Number(lastPayload?.rotaId || lastPayload?.rotaPrimariaId || 0);
+    if (Number.isInteger(rotaId) && rotaId > 0) {
+      return lastPayload;
+    }
+    if (tentativa < attempts) {
+      await wait(pauseMs);
+    }
+  }
+  throw new Error(
+    `execucao do pedido ${pedidoId} nao retornou rota. ultimo payload: ${JSON.stringify(lastPayload || {})}`
+  );
+}
+
+function seedForScenario(scenario) {
+  const normalized = normalizeScenario(scenario);
+  const suffix = normalized === "feliz" ? "41" : normalized === "falha" ? "42" : "43";
+  const telefone = `(38) 99876-95${suffix}`;
+  const atendenteId = ensureAtendenteId(`pw-operacional-${normalized}@aguaviva.local`);
+  ensureClienteSaldo(telefone, 12);
+  return { telefone, atendenteId };
+}
+
+async function runOperationalFlow(page, scenario, seed = {}) {
+  const normalized = normalizeScenario(scenario);
+  const atendimentoPayload = {
+    externalCallId: `pw-ui-${normalized}-${Date.now()}`,
+    telefone: String(seed.telefone || "(38) 99876-9901"),
+    quantidadeGaloes: 1,
+    atendenteId: Number(seed.atendenteId || 1),
+    metodoPagamento: "PIX"
+  };
+  const atendimento = await postApi(page, "/api/atendimento/pedidos", atendimentoPayload);
+  const pedidoId = Number(atendimento?.pedidoId || 0);
+  if (!Number.isInteger(pedidoId) || pedidoId <= 0) {
+    throw new Error(`api de atendimento nao retornou pedidoId valido: ${JSON.stringify(atendimento)}`);
+  }
+
+  const execucaoComRota = await waitForExecucaoComRota(page, pedidoId, 24, 500);
+  const rotaId = Number(execucaoComRota?.rotaId || execucaoComRota?.rotaPrimariaId || 0);
+  if (!Number.isInteger(rotaId) || rotaId <= 0) {
+    throw new Error(`execucao nao retornou rotaId valido para pedidoId=${pedidoId}`);
+  }
+
+  let entregaId = 0;
+  let execucaoAtual = null;
+  const maxTentativasRota = 12;
+  for (let tentativa = 1; tentativa <= maxTentativasRota; tentativa += 1) {
+    const rotaIniciada = await postApi(page, "/api/eventos", { eventType: "ROTA_INICIADA", rotaId });
+    const pedidoEvento = Number(rotaIniciada?.pedidoId || 0);
+    const entregaEvento = Number(rotaIniciada?.entregaId || 0);
+    if (pedidoEvento > 0 && pedidoEvento !== pedidoId && entregaEvento > 0) {
+      await postApi(page, "/api/eventos", { eventType: "PEDIDO_ENTREGUE", entregaId: entregaEvento });
+    }
+
+    execucaoAtual = await getApi(page, `/api/pedidos/${pedidoId}/execucao`);
+    entregaId = Number(execucaoAtual?.entregaAtivaId || execucaoAtual?.entregaId || 0);
+    const camadaExecucao = String(execucaoAtual?.camada || "");
+    if (camadaExecucao === "PRIMARIA_EM_EXECUCAO" && Number.isInteger(entregaId) && entregaId > 0) {
+      break;
+    }
+    if (tentativa < maxTentativasRota) {
+      await wait(350);
+    }
+  }
+
+  const camadaFinal = String(execucaoAtual?.camada || "");
+  if (!Number.isInteger(entregaId) || entregaId <= 0 || camadaFinal !== "PRIMARIA_EM_EXECUCAO") {
+    const lookup = await fetchEntregaRotaWithRetry(pedidoId, 6, 500);
+    entregaId = Number(lookup?.entregaId || 0);
+    if (!Number.isInteger(entregaId) || entregaId <= 0) {
+      throw new Error(`pedidoId=${pedidoId} nao entrou em execucao para evento terminal`);
+    }
+  }
+
+  const terminalPayload = buildTerminalPayload(normalized, entregaId);
+  await postApi(page, "/api/eventos", terminalPayload);
+
+  return {
+    scenario: normalized,
+    pedidoId,
+    rotaId,
+    entregaId,
+    atendimentoPayload
+  };
+}
+
 async function loadTimelineStatus(page, pedidoId) {
   await page.click('button[data-view="pedidos"]');
   await page.fill("#timelinePedidoId", String(pedidoId));
@@ -300,12 +362,12 @@ async function loadTimelineStatus(page, pedidoId) {
 }
 
 for (const scenario of scenariosToRun()) {
-  test(`deve executar loop operacional via UI no cenario ${scenario}`, async ({ page }, testInfo) => {
+  test(`deve executar loop operacional integrado no cenario ${scenario}`, async ({ page }, testInfo) => {
     await page.goto("/", { waitUntil: "networkidle" });
     await ensureApiConnected(page);
 
-    const seed = seedForGuidedScenario(scenario);
-    const run = await runGuidedFlow(page, scenario, seed);
+    const seed = seedForScenario(scenario);
+    const run = await runOperationalFlow(page, scenario, seed);
     const pedidoId = run.pedidoId;
 
     const timelineStatus = await loadTimelineStatus(page, pedidoId);
@@ -317,7 +379,7 @@ for (const scenario of scenariosToRun()) {
       pedidoId,
       rotaId: run.rotaId,
       entregaId: run.entregaId,
-      resumo: run.resumo,
+      atendimentoPayload: run.atendimentoPayload,
       expectedStatus,
       timelineStatus
     };

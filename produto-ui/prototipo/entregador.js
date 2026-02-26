@@ -1,22 +1,24 @@
-const API_BASE_STORAGE_KEY = "aguaVivaApiBaseUrl";
-const FALLBACK_API_BASE = "http://localhost:8082";
+const StorageModule = window.AguaVivaStorage || {};
+const ApiModule = window.AguaVivaApi || {};
+const FALLBACK_API_BASE = StorageModule.DEFAULT_API_BASE || "http://localhost:8082";
 const ROTEIRO_AUTO_REFRESH_MS = 4000;
 let roteiroRefreshTimerId = null;
 let roteiroRefreshInFlight = false;
 
 const state = {
-  apiBase: readStoredApiBase(),
+  apiBase: readStoredApiBaseFromStorage(),
   connected: false,
   lastError: null,
   lastSyncAt: null,
   roteiro: null,
-  entregadorId: 1,
+  entregadorId: readEntregadorIdFromQuery() || 1,
   lastEvento: null
 };
 
 const apiBaseInput = document.getElementById("api-base");
 const apiConnectButton = document.getElementById("api-connect");
 const apiStatus = document.getElementById("api-status");
+const entregadorIdInput = document.getElementById("entregador-id");
 const roteiroForm = document.getElementById("roteiro-form");
 const eventoForm = document.getElementById("evento-form");
 const iniciarRotaButton = document.getElementById("iniciar-rota");
@@ -27,6 +29,10 @@ const roteiroConcluidas = document.getElementById("roteiro-concluidas");
 const eventoResult = document.getElementById("evento-result");
 
 apiBaseInput.value = state.apiBase;
+if (entregadorIdInput) {
+  entregadorIdInput.value = String(state.entregadorId);
+}
+syncEntregadorIdInUrl(state.entregadorId);
 updateApiStatus();
 renderRoteiro();
 renderEventoResult();
@@ -54,6 +60,7 @@ roteiroForm.addEventListener("submit", async (event) => {
   }
 
   state.entregadorId = entregadorId;
+  syncEntregadorIdInUrl(entregadorId);
   await carregarRoteiroComLock();
 });
 
@@ -278,31 +285,41 @@ function pill(label, cssClass) {
 }
 
 async function requestApi(path, options = {}) {
-  const method = options.method || "GET";
-  const url = `${state.apiBase}${path}`;
+  try {
+    let result;
+    if (typeof ApiModule.requestJson === "function") {
+      result = await ApiModule.requestJson(state.apiBase, path, options);
+    } else {
+      const method = options.method || "GET";
+      const url = `${state.apiBase}${path}`;
+      const response = await fetch(url, {
+        method,
+        headers: {
+          "Content-Type": "application/json",
+          ...(options.headers || {})
+        },
+        body: options.body ? JSON.stringify(options.body) : undefined
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        const error = new Error(payload?.erro || `HTTP ${response.status}`);
+        error.status = response.status;
+        throw error;
+      }
+      result = { payload };
+    }
 
-  const response = await fetch(url, {
-    method,
-    headers: {
-      "Content-Type": "application/json",
-      ...(options.headers || {})
-    },
-    body: options.body ? JSON.stringify(options.body) : undefined
-  });
-
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    state.connected = false;
-    state.lastError = payload?.erro || `HTTP ${response.status}`;
+    state.connected = true;
+    state.lastError = null;
+    state.lastSyncAt = new Date().toISOString();
     updateApiStatus();
-    throw new Error(state.lastError);
+    return result;
+  } catch (error) {
+    state.connected = false;
+    state.lastError = error?.message || "Falha de conexao";
+    updateApiStatus();
+    throw error;
   }
-
-  state.connected = true;
-  state.lastError = null;
-  state.lastSyncAt = new Date().toISOString();
-  updateApiStatus();
-  return { payload };
 }
 
 function updateApiStatus() {
@@ -323,13 +340,19 @@ function updateApiStatus() {
 }
 
 function applyApiBaseFromInput() {
-  const nextBase = apiBaseInput.value.trim().replace(/\/+$/, "");
+  const nextBase = typeof StorageModule.sanitizeBaseUrl === "function"
+    ? StorageModule.sanitizeBaseUrl(apiBaseInput.value)
+    : apiBaseInput.value.trim().replace(/\/+$/, "");
   if (!nextBase) {
     return;
   }
   state.apiBase = nextBase;
+  if (typeof StorageModule.persistApiBase === "function") {
+    StorageModule.persistApiBase(nextBase);
+    return;
+  }
   try {
-    window.localStorage.setItem(API_BASE_STORAGE_KEY, nextBase);
+    window.localStorage.setItem("aguaVivaApiBaseUrl", nextBase);
   } catch (_) {
     // Sem persistencia local.
   }
@@ -360,9 +383,39 @@ function startRoteiroAutoRefresh() {
   window.addEventListener("beforeunload", stopRoteiroAutoRefresh);
 }
 
-function readStoredApiBase() {
+function readEntregadorIdFromQuery() {
   try {
-    const stored = window.localStorage.getItem(API_BASE_STORAGE_KEY);
+    const params = new URLSearchParams(window.location.search || "");
+    const raw = Number(params.get("entregadorId"));
+    if (Number.isInteger(raw) && raw > 0) {
+      return raw;
+    }
+    return null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function syncEntregadorIdInUrl(entregadorId) {
+  const numeric = Number(entregadorId);
+  if (!Number.isInteger(numeric) || numeric <= 0 || typeof window.history?.replaceState !== "function") {
+    return;
+  }
+  try {
+    const url = new URL(window.location.href);
+    url.searchParams.set("entregadorId", String(numeric));
+    window.history.replaceState(null, "", url.toString());
+  } catch (_) {
+    // Ignore falha de atualizacao de URL.
+  }
+}
+
+function readStoredApiBaseFromStorage() {
+  if (typeof StorageModule.readStoredApiBase === "function") {
+    return StorageModule.readStoredApiBase();
+  }
+  try {
+    const stored = window.localStorage.getItem("aguaVivaApiBaseUrl");
     return stored || FALLBACK_API_BASE;
   } catch (_) {
     return FALLBACK_API_BASE;
