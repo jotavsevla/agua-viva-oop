@@ -113,7 +113,7 @@ services:
 
   # Suite Java (unit + integration) em container
   test-java:
-    image: maven:3.9.9-eclipse-temurin-25
+    image: maven:3.9.11-eclipse-temurin-25
     profiles: ["test"]
     working_dir: /workspace
     volumes:
