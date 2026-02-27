@@ -8,8 +8,10 @@ import com.aguaviva.repository.ConnectionFactory;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
+import java.sql.Time;
 import java.sql.Statement;
 import java.sql.Types;
+import java.time.LocalTime;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -189,6 +191,20 @@ class ReplanejamentoWorkerServiceTest {
     }
 
     @Test
+    void deveDetectarRiscoHardQuandoHorizonteCruzarMeiaNoite() throws Exception {
+        inserirPedidoHard(LocalTime.of(23, 20), LocalTime.of(23, 50));
+
+        assertTrue(workerService.existePedidoHardEmRisco(LocalTime.of(23, 40), 30));
+    }
+
+    @Test
+    void naoDeveDetectarRiscoHardQuandoJanelaEstiverForaDoHorizonteCircular() throws Exception {
+        inserirPedidoHard(LocalTime.of(23, 20), LocalTime.of(23, 50));
+
+        assertFalse(workerService.existePedidoHardEmRisco(LocalTime.of(0, 30), 30));
+    }
+
+    @Test
     void deveGarantirUmUnicoLiderQuandoWorkersConcorremPeloMesmoLote() throws Exception {
         inserirEvento(DispatchEventTypes.PEDIDO_CRIADO, 40);
         inserirEvento(DispatchEventTypes.PEDIDO_CANCELADO, 40);
@@ -301,6 +317,11 @@ class ReplanejamentoWorkerServiceTest {
     }
 
     private void inserirPedidoHardEmRisco() throws Exception {
+        LocalTime agora = obterHorarioAtualDoBanco();
+        inserirPedidoHard(agora.minusMinutes(30), agora.plusMinutes(5));
+    }
+
+    private void inserirPedidoHard(LocalTime janelaInicio, LocalTime janelaFim) throws Exception {
         int userId;
         int clienteId;
 
@@ -311,7 +332,7 @@ class ReplanejamentoWorkerServiceTest {
                         "INSERT INTO clientes (nome, telefone, tipo, endereco) VALUES (?, ?, ?, ?) RETURNING id");
                 PreparedStatement stmtPedido = conn.prepareStatement(
                         "INSERT INTO pedidos (cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por) "
-                                + "VALUES (?, ?, ?, (CURRENT_TIME - INTERVAL '30 minute')::time, (CURRENT_TIME + INTERVAL '5 minute')::time, ?, ?)")) {
+                                + "VALUES (?, ?, ?, ?, ?, ?, ?)")) {
             stmtUser.setString(1, "Atendente Worker");
             stmtUser.setString(2, "worker-hard-risco@teste.com");
             stmtUser.setString(3, "$2a$10$abcdefghijklmnopqrstuv");
@@ -333,9 +354,20 @@ class ReplanejamentoWorkerServiceTest {
             stmtPedido.setInt(1, clienteId);
             stmtPedido.setInt(2, 1);
             stmtPedido.setObject(3, "HARD", Types.OTHER);
-            stmtPedido.setObject(4, "PENDENTE", Types.OTHER);
-            stmtPedido.setInt(5, userId);
+            stmtPedido.setTime(4, Time.valueOf(janelaInicio));
+            stmtPedido.setTime(5, Time.valueOf(janelaFim));
+            stmtPedido.setObject(6, "PENDENTE", Types.OTHER);
+            stmtPedido.setInt(7, userId);
             stmtPedido.executeUpdate();
+        }
+    }
+
+    private LocalTime obterHorarioAtualDoBanco() throws Exception {
+        try (Connection conn = factory.getConnection();
+                PreparedStatement stmt = conn.prepareStatement("SELECT CURRENT_TIME");
+                ResultSet rs = stmt.executeQuery()) {
+            rs.next();
+            return rs.getTime(1).toLocalTime();
         }
     }
 

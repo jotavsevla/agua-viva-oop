@@ -6,6 +6,8 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.sql.Time;
+import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
@@ -105,7 +107,17 @@ public class ReplanejamentoWorkerService {
 
     public boolean existePedidoHardEmRisco() {
         try (Connection conn = connectionFactory.getConnection()) {
-            return existePedidoHardEmRisco(conn, HARD_WINDOW_RISCO_HORIZONTE_MINUTOS);
+            LocalTime referencia = obterHorarioAtualDoBanco(conn);
+            return existePedidoHardEmRisco(conn, referencia, HARD_WINDOW_RISCO_HORIZONTE_MINUTOS);
+        } catch (SQLException e) {
+            throw new IllegalStateException("Falha ao consultar risco de janela HARD", e);
+        }
+    }
+
+    boolean existePedidoHardEmRisco(LocalTime referencia, int horizonteMinutos) {
+        Objects.requireNonNull(referencia, "referencia nao pode ser nula");
+        try (Connection conn = connectionFactory.getConnection()) {
+            return existePedidoHardEmRisco(conn, referencia, horizonteMinutos);
         } catch (SQLException e) {
             throw new IllegalStateException("Falha ao consultar risco de janela HARD", e);
         }
@@ -124,7 +136,9 @@ public class ReplanejamentoWorkerService {
 
                 List<DispatchEventRef> eventos =
                         buscarEventosPendentesComDebounce(conn, debounceSegundos, limiteEventos);
-                boolean hardWindowEmRisco = existePedidoHardEmRisco(conn, HARD_WINDOW_RISCO_HORIZONTE_MINUTOS);
+                LocalTime referencia = obterHorarioAtualDoBanco(conn);
+                boolean hardWindowEmRisco =
+                        existePedidoHardEmRisco(conn, referencia, HARD_WINDOW_RISCO_HORIZONTE_MINUTOS);
                 if (eventos.isEmpty() && !hardWindowEmRisco) {
                     conn.commit();
                     return WorkerAttempt.withResult(new ReplanejamentoWorkerResultado(0, false, 0, 0, 0));
@@ -223,10 +237,12 @@ public class ReplanejamentoWorkerService {
         }
     }
 
-    private boolean existePedidoHardEmRisco(Connection conn, int horizonteMinutos) throws SQLException {
+    private boolean existePedidoHardEmRisco(Connection conn, LocalTime referencia, int horizonteMinutos)
+            throws SQLException {
         if (horizonteMinutos < 0) {
             throw new IllegalArgumentException("horizonteMinutos nao pode ser negativo");
         }
+        Objects.requireNonNull(referencia, "referencia nao pode ser nula");
         if (!hasTable(conn, "pedidos")
                 || !hasTable(conn, "entregas")
                 || !hasColumn(conn, "pedidos", "janela_tipo")
@@ -242,7 +258,7 @@ public class ReplanejamentoWorkerService {
                 + "WHERE p.status::text IN ('PENDENTE', 'CONFIRMADO') "
                 + "AND p.janela_tipo::text = 'HARD' "
                 + "AND p.janela_fim IS NOT NULL "
-                + "AND p.janela_fim <= ((CURRENT_TIMESTAMP + (? * INTERVAL '1 minute'))::time) "
+                + "AND MOD((EXTRACT(EPOCH FROM p.janela_fim) - EXTRACT(EPOCH FROM CAST(? AS TIME)) + 86400), 86400) <= (? * 60) "
                 + "AND NOT EXISTS ("
                 + "    SELECT 1 FROM entregas e "
                 + "    WHERE e.pedido_id = p.id "
@@ -251,10 +267,21 @@ public class ReplanejamentoWorkerService {
                 + "LIMIT 1";
 
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setInt(1, horizonteMinutos);
+            stmt.setTime(1, Time.valueOf(referencia));
+            stmt.setInt(2, horizonteMinutos);
             try (ResultSet rs = stmt.executeQuery()) {
                 return rs.next();
             }
+        }
+    }
+
+    private LocalTime obterHorarioAtualDoBanco(Connection conn) throws SQLException {
+        try (PreparedStatement stmt = conn.prepareStatement("SELECT CURRENT_TIME");
+                ResultSet rs = stmt.executeQuery()) {
+            if (!rs.next()) {
+                throw new IllegalStateException("Falha ao obter horario atual do banco");
+            }
+            return rs.getTime(1).toLocalTime();
         }
     }
 
