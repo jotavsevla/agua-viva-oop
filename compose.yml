@@ -3,7 +3,7 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: agua_viva_oop_dev
     ports:
       - "${POSTGRES_DEV_PORT:-5434}:5432"
@@ -19,7 +19,7 @@ services:
     image: postgres:16-alpine
     environment:
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
       POSTGRES_DB: agua_viva_oop_test
     ports:
       - "${POSTGRES_TEST_PORT:-5435}:5432"
@@ -38,7 +38,7 @@ services:
     environment:
       # Pode ser apontado para um recorte menor (ex.: cidade) para reduzir tempo de import/startup.
       PBF_URL: ${NOMINATIM_PBF_URL:-https://download.geofabrik.de/south-america/brazil/sudeste-latest.osm.pbf}
-      NOMINATIM_PASSWORD: nominatim
+      NOMINATIM_PASSWORD: ${NOMINATIM_PASSWORD:-nominatim}
     ports:
       - "${NOMINATIM_PORT:-8088}:8080"
     volumes:
@@ -67,6 +67,26 @@ services:
       - OSRM_URL=http://osrm:5000
     depends_on:
       - osrm
+    restart: unless-stopped
+
+  # API Java — backend principal
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "${API_PORT:-8082}:8082"
+    environment:
+      POSTGRES_HOST: ${API_POSTGRES_HOST:-postgres-oop-test}
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: ${API_POSTGRES_DB:-agua_viva_oop_test}
+      POSTGRES_USER: ${API_POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      SOLVER_URL: ${API_SOLVER_URL:-http://solver:8080}
+      API_PORT: "8082"
+    depends_on:
+      - postgres-oop-test
+      - solver
     restart: unless-stopped
 
 volumes:
