@@ -155,6 +155,29 @@ async function wait(ms) {
   await new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function parseJsonFromText(raw) {
+  const text = String(raw || "").trim();
+  if (!text) {
+    return null;
+  }
+
+  try {
+    return JSON.parse(text);
+  } catch (error) {
+    const start = text.indexOf("{");
+    const end = text.lastIndexOf("}");
+    if (start >= 0 && end > start) {
+      const candidate = text.slice(start, end + 1);
+      try {
+        return JSON.parse(candidate);
+      } catch (ignored) {
+        return null;
+      }
+    }
+    return null;
+  }
+}
+
 async function fetchEntregaRotaWithRetry(pedidoId, attempts = 12, pauseMs = 500) {
   let lastError = null;
 
@@ -353,10 +376,25 @@ async function loadTimelineStatus(page, pedidoId) {
 
   const timelineBox = page.locator(".result-box").filter({ hasText: "Resposta timeline" }).first();
   await expect(timelineBox).toContainText("api real");
-  const payload = JSON.parse(await timelineBox.locator("pre").innerText());
+  const timelinePre = timelineBox.locator("pre").first();
+  let payload = null;
+  let lastRaw = "";
+  for (let attempt = 1; attempt <= 24; attempt += 1) {
+    lastRaw = await timelinePre.innerText();
+    payload = parseJsonFromText(lastRaw);
+    if (payload && typeof payload === "object") {
+      break;
+    }
+    await wait(250);
+  }
+  if (!payload || typeof payload !== "object") {
+    payload = await getApi(page, `/api/pedidos/${pedidoId}/timeline`);
+  }
+
   const status = String(payload.status || payload.statusAtual || "").toUpperCase();
   if (!status) {
-    throw new Error(`status ausente na timeline do pedidoId=${pedidoId}`);
+    const compact = String(lastRaw || "").replace(/\s+/g, " ").trim().slice(0, 280);
+    throw new Error(`status ausente na timeline do pedidoId=${pedidoId} (ui_raw="${compact}")`);
   }
   return status;
 }
