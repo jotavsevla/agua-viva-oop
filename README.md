@@ -74,9 +74,6 @@ Windows (PowerShell):
 scripts/poc/start-test-env.sh
 ```
 
-Observacao: o script sobe a API com enforcer ativo (`mvn -DskipTests ...`).
-Se o Java local nao estiver em 25.x, a subida falha rapido.
-
 Saida esperada:
 
 - API em `http://localhost:8082`
@@ -116,26 +113,26 @@ SOLVER_URL=http://localhost:8080 API_PORT=8081 \
   mvn -DskipTests exec:java -Dexec.mainClass=com.aguaviva.App -Dexec.args=api
 ```
 
-## Testes
+## Testes (container-first)
 
-### Java
+Suite padrao (Java + solver + UI smoke):
 
 ```bash
-mvn -Ptests-unit test
-mvn -Ptests-integration test
-mvn -Pmutation-tests pitest:mutationCoverage
+scripts/tests/run-container-tests.sh
 ```
 
-### Solver
+Atalhos:
 
 ```bash
-solver/.venv/bin/python -m pytest -q solver/tests
+# pular suites especificas
+scripts/tests/run-container-tests.sh --skip-ui
+scripts/tests/run-container-tests.sh --skip-solver
 ```
 
-### UI smoke
+Mutacao (dominio):
 
 ```bash
-npm --prefix produto-ui/prototipo run test:node
+docker compose --profile test run --rm test-java sh -lc 'mvn -Pmutation-tests pitest:mutationCoverage'
 ```
 
 ## Gate Operacional (PoC)
@@ -162,6 +159,10 @@ Evidencias em:
 - `osrm` (5000)
 - `solver` (8080)
 - `api` (8082)
+- `migrations-test` (profile `test`)
+- `test-java` (profile `test`)
+- `test-solver` (profile `test`)
+- `test-ui-node` (profile `test`)
 
 ## Variaveis de Ambiente Principais
 
