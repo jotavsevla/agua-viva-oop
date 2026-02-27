@@ -89,6 +89,84 @@ services:
       - solver
     restart: unless-stopped
 
+  # Runner de migrations para testes (uso: docker compose run --rm migrations-test)
+  migrations-test:
+    image: postgres:16-alpine
+    profiles: ["test"]
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:-postgres}
+    command: >
+      sh -lc '
+      until pg_isready -h postgres-oop-test -p 5432 -U postgres -d agua_viva_oop_test; do
+        sleep 1;
+      done;
+      for file in /workspace/sql/migrations/*.sql; do
+        echo "Aplicando migration: $$file";
+        psql -h postgres-oop-test -p 5432 -U postgres -d agua_viva_oop_test -v ON_ERROR_STOP=1 -f "$$file";
+      done
+      '
+    depends_on:
+      - postgres-oop-test
+
+  # Suite Java (unit + integration) em container
+  test-java:
+    image: maven:3.9.9-eclipse-temurin-25
+    profiles: ["test"]
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      - m2-cache:/root/.m2
+    environment:
+      POSTGRES_HOST: postgres-oop-test
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: agua_viva_oop_test
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      SOLVER_URL: http://solver:8080
+    command: >
+      sh -lc '
+      mvn -DskipTests spotless:check &&
+      mvn -Ptests-unit test &&
+      mvn -Ptests-integration test
+      '
+    depends_on:
+      - postgres-oop-test
+      - solver
+
+  # Suite solver Python em container
+  test-solver:
+    image: python:3.12-slim
+    profiles: ["test"]
+    working_dir: /workspace
+    volumes:
+      - .:/workspace
+      - pip-cache:/root/.cache/pip
+    command: >
+      sh -lc '
+      pip install --no-cache-dir -r solver/requirements.txt &&
+      python -m pytest -q solver/tests
+      '
+
+  # Smoke tests de UI (Node) em container
+  test-ui-node:
+    image: node:20-bookworm-slim
+    profiles: ["test"]
+    working_dir: /workspace/produto-ui/prototipo
+    volumes:
+      - .:/workspace
+      - npm-cache:/root/.npm
+    command: >
+      sh -lc '
+      npm ci &&
+      npm run test:node
+      '
+
 volumes:
   pgdata-oop-dev:
   nominatim-data:
+  m2-cache:
+  pip-cache:
+  npm-cache:
