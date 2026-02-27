@@ -17,7 +17,7 @@ paths:
       tags: [infra]
       responses:
         '200':
-          description: API online
+          description: API e banco online
           content:
             application/json:
               schema:
@@ -26,7 +26,24 @@ paths:
                   status:
                     type: string
                     example: ok
-                required: [status]
+                  database:
+                    type: string
+                    example: ok
+                required: [status, database]
+        '503':
+          description: API online, mas sem conectividade com banco
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: degraded
+                  database:
+                    type: string
+                    example: down
+                required: [status, database]
 
   /api/atendimento/pedidos:
     post:
