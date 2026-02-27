@@ -161,14 +161,15 @@ Evidencias em:
 - `nominatim` (8088)
 - `osrm` (5000)
 - `solver` (8080)
+- `api` (8082)
 
 ## Variaveis de Ambiente Principais
 
 - `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`
-- `SOLVER_URL`
+- `API_POSTGRES_HOST`, `API_POSTGRES_DB`, `API_POSTGRES_USER`, `API_SOLVER_URL`
 - `API_PORT`
 - `OSRM_DATASET`
-- `NOMINATIM_PBF_URL`
+- `NOMINATIM_PBF_URL`, `NOMINATIM_PASSWORD`
 
 Resolucao de configuracao de banco no runtime:
 

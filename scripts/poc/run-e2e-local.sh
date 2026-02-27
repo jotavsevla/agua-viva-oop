@@ -9,7 +9,7 @@ Uso:
 Executa o gate E2E operacional local em um comando:
 1) sobe dependencias (Postgres + solver, quando necessario)
 2) aplica migrations
-3) sobe API Java (se nao estiver online)
+3) sobe API Java em container (se nao estiver online)
 4) sobe UI estatica (se nao estiver online)
 5) roda Playwright PoC M1
 6) roda suite PoC (feliz/falha/cancelamento + gate VALE)
@@ -34,6 +34,7 @@ Variaveis opcionais:
   UI_BASE=http://localhost:4174
   SOLVER_URL=http://localhost:8080
   SOLVER_REBUILD=1
+  API_REBUILD=1
   START_POSTGRES=1
   START_SOLVER=1
   APPLY_MIGRATIONS=1
@@ -49,8 +50,6 @@ Variaveis opcionais:
   DB_SERVICE=postgres-oop-test
   DB_USER=postgres
   DB_NAME=agua_viva_oop_test
-  POSTGRES_HOST=localhost
-  POSTGRES_PORT=5435
   POSTGRES_DB=agua_viva_oop_test
   POSTGRES_USER=postgres
   POSTGRES_PASSWORD=postgres
@@ -169,6 +168,7 @@ UI_PORT="${UI_PORT:-4174}"
 UI_BASE="${UI_BASE:-http://localhost:${UI_PORT}}"
 SOLVER_URL="${SOLVER_URL:-http://localhost:8080}"
 SOLVER_REBUILD="${SOLVER_REBUILD:-1}"
+API_REBUILD="${API_REBUILD:-1}"
 START_POSTGRES="${START_POSTGRES:-1}"
 START_SOLVER="${START_SOLVER:-1}"
 APPLY_MIGRATIONS="${APPLY_MIGRATIONS:-1}"
@@ -177,8 +177,6 @@ DB_CONTAINER="${DB_CONTAINER:-postgres-oop-test}"
 DB_SERVICE="${DB_SERVICE:-$DB_CONTAINER}"
 DB_USER="${DB_USER:-postgres}"
 DB_NAME="${DB_NAME:-agua_viva_oop_test}"
-POSTGRES_HOST="${POSTGRES_HOST:-localhost}"
-POSTGRES_PORT="${POSTGRES_PORT:-5435}"
 POSTGRES_DB="${POSTGRES_DB:-$DB_NAME}"
 POSTGRES_USER="${POSTGRES_USER:-$DB_USER}"
 POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-postgres}"
@@ -191,7 +189,6 @@ mkdir -p "$ARTIFACT_DIR"
 ROUNDS_NDJSON="$ARTIFACT_DIR/rounds.ndjson"
 : > "$ROUNDS_NDJSON"
 
-API_PID=""
 UI_PID=""
 API_STARTED=0
 UI_STARTED=0
@@ -253,9 +250,9 @@ wait_db_service_ready() {
 cleanup() {
   local exit_code=$?
   if [[ "$KEEP_RUNNING" -eq 0 ]]; then
-    if [[ "$API_STARTED" -eq 1 && -n "$API_PID" ]] && kill -0 "$API_PID" >/dev/null 2>&1; then
-      log "Encerrando API iniciada por este script (pid=${API_PID})"
-      kill "$API_PID" >/dev/null 2>&1 || true
+    if [[ "$API_STARTED" -eq 1 ]]; then
+      log "Encerrando API iniciada por este script (compose service: api)"
+      docker compose -f "$ROOT_DIR/$COMPOSE_FILE" stop api >/dev/null 2>&1 || true
     fi
     if [[ "$UI_STARTED" -eq 1 && -n "$UI_PID" ]] && kill -0 "$UI_PID" >/dev/null 2>&1; then
       log "Encerrando UI iniciada por este script (pid=${UI_PID})"
@@ -274,7 +271,6 @@ trap cleanup EXIT
 require_cmd docker
 require_cmd curl
 require_cmd jq
-require_cmd mvn
 require_cmd python3
 require_cmd npm
 require_cmd npx
@@ -312,21 +308,17 @@ fi
 if http_ok "${API_BASE}/health"; then
   log "API ja esta online em ${API_BASE}"
 else
-  log "Subindo API Java em ${API_BASE}"
-  (
-    cd "$ROOT_DIR"
-    POSTGRES_HOST="$POSTGRES_HOST" \
-      POSTGRES_PORT="$POSTGRES_PORT" \
-      POSTGRES_DB="$POSTGRES_DB" \
-      POSTGRES_USER="$POSTGRES_USER" \
-      POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
-      SOLVER_URL="$SOLVER_URL" API_PORT="$API_PORT" \
-      mvn -DskipTests exec:java -Dexec.mainClass=com.aguaviva.App -Dexec.args=api \
-      > "$ARTIFACT_DIR/api.log" 2>&1
-  ) &
-  API_PID=$!
+  log "Subindo API Java em container (${API_BASE})"
+  if [[ "$API_REBUILD" -eq 1 ]]; then
+    docker compose -f "$ROOT_DIR/$COMPOSE_FILE" build api >/dev/null
+  fi
+  docker compose -f "$ROOT_DIR/$COMPOSE_FILE" up -d --no-deps api >/dev/null
   API_STARTED=1
-  wait_http "${API_BASE}/health" "api" 120
+  if ! wait_http "${API_BASE}/health" "api" 120; then
+    docker compose -f "$ROOT_DIR/$COMPOSE_FILE" logs --tail=200 api > "$ARTIFACT_DIR/api.log" 2>&1 || true
+    echo "Falha ao subir API em container. Verifique: $ARTIFACT_DIR/api.log" >&2
+    exit 1
+  fi
 fi
 
 if http_ok "$UI_BASE"; then
