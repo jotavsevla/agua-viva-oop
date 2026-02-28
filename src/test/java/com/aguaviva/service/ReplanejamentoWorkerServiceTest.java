@@ -318,7 +318,15 @@ class ReplanejamentoWorkerServiceTest {
 
     private void inserirPedidoHardEmRisco() throws Exception {
         LocalTime agora = obterHorarioAtualDoBanco();
-        inserirPedidoHard(agora.minusMinutes(30), agora.plusMinutes(5));
+        LocalTime janelaInicio = agora;
+        LocalTime janelaFim = agora.plusMinutes(5);
+        if (!janelaInicio.isBefore(janelaFim)) {
+            janelaInicio = LocalTime.MIDNIGHT;
+            if (!janelaInicio.isBefore(janelaFim)) {
+                janelaFim = LocalTime.of(0, 1);
+            }
+        }
+        inserirPedidoHard(janelaInicio, janelaFim);
     }
 
     private void inserirPedidoHard(LocalTime janelaInicio, LocalTime janelaFim) throws Exception {
