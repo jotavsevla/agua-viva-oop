@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import com.aguaviva.support.TestConnectionFactory;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
@@ -20,7 +21,7 @@ class ConnectionFactoryTest {
 
     @BeforeAll
     static void setUp() {
-        factory = new ConnectionFactory("localhost", "5435", "agua_viva_oop_test", "postgres", "postgres");
+        factory = TestConnectionFactory.newConnectionFactory();
     }
 
     @AfterAll

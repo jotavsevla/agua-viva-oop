@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.*;
 
 import com.aguaviva.domain.cliente.Cliente;
 import com.aguaviva.domain.cliente.ClienteTipo;
+import com.aguaviva.support.TestConnectionFactory;
 import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.SQLException;
@@ -25,7 +26,7 @@ class ClienteRepositoryTest {
 
     @BeforeAll
     static void setUp() {
-        factory = new ConnectionFactory("localhost", "5435", "agua_viva_oop_test", "postgres", "postgres");
+        factory = TestConnectionFactory.newConnectionFactory();
         repository = new ClienteRepository(factory);
     }
 

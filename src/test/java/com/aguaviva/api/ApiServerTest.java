@@ -21,6 +21,7 @@ import com.aguaviva.service.ExecucaoEntregaService;
 import com.aguaviva.service.PedidoTimelineService;
 import com.aguaviva.service.PlanejamentoResultado;
 import com.aguaviva.service.ReplanejamentoWorkerService;
+import com.aguaviva.support.TestConnectionFactory;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -72,7 +73,7 @@ class ApiServerTest {
 
     @BeforeAll
     static void setUp() throws Exception {
-        factory = new ConnectionFactory("localhost", "5435", "agua_viva_oop_test", "postgres", "postgres");
+        factory = TestConnectionFactory.newConnectionFactory();
         userRepository = new UserRepository(factory);
         clienteRepository = new ClienteRepository(factory);
         atendimentoService = new AtendimentoTelefonicoService(factory);
@@ -2334,8 +2335,7 @@ class ApiServerTest {
     @Test
     void deveRetornar503NoHealthQuandoBancoEstiverIndisponivelViaHttp() throws Exception {
         HttpClient client = HttpClient.newHttpClient();
-        ConnectionFactory indisponivel =
-                new ConnectionFactory("localhost", "5435", "agua_viva_oop_test", "postgres", "postgres");
+        ConnectionFactory indisponivel = TestConnectionFactory.newConnectionFactory();
         indisponivel.close();
 
         try (ApiServer.RunningServer running = ApiServer.startForTests(

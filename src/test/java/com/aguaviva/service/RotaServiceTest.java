@@ -20,6 +20,7 @@ import com.aguaviva.repository.ConnectionFactory;
 import com.aguaviva.repository.PedidoRepository;
 import com.aguaviva.repository.UserRepository;
 import com.aguaviva.solver.SolverClient;
+import com.aguaviva.support.TestConnectionFactory;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpHandler;
 import com.sun.net.httpserver.HttpServer;
@@ -64,7 +65,7 @@ class RotaServiceTest {
 
     @BeforeAll
     static void setUp() throws Exception {
-        factory = new ConnectionFactory("localhost", "5435", "agua_viva_oop_test", "postgres", "postgres");
+        factory = TestConnectionFactory.newConnectionFactory();
         userRepository = new UserRepository(factory);
         clienteRepository = new ClienteRepository(factory);
         pedidoRepository = new PedidoRepository(factory);
