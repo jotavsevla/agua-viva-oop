@@ -2306,6 +2306,61 @@ class ApiServerTest {
     }
 
     @Test
+    void deveRetornarEstadoDoBancoNoHealthViaHttp() throws Exception {
+        HttpClient client = HttpClient.newHttpClient();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                factory)) {
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/health"))
+                            .GET()
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject body = GSON.fromJson(resposta.body(), JsonObject.class);
+            assertEquals(200, resposta.statusCode());
+            assertEquals("ok", body.get("status").getAsString());
+            assertEquals("ok", body.get("database").getAsString());
+        }
+    }
+
+    @Test
+    void deveRetornar503NoHealthQuandoBancoEstiverIndisponivelViaHttp() throws Exception {
+        HttpClient client = HttpClient.newHttpClient();
+        ConnectionFactory indisponivel =
+                new ConnectionFactory("localhost", "5435", "agua_viva_oop_test", "postgres", "postgres");
+        indisponivel.close();
+
+        try (ApiServer.RunningServer running = ApiServer.startForTests(
+                0,
+                atendimentoService,
+                execucaoService,
+                replanejamentoService,
+                pedidoTimelineService,
+                eventoOperacionalIdempotenciaService,
+                indisponivel)) {
+            HttpResponse<String> resposta = client.send(
+                    HttpRequest.newBuilder()
+                            .uri(URI.create("http://localhost:" + running.port() + "/health"))
+                            .GET()
+                            .build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            JsonObject body = GSON.fromJson(resposta.body(), JsonObject.class);
+            assertEquals(503, resposta.statusCode());
+            assertEquals("degraded", body.get("status").getAsString());
+            assertEquals("down", body.get("database").getAsString());
+        }
+    }
+
+    @Test
     void deveRegistrarPedidoIdempotenteQuandoExternalCallIdPresenteViaHttp() throws Exception {
         int atendenteId = criarAtendenteId("api-idempotente@teste.com");
         criarClienteId("(38) 99876-9002");

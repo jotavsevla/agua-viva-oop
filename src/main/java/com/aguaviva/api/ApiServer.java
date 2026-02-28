@@ -1,6 +1,7 @@
 package com.aguaviva.api;
 
 import com.aguaviva.repository.ConnectionFactory;
+import com.aguaviva.repository.Database;
 import com.aguaviva.service.AtendimentoTelefonicoResultado;
 import com.aguaviva.service.AtendimentoTelefonicoService;
 import com.aguaviva.service.DispatchEventTypes;
@@ -54,6 +55,7 @@ public final class ApiServer {
     private final OperacaoEventosService operacaoEventosService;
     private final OperacaoMapaService operacaoMapaService;
     private final OperacaoReplanejamentoService operacaoReplanejamentoService;
+    private final Database database;
     private final boolean startupLogsEnabled;
 
     private ApiServer(
@@ -68,6 +70,7 @@ public final class ApiServer {
             OperacaoEventosService operacaoEventosService,
             OperacaoMapaService operacaoMapaService,
             OperacaoReplanejamentoService operacaoReplanejamentoService,
+            Database database,
             boolean startupLogsEnabled) {
         this.atendimentoTelefonicoService = Objects.requireNonNull(atendimentoTelefonicoService);
         this.execucaoEntregaService = Objects.requireNonNull(execucaoEntregaService);
@@ -80,11 +83,13 @@ public final class ApiServer {
         this.operacaoEventosService = Objects.requireNonNull(operacaoEventosService);
         this.operacaoMapaService = Objects.requireNonNull(operacaoMapaService);
         this.operacaoReplanejamentoService = Objects.requireNonNull(operacaoReplanejamentoService);
+        this.database = Objects.requireNonNull(database);
         this.startupLogsEnabled = startupLogsEnabled;
     }
 
     public static void startFromEnv() throws IOException {
         ConnectionFactory connectionFactory = new ConnectionFactory();
+        Database database = new Database(connectionFactory);
         String solverUrl = env("SOLVER_URL", "http://localhost:8080");
         int port = Integer.parseInt(env("API_PORT", "8081"));
 
@@ -120,6 +125,7 @@ public final class ApiServer {
                 operacaoEventosService,
                 operacaoMapaService,
                 operacaoReplanejamentoService,
+                database,
                 true);
         app.start(port);
     }
@@ -160,7 +166,11 @@ public final class ApiServer {
                 writeJson(exchange, 405, Map.of("erro", "Metodo nao permitido"));
                 return;
             }
-            writeJson(exchange, 200, Map.of("status", "ok"));
+            if (database.isHealthy()) {
+                writeJson(exchange, 200, Map.of("status", "ok", "database", "ok"));
+                return;
+            }
+            writeJson(exchange, 503, Map.of("status", "degraded", "database", "down"));
         }
     }
 
@@ -646,6 +656,7 @@ public final class ApiServer {
         OperacaoMapaService operacaoMapaService = new OperacaoMapaService(connectionFactory);
         OperacaoReplanejamentoService operacaoReplanejamentoService =
                 new OperacaoReplanejamentoService(connectionFactory);
+        Database database = new Database(connectionFactory);
         ApiServer app = new ApiServer(
                 atendimentoTelefonicoService,
                 execucaoEntregaService,
@@ -658,6 +669,7 @@ public final class ApiServer {
                 operacaoEventosService,
                 operacaoMapaService,
                 operacaoReplanejamentoService,
+                database,
                 Boolean.getBoolean(TEST_VERBOSE_PROPERTY));
         return app.start(port);
     }

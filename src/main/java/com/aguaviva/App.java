@@ -2,9 +2,7 @@ package com.aguaviva;
 
 import com.aguaviva.api.ApiServer;
 import com.aguaviva.repository.ConnectionFactory;
-import java.sql.Connection;
-import java.sql.ResultSet;
-import java.sql.Statement;
+import com.aguaviva.repository.Database;
 
 public class App {
 
@@ -29,15 +27,23 @@ public class App {
         System.out.println("Health check: conectando ao PostgreSQL...");
 
         ConnectionFactory factory = new ConnectionFactory();
+        Database database = new Database(factory);
 
-        try (Connection conn = factory.getConnection();
-                Statement stmt = conn.createStatement();
-                ResultSet rs = stmt.executeQuery("SELECT version()")) {
-
-            if (rs.next()) {
-                System.out.println("Conectado com sucesso!");
-                System.out.println("PostgreSQL: " + rs.getString(1));
+        try {
+            if (!database.isHealthy()) {
+                System.err.println("Falha na conexao: banco indisponivel");
+                System.exit(1);
+                return;
             }
+
+            String version = database.query("SELECT version()", rs -> {
+                if (!rs.next()) {
+                    return "desconhecida";
+                }
+                return rs.getString(1);
+            });
+            System.out.println("Conectado com sucesso!");
+            System.out.println("PostgreSQL: " + version);
 
         } catch (Exception e) {
             System.err.println("Falha na conexao: " + e.getMessage());
