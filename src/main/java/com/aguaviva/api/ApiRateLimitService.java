@@ -9,12 +9,17 @@ import java.sql.SQLException;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.atomic.LongAdder;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public final class ApiRateLimitService {
 
     private static final Pattern WINDOW_PATTERN = Pattern.compile("^(\\d+)([smhd])$");
+    private static final Logger LOGGER = Logger.getLogger(ApiRateLimitService.class.getName());
+    private static final LongAdder CLEANUP_FAILURES = new LongAdder();
     private final ConnectionFactory connectionFactory;
     private final Map<String, ApiRuntimeConfig.RateLimitRule> rules;
     private final boolean enabled;
@@ -116,7 +121,7 @@ public final class ApiRateLimitService {
                         throw new IllegalStateException("Falha ao ler contador de rate limit");
                     }
                     int count = rs.getInt(1);
-                    bestEffortCleanup(conn, cleanup);
+                    bestEffortCleanup(conn, cleanup, rateKey);
                     return count;
                 }
             }
@@ -125,11 +130,14 @@ public final class ApiRateLimitService {
         }
     }
 
-    private void bestEffortCleanup(Connection conn, String cleanupSql) {
+    private void bestEffortCleanup(Connection conn, String cleanupSql, String rateKey) {
         try (PreparedStatement cleanupStmt = conn.prepareStatement(cleanupSql)) {
             cleanupStmt.executeUpdate();
-        } catch (Exception ignored) {
-            // Limpeza best-effort para conter crescimento da tabela.
+        } catch (SQLException e) {
+            CLEANUP_FAILURES.increment();
+            LOGGER.log(Level.FINE, "event=rate_limit_cleanup_failed key={0} sql_state={1} message={2}", new Object[] {
+                rateKey, e.getSQLState(), e.getMessage()
+            });
         }
     }
 

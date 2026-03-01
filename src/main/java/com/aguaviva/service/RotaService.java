@@ -33,12 +33,17 @@ import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.LongAdder;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class RotaService {
 
     private static final DateTimeFormatter HH_MM = DateTimeFormatter.ofPattern("HH:mm");
     static final long PLANEJAMENTO_LOCK_KEY = 61001L;
     private static final int MAX_SOLVER_JOBS_CANCELAMENTO = 8;
+    private static final Logger LOGGER = Logger.getLogger(RotaService.class.getName());
+    private static final LongAdder CANCELAMENTO_DISCOVERY_FAILURES = new LongAdder();
 
     private final AtomicReference<String> activeJobId = new AtomicReference<>();
 
@@ -81,8 +86,12 @@ public class RotaService {
                 jobIds.addAll(RotaSolverJobSupport.marcarCancelamentoSolicitadoEmJobsAtivos(
                         conn, MAX_SOLVER_JOBS_CANCELAMENTO));
             }
-        } catch (Exception ignored) {
-            // Melhor esforco: cancelamento remoto nao deve interromper o fluxo principal.
+        } catch (SQLException e) {
+            CANCELAMENTO_DISCOVERY_FAILURES.increment();
+            LOGGER.log(
+                    Level.FINE,
+                    "event=planejamento_cancel_discovery_failed sql_state={0} message={1}",
+                    new Object[] {e.getSQLState(), e.getMessage()});
         }
 
         for (String jobId : jobIds) {

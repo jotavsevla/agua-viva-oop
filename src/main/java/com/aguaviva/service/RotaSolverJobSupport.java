@@ -12,8 +12,14 @@ import java.sql.Statement;
 import java.sql.Types;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.LongAdder;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 final class RotaSolverJobSupport {
+
+    private static final Logger LOGGER = Logger.getLogger(RotaSolverJobSupport.class.getName());
+    private static final LongAdder FINALIZACAO_JOB_FAILURES = new LongAdder();
 
     private RotaSolverJobSupport() {}
 
@@ -180,8 +186,12 @@ final class RotaSolverJobSupport {
                 }
                 stmt.executeUpdate();
             }
-        } catch (Exception ignored) {
-            // Melhor esforco para trilha operacional de jobs.
+        } catch (SQLException e) {
+            FINALIZACAO_JOB_FAILURES.increment();
+            LOGGER.log(
+                    Level.FINE,
+                    "event=solver_job_finalize_failed job_id={0} status={1} sql_state={2} message={3}",
+                    new Object[] {jobId, status, e.getSQLState(), e.getMessage()});
         }
     }
 
