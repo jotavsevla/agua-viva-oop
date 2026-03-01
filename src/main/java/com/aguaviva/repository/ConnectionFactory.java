@@ -3,6 +3,9 @@ package com.aguaviva.repository;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import io.github.cdimascio.dotenv.Dotenv;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.util.Map;
@@ -16,6 +19,11 @@ public class ConnectionFactory {
     public ConnectionFactory() {
         Dotenv dotenv = Dotenv.configure().ignoreIfMissing().load();
         DatabaseConfig config = resolveConfig(System.getenv(), dotenv::get);
+        this.dataSource = criarDataSource(config.host(), config.port(), config.db(), config.user(), config.password());
+    }
+
+    public ConnectionFactory(DatabaseConfig config) {
+        Objects.requireNonNull(config, "config nao pode ser nulo");
         this.dataSource = criarDataSource(config.host(), config.port(), config.db(), config.user(), config.password());
     }
 
@@ -33,7 +41,7 @@ public class ConnectionFactory {
         }
     }
 
-    static DatabaseConfig resolveConfig(Map<String, String> runtimeEnv, Function<String, String> dotenvLookup) {
+    public static DatabaseConfig resolveConfig(Map<String, String> runtimeEnv, Function<String, String> dotenvLookup) {
         Objects.requireNonNull(runtimeEnv, "runtimeEnv nao pode ser nulo");
         Objects.requireNonNull(dotenvLookup, "dotenvLookup nao pode ser nulo");
 
@@ -41,7 +49,8 @@ public class ConnectionFactory {
         String port = resolveValue("POSTGRES_PORT", "5434", runtimeEnv, dotenvLookup);
         String db = resolveValue("POSTGRES_DB", "agua_viva_oop_dev", runtimeEnv, dotenvLookup);
         String user = resolveValue("POSTGRES_USER", "postgres", runtimeEnv, dotenvLookup);
-        String password = resolveValue("POSTGRES_PASSWORD", "postgres", runtimeEnv, dotenvLookup);
+        String password =
+                resolveSecretValue("POSTGRES_PASSWORD", "POSTGRES_PASSWORD_FILE", "postgres", runtimeEnv, dotenvLookup);
         return new DatabaseConfig(host, port, db, user, password);
     }
 
@@ -58,6 +67,42 @@ public class ConnectionFactory {
         return fallback;
     }
 
+    private static String resolveSecretValue(
+            String key,
+            String fileKey,
+            String fallback,
+            Map<String, String> runtimeEnv,
+            Function<String, String> dotenvLookup) {
+        String filePath = resolveOptional(fileKey, runtimeEnv, dotenvLookup);
+        if (filePath != null) {
+            try {
+                String fileValue = normalizeOptional(Files.readString(Path.of(filePath)));
+                if (fileValue == null) {
+                    throw new IllegalArgumentException(fileKey + " aponta para arquivo vazio: " + filePath);
+                }
+                return fileValue;
+            } catch (IOException e) {
+                throw new IllegalStateException("Falha ao ler segredo em " + fileKey + ": " + filePath, e);
+            }
+        }
+
+        String inlineValue = resolveOptional(key, runtimeEnv, dotenvLookup);
+        if (inlineValue != null) {
+            return inlineValue;
+        }
+
+        return fallback;
+    }
+
+    private static String resolveOptional(
+            String key, Map<String, String> runtimeEnv, Function<String, String> dotenvLookup) {
+        String runtimeValue = normalizeOptional(runtimeEnv.get(key));
+        if (runtimeValue != null) {
+            return runtimeValue;
+        }
+        return normalizeOptional(dotenvLookup.apply(key));
+    }
+
     private static String normalizeOptional(String value) {
         if (value == null) {
             return null;
@@ -66,7 +111,7 @@ public class ConnectionFactory {
         return trimmed.isEmpty() ? null : trimmed;
     }
 
-    static record DatabaseConfig(String host, String port, String db, String user, String password) {}
+    public static record DatabaseConfig(String host, String port, String db, String user, String password) {}
 
     private static HikariDataSource criarDataSource(String host, String port, String db, String user, String password) {
         String url = "jdbc:postgresql://" + host + ":" + port + "/" + db;

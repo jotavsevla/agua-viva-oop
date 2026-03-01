@@ -76,14 +76,19 @@ services:
       dockerfile: Dockerfile
     ports:
       - "${API_PORT:-8082}:8082"
+    volumes:
+      - ./config:/app/config:ro
     environment:
+      APP_ENV: ${APP_ENV:-local}
       POSTGRES_HOST: ${API_POSTGRES_HOST:-postgres-oop-test}
       POSTGRES_PORT: "5432"
       POSTGRES_DB: ${API_POSTGRES_DB:-agua_viva_oop_test}
       POSTGRES_USER: ${API_POSTGRES_USER:-postgres}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_PASSWORD_FILE: ${POSTGRES_PASSWORD_FILE:-}
       SOLVER_URL: ${API_SOLVER_URL:-http://solver:8080}
       API_PORT: "8082"
+      API_CONFIG_FILE: ${API_CONFIG_FILE:-/app/config/api-config.local.json}
     depends_on:
       - postgres-oop-test
       - solver
@@ -125,6 +130,7 @@ services:
       POSTGRES_DB: agua_viva_oop_test
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_PASSWORD_FILE: ${POSTGRES_PASSWORD_FILE:-}
       SOLVER_URL: http://solver:8080
     command: >
       sh -lc '

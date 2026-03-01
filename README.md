@@ -166,14 +166,46 @@ Evidencias em:
 
 ## Variaveis de Ambiente Principais
 
-- `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD`
+- `APP_ENV` (`local|test|staging|prod`)
+- `POSTGRES_HOST`, `POSTGRES_PORT`, `POSTGRES_DB`, `POSTGRES_USER`
+- `POSTGRES_PASSWORD` ou `POSTGRES_PASSWORD_FILE` (arquivo de segredo)
 - `API_POSTGRES_HOST`, `API_POSTGRES_DB`, `API_POSTGRES_USER`, `API_SOLVER_URL`
 - `API_PORT`
+- `API_CONFIG_FILE` (json versionado com limites/flags)
 - `OSRM_DATASET`
 - `NOMINATIM_PBF_URL`, `NOMINATIM_PASSWORD`
 
-Resolucao de configuracao de banco no runtime:
+Resolucao de configuracao no runtime:
 
-1. Variaveis de ambiente do processo (`POSTGRES_*`)
+1. Variaveis de ambiente do processo
 2. `.env` local
-3. Fallback padrao do codigo
+3. Fallback padrao do codigo (somente para `local/test`)
+
+Prioridade para segredo de banco:
+
+1. `POSTGRES_PASSWORD_FILE` (arquivo secreto)
+2. `POSTGRES_PASSWORD`
+3. Fallback local (`postgres`)
+
+## Modelo Stateless em Producao
+
+- API Java deve ser stateless: sem sessao e sem contadores criticos em memoria local.
+- Estado duravel deve ficar em store distribuido (PostgreSQL/Redis/object storage), nunca em env var.
+- `APP_ENV=prod|staging|hml` ativa validacao estrita no startup (fail-fast):
+  - exige `API_PORT`, `SOLVER_URL` e `POSTGRES_*` obrigatorios
+  - bloqueia host local (`localhost/127.0.0.1`) para DB e solver
+  - bloqueia senha padrao `postgres`
+- Config estruturada (rate limits/flags) deve vir de `API_CONFIG_FILE` (`json` versionado), nao de env gigante.
+
+Arquivos de referencia:
+
+- `config/api-config.local.json`
+- `config/api-config.example.json`
+
+## Checklist de Estabilidade Operacional
+
+- Segredos: usar Vault / AWS Secrets Manager / GCP Secret Manager + `*_FILE` no runtime.
+- Observabilidade: logs estruturados, metricas, tracing distribuido e alertas.
+- Backup/restore: rotina validada e teste de restauracao periodico.
+- Rollback: estrategia testada (imagem imutavel + config versionada).
+- Deploy: manter paridade local/CI via `docker compose` e runners em container.

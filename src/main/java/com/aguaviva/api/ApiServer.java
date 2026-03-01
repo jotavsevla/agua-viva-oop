@@ -1,5 +1,6 @@
 package com.aguaviva.api;
 
+import com.aguaviva.config.ApiRuntimeConfig;
 import com.aguaviva.repository.ConnectionFactory;
 import com.aguaviva.repository.Database;
 import com.aguaviva.service.AtendimentoTelefonicoResultado;
@@ -88,10 +89,11 @@ public final class ApiServer {
     }
 
     public static void startFromEnv() throws IOException {
-        ConnectionFactory connectionFactory = new ConnectionFactory();
+        ApiRuntimeConfig runtimeConfig = ApiRuntimeConfig.fromEnvironment();
+        ConnectionFactory connectionFactory = new ConnectionFactory(runtimeConfig.databaseConfig());
         Database database = new Database(connectionFactory);
-        String solverUrl = env("SOLVER_URL", "http://localhost:8080");
-        int port = Integer.parseInt(env("API_PORT", "8081"));
+        String solverUrl = runtimeConfig.solverUrl();
+        int port = runtimeConfig.apiPort();
 
         SolverClient solverClient = new SolverClient(solverUrl);
         RotaService rotaService = new RotaService(solverClient, connectionFactory);
@@ -126,7 +128,15 @@ public final class ApiServer {
                 operacaoMapaService,
                 operacaoReplanejamentoService,
                 database,
-                true);
+                runtimeConfig.startupLogsEnabled());
+        if (runtimeConfig.startupLogsEnabled()) {
+            System.out.println("Runtime config: APP_ENV="
+                    + runtimeConfig.appEnv()
+                    + ", API_CONFIG_FILE="
+                    + runtimeConfig.structuredConfig().sourcePath()
+                    + ", rateLimits="
+                    + runtimeConfig.structuredConfig().rateLimits().size());
+        }
         app.start(port);
     }
 
@@ -633,11 +643,6 @@ public final class ApiServer {
 
     private static boolean isPedidoNotFound(IllegalArgumentException e) {
         return e.getMessage() != null && e.getMessage().startsWith("Pedido nao encontrado com id:");
-    }
-
-    private static String env(String key, String fallback) {
-        String value = System.getenv(key);
-        return value == null || value.isBlank() ? fallback : value;
     }
 
     public static RunningServer startForTests(
