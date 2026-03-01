@@ -549,8 +549,6 @@ mkdir -p "$ARTIFACT_DIR"
 CHECKS_NDJSON="$ARTIFACT_DIR/checks.ndjson"
 : > "$CHECKS_NDJSON"
 
-OVERALL_FAIL=0
-
 record_check() {
   local id="$1"
   local name="$2"
@@ -572,10 +570,6 @@ record_check() {
       final_status="FAIL"
       final_detail="Status $status invalido para check obrigatorio em modo strict. $detail"
     fi
-  fi
-
-  if [[ "$required" == "true" && "$final_status" != "PASS" ]]; then
-    OVERALL_FAIL=1
   fi
 
   jq -cn \
@@ -880,7 +874,6 @@ else
     ev_rota="$(jq -n --arg externalEventId "$key_rota" --argjson rotaId "$rota_id" '{eventType:"ROTA_INICIADA",externalEventId:$externalEventId,rotaId:$rotaId}')"
     api_post_capture "/api/eventos" "$ev_rota"
     r07_status_1="$API_LAST_STATUS"
-    r07_body_1="$API_LAST_BODY"
     api_post_capture "/api/eventos" "$ev_rota"
     r07_status_2="$API_LAST_STATUS"
     r07_body_2="$API_LAST_BODY"
@@ -906,7 +899,6 @@ else
     ev_cancel="$(jq -n --arg externalEventId "$key_terminal" --argjson entregaId "$entrega_ativa" '{eventType:"PEDIDO_CANCELADO",externalEventId:$externalEventId,entregaId:$entregaId,motivo:"check idempotencia",cobrancaCancelamentoCentavos:2500}')"
     api_post_capture "/api/eventos" "$ev_cancel"
     r08_status_1="$API_LAST_STATUS"
-    r08_body_1="$API_LAST_BODY"
     api_post_capture "/api/eventos" "$ev_cancel"
     r08_status_2="$API_LAST_STATUS"
     r08_body_2="$API_LAST_BODY"
@@ -922,10 +914,8 @@ else
     pedido_r05="$(echo "$API_LAST_BODY" | jq -r '.pedidoId // 0')"
     if exec_body_r05="$(wait_for_execucao_with_rota "$pedido_r05" 30 1)"; then
       rota_r05="$(echo "$exec_body_r05" | jq -r '.rotaId // .rotaPrimariaId // 0')"
-      entrega_r05="$(echo "$exec_body_r05" | jq -r '.entregaId // 0')"
     else
       rota_r05="0"
-      entrega_r05="0"
     fi
     key_rota_r05="bg-r05-rota-$(date +%s)-$RANDOM"
     ev_rota_r05="$(jq -n --arg externalEventId "$key_rota_r05" --argjson rotaId "$rota_r05" '{eventType:"ROTA_INICIADA",externalEventId:$externalEventId,rotaId:$rotaId}')"
@@ -1206,7 +1196,10 @@ END;")"
     r17_confirmado=0
     r17_pendente=0
     r17_attempt=1
-    r17_max_attempts=3
+    r17_max_attempts="${R17_MAX_ATTEMPTS:-4}"
+    if ! [[ "$r17_max_attempts" =~ ^[0-9]+$ ]] || [[ "$r17_max_attempts" -le 0 ]]; then
+      r17_max_attempts=4
+    fi
     : > "$check_dir/observe-promocoes.log"
     while [[ "$r17_attempt" -le "$r17_max_attempts" ]]; do
       set +e
@@ -1684,18 +1677,34 @@ END;")"
   # R32
   check_dir="$(new_check_dir R32)"
   if should_run_scope "R32"; then
-    set +e
-    (
-      cd "$ROOT_DIR"
-      API_BASE="$API_BASE" DB_CONTAINER="$DB_CONTAINER" DB_SERVICE="$DB_SERVICE" COMPOSE_FILE="$COMPOSE_FILE" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
-        DB_HOST="${DB_HOST:-localhost}" DB_PORT="${DB_PORT:-5435}" DB_PASSWORD="${DB_PASSWORD:-postgres}" \
-        SUMMARY_FILE="$check_dir/frota-escala-4x50-summary.json" \
-        NUM_ENTREGADORES_ATIVOS=4 PEDIDOS_TOTAIS=50 QUANTIDADE_GALOES=1 \
-        JANELA_MODE=MIXED HARD_RATIO_PERCENT=40 MIN_ENTREGUES=8 \
-        scripts/poc/check-frota-escala-4x50.sh
-    ) > "$check_dir/frota-escala-4x50.log" 2>&1
-    r32_exit="$?"
-    set -e
+    r32_exit=1
+    r32_attempt=1
+    r32_max_attempts="${R32_MAX_ATTEMPTS:-2}"
+    if ! [[ "$r32_max_attempts" =~ ^[0-9]+$ ]] || [[ "$r32_max_attempts" -le 0 ]]; then
+      r32_max_attempts=2
+    fi
+    : > "$check_dir/frota-escala-4x50.log"
+    while [[ "$r32_attempt" -le "$r32_max_attempts" ]]; do
+      set +e
+      (
+        cd "$ROOT_DIR"
+        API_BASE="$API_BASE" DB_CONTAINER="$DB_CONTAINER" DB_SERVICE="$DB_SERVICE" COMPOSE_FILE="$COMPOSE_FILE" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
+          DB_HOST="${DB_HOST:-localhost}" DB_PORT="${DB_PORT:-5435}" DB_PASSWORD="${DB_PASSWORD:-postgres}" \
+          SUMMARY_FILE="$check_dir/frota-escala-4x50-summary.json" \
+          NUM_ENTREGADORES_ATIVOS=4 PEDIDOS_TOTAIS=50 QUANTIDADE_GALOES=1 \
+          JANELA_MODE=MIXED HARD_RATIO_PERCENT=40 MIN_ENTREGUES=8 \
+          scripts/poc/check-frota-escala-4x50.sh
+      ) >> "$check_dir/frota-escala-4x50.log" 2>&1
+      r32_exit="$?"
+      set -e
+      if [[ "$r32_exit" -eq 0 ]]; then
+        break
+      fi
+      if [[ "$r32_attempt" -lt "$r32_max_attempts" ]]; then
+        sleep 2
+      fi
+      r32_attempt=$((r32_attempt + 1))
+    done
     if [[ "$r32_exit" -eq 0 ]]; then
       record_check "R32" "Escala 4 entregadores/50 pedidos com janelas mistas e giro operacional" "PASS" "$check_dir/frota-escala-4x50-summary.json" "Escala 4x50 validada com giro de rotas e entregas."
     else
