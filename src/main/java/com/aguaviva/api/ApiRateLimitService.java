@@ -135,10 +135,9 @@ public final class ApiRateLimitService {
             cleanupStmt.executeUpdate();
         } catch (SQLException e) {
             CLEANUP_FAILURES.increment();
-            LOGGER.log(
-                    Level.FINE,
-                    "event=rate_limit_cleanup_failed key={0} sql_state={1} message={2}",
-                    new Object[] {rateKey, e.getSQLState(), e.getMessage()});
+            LOGGER.log(Level.FINE, "event=rate_limit_cleanup_failed key={0} sql_state={1} message={2}", new Object[] {
+                rateKey, e.getSQLState(), e.getMessage()
+            });
         }
     }
 
