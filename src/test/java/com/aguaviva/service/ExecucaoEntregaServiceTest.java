@@ -18,6 +18,7 @@ import com.aguaviva.repository.ClienteRepository;
 import com.aguaviva.repository.ConnectionFactory;
 import com.aguaviva.repository.PedidoRepository;
 import com.aguaviva.repository.UserRepository;
+import com.aguaviva.support.TestConnectionFactory;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -41,7 +42,7 @@ class ExecucaoEntregaServiceTest {
 
     @BeforeAll
     static void setUp() throws Exception {
-        factory = new ConnectionFactory("localhost", "5435", "agua_viva_oop_test", "postgres", "postgres");
+        factory = TestConnectionFactory.newConnectionFactory();
         userRepository = new UserRepository(factory);
         clienteRepository = new ClienteRepository(factory);
         pedidoRepository = new PedidoRepository(factory);

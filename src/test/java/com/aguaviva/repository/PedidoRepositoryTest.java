@@ -10,6 +10,7 @@ import com.aguaviva.domain.pedido.PedidoStatus;
 import com.aguaviva.domain.user.Password;
 import com.aguaviva.domain.user.User;
 import com.aguaviva.domain.user.UserPapel;
+import com.aguaviva.support.TestConnectionFactory;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -33,7 +34,7 @@ class PedidoRepositoryTest {
 
     @BeforeAll
     static void setUp() {
-        factory = new ConnectionFactory("localhost", "5435", "agua_viva_oop_test", "postgres", "postgres");
+        factory = TestConnectionFactory.newConnectionFactory();
         pedidoRepository = new PedidoRepository(factory);
         clienteRepository = new ClienteRepository(factory);
         userRepository = new UserRepository(factory);

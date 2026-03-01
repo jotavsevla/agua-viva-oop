@@ -14,6 +14,7 @@ import com.aguaviva.domain.user.UserPapel;
 import com.aguaviva.repository.ClienteRepository;
 import com.aguaviva.repository.ConnectionFactory;
 import com.aguaviva.repository.UserRepository;
+import com.aguaviva.support.TestConnectionFactory;
 import java.math.BigDecimal;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -38,7 +39,7 @@ class AtendimentoTelefonicoServiceTest {
 
     @BeforeAll
     static void setUp() throws Exception {
-        factory = new ConnectionFactory("localhost", "5435", "agua_viva_oop_test", "postgres", "postgres");
+        factory = TestConnectionFactory.newConnectionFactory();
         userRepository = new UserRepository(factory);
         clienteRepository = new ClienteRepository(factory);
         service = new AtendimentoTelefonicoService(factory);
