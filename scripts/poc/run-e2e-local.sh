@@ -228,6 +228,26 @@ wait_http() {
   done
 }
 
+wait_api_operational_ready() {
+  local timeout="${1:-120}"
+  local start now status
+  start="$(date +%s)"
+  while true; do
+    if http_ok "${API_BASE}/health"; then
+      status="$(curl -sS -o /dev/null -w '%{http_code}' "${API_BASE}/api/operacao/painel" || true)"
+      if [[ "$status" == "200" ]]; then
+        return 0
+      fi
+    fi
+    now="$(date +%s)"
+    if (( now - start >= timeout )); then
+      echo "Timeout aguardando API operacional pronta: ${API_BASE}" >&2
+      return 1
+    fi
+    sleep 1
+  done
+}
+
 wait_db_service_ready() {
   local service="$1"
   local timeout="${2:-90}"
@@ -321,6 +341,12 @@ else
   fi
 fi
 
+if ! wait_api_operational_ready 120; then
+  docker compose -f "$ROOT_DIR/$COMPOSE_FILE" logs --tail=200 api > "$ARTIFACT_DIR/api.log" 2>&1 || true
+  echo "API nao ficou operacionalmente pronta. Verifique: $ARTIFACT_DIR/api.log" >&2
+  exit 1
+fi
+
 if http_ok "$UI_BASE"; then
   log "UI ja esta online em ${UI_BASE}"
 else
@@ -393,6 +419,10 @@ for ((round=1; round<=ROUNDS; round++)); do
       log "${round_label}: falha ao resetar estado (exit=${reset_exit})"
       continue
     fi
+    if ! wait_api_operational_ready 120; then
+      round_status="FAIL"
+      round_detail="api_not_ready_after_reset"
+    fi
   fi
 
   if [[ "$RUN_PLAYWRIGHT" -eq 1 ]]; then
@@ -425,6 +455,10 @@ for ((round=1; round<=ROUNDS; round++)); do
       round_status="FAIL"
       round_detail="reset_before_suite_exit_${round_reset_before_suite_exit}"
       log "${round_label}: falha no reset-before-suite (exit=${round_reset_before_suite_exit})"
+    elif ! wait_api_operational_ready 120; then
+      round_status="FAIL"
+      round_detail="api_not_ready_after_reset_before_suite"
+      log "${round_label}: API nao ficou pronta apos reset-before-suite"
     fi
   fi
 
