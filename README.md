@@ -205,6 +205,16 @@ Arquivos de referencia:
 - `config/api-config.local.json`
 - `config/api-config.example.json`
 
+Provisionamento de usuario de aplicacao (least-privilege):
+
+```bash
+APP_DB_USER=agua_viva_app APP_DB_PASSWORD='<senha-forte>' \
+  scripts/db/ensure-app-db-role.sh
+```
+
+O script cria/atualiza a role de aplicacao e aplica grants minimos em `public`
+(tabelas e sequencias), mantendo `postgres` restrito para uso administrativo.
+
 ## Checklist de Estabilidade Operacional
 
 - Segredos: usar Vault / AWS Secrets Manager / GCP Secret Manager + `*_FILE` no runtime.
