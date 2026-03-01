@@ -11,8 +11,14 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
+import java.util.concurrent.atomic.LongAdder;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public final class SolverClient implements SolverGateway {
+
+    private static final Logger LOGGER = Logger.getLogger(SolverClient.class.getName());
+    private static final LongAdder CANCEL_BEST_EFFORT_FAILURES = new LongAdder();
 
     private final HttpClient httpClient;
     private final String solverUrl;
@@ -126,8 +132,19 @@ public final class SolverClient implements SolverGateway {
         }
         try {
             cancel(jobId);
-        } catch (Exception ignored) {
-            // Melhor esforco: cancelamento nao deve derrubar fluxo de replanejamento.
+        } catch (IOException e) {
+            CANCEL_BEST_EFFORT_FAILURES.increment();
+            LOGGER.log(
+                    Level.WARNING,
+                    "event=solver_cancel_best_effort_failed job_id={0} error_type=io message={1}",
+                    new Object[] {jobId, e.getMessage()});
+        } catch (InterruptedException e) {
+            CANCEL_BEST_EFFORT_FAILURES.increment();
+            Thread.currentThread().interrupt();
+            LOGGER.log(
+                    Level.WARNING,
+                    "event=solver_cancel_best_effort_failed job_id={0} error_type=interrupted message={1}",
+                    new Object[] {jobId, e.getMessage()});
         }
     }
 }
