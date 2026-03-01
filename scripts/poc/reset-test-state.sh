@@ -92,12 +92,12 @@ TRUNCATE TABLE
   users
 RESTART IDENTITY CASCADE;
 
-DO $$
+DO \$\$
 BEGIN
   IF to_regclass('public.solver_plan_version_seq') IS NOT NULL THEN
     PERFORM setval('solver_plan_version_seq', 1, false);
   END IF;
-END $$;
+END \$\$;
 
 UPDATE configuracoes SET valor = '5' WHERE chave = 'capacidade_veiculo';
 INSERT INTO configuracoes (chave, valor, descricao)
