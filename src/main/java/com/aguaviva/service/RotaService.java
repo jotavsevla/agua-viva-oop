@@ -77,8 +77,9 @@ public class RotaService {
         }
 
         try (Connection conn = connectionFactory.getConnection()) {
-            if (hasSolverJobsSchema(conn)) {
-                jobIds.addAll(marcarCancelamentoSolicitadoEmJobsAtivos(conn, MAX_SOLVER_JOBS_CANCELAMENTO));
+            if (RotaSolverJobSupport.hasSolverJobsSchema(conn)) {
+                jobIds.addAll(RotaSolverJobSupport.marcarCancelamentoSolicitadoEmJobsAtivos(
+                        conn, MAX_SOLVER_JOBS_CANCELAMENTO));
             }
         } catch (Exception ignored) {
             // Melhor esforco: cancelamento remoto nao deve interromper o fluxo principal.
@@ -107,10 +108,11 @@ public class RotaService {
                     return new PlanejamentoResultado(0, 0, 0);
                 }
 
-                solverJobsEnabled = hasSolverJobsSchema(conn);
-                boolean planVersionEnabled = hasPlanVersionColumns(conn);
-                boolean jobIdEnabled = hasJobIdColumns(conn);
-                long planVersion = (solverJobsEnabled || planVersionEnabled) ? nextPlanVersion(conn) : 1L;
+                solverJobsEnabled = RotaSolverJobSupport.hasSolverJobsSchema(conn);
+                boolean planVersionEnabled = RotaSolverJobSupport.hasPlanVersionColumns(conn);
+                boolean jobIdEnabled = RotaSolverJobSupport.hasJobIdColumns(conn);
+                long planVersion =
+                        (solverJobsEnabled || planVersionEnabled) ? RotaSolverJobSupport.nextPlanVersion(conn) : 1L;
                 currentJobId = buildJobId(planVersion);
                 String previousJobId = activeJobId.getAndSet(currentJobId);
                 if (previousJobId != null && !previousJobId.equals(currentJobId)) {
@@ -161,7 +163,8 @@ public class RotaService {
                         pedidosParaSolver);
 
                 if (solverJobsEnabled) {
-                    registrarSolverJobEmExecucao(currentJobId, planVersion, request);
+                    RotaSolverJobSupport.registrarSolverJobEmExecucao(
+                            connectionFactory, gson, currentJobId, planVersion, request);
                 }
 
                 SolverResponse solverResponse = solverClient.solve(request);
@@ -192,7 +195,8 @@ public class RotaService {
 
                 conn.commit();
                 if (solverJobsEnabled) {
-                    finalizarSolverJob(currentJobId, "CONCLUIDO", null, solverResponse);
+                    RotaSolverJobSupport.finalizarSolverJob(
+                            connectionFactory, gson, currentJobId, "CONCLUIDO", null, solverResponse);
                 }
                 return new PlanejamentoResultado(
                         rotasCriadas,
@@ -201,20 +205,33 @@ public class RotaService {
             } catch (PlanejamentoPreemptadoException e) {
                 conn.rollback();
                 if (solverJobsEnabled && currentJobId != null) {
-                    finalizarSolverJob(currentJobId, "CANCELADO", "Job preemptado por solicitacao mais recente", null);
+                    RotaSolverJobSupport.finalizarSolverJob(
+                            connectionFactory,
+                            gson,
+                            currentJobId,
+                            "CANCELADO",
+                            "Job preemptado por solicitacao mais recente",
+                            null);
                 }
                 return new PlanejamentoResultado(0, 0, 0);
             } catch (InterruptedException e) {
                 conn.rollback();
                 if (solverJobsEnabled && currentJobId != null) {
-                    finalizarSolverJob(currentJobId, "FALHOU", "Thread interrompida ao chamar solver", null);
+                    RotaSolverJobSupport.finalizarSolverJob(
+                            connectionFactory,
+                            gson,
+                            currentJobId,
+                            "FALHOU",
+                            "Thread interrompida ao chamar solver",
+                            null);
                 }
                 Thread.currentThread().interrupt();
                 throw new IllegalStateException("Thread interrompida ao chamar solver", e);
             } catch (Exception e) {
                 conn.rollback();
                 if (solverJobsEnabled && currentJobId != null) {
-                    finalizarSolverJob(currentJobId, "FALHOU", e.getMessage(), null);
+                    RotaSolverJobSupport.finalizarSolverJob(
+                            connectionFactory, gson, currentJobId, "FALHOU", e.getMessage(), null);
                 }
                 throw new IllegalStateException("Falha ao planejar rotas", e);
             } finally {
@@ -653,35 +670,6 @@ public class RotaService {
         }
     }
 
-    private boolean hasPlanVersionColumns(Connection conn) throws SQLException {
-        return hasColumn(conn, "rotas", "plan_version") && hasColumn(conn, "entregas", "plan_version");
-    }
-
-    private boolean hasJobIdColumns(Connection conn) throws SQLException {
-        return hasColumn(conn, "rotas", "job_id") && hasColumn(conn, "entregas", "job_id");
-    }
-
-    private long nextPlanVersion(Connection conn) throws SQLException {
-        try (Statement stmt = conn.createStatement()) {
-            stmt.execute("CREATE SEQUENCE IF NOT EXISTS solver_plan_version_seq START WITH 1 INCREMENT BY 1");
-        }
-
-        try (PreparedStatement stmt = conn.prepareStatement("SELECT nextval('solver_plan_version_seq')");
-                ResultSet rs = stmt.executeQuery()) {
-            if (!rs.next()) {
-                throw new SQLException("Falha ao obter nextval de solver_plan_version_seq");
-            }
-            return rs.getLong(1);
-        }
-    }
-
-    private boolean hasSolverJobsSchema(Connection conn) throws SQLException {
-        return hasTable(conn, "solver_jobs")
-                && hasColumn(conn, "solver_jobs", "job_id")
-                && hasColumn(conn, "solver_jobs", "status")
-                && hasColumn(conn, "solver_jobs", "cancel_requested");
-    }
-
     private boolean tentarAdquirirLockPlanejamento(Connection conn) throws SQLException {
         try (PreparedStatement stmt = conn.prepareStatement("SELECT pg_try_advisory_xact_lock(?)")) {
             stmt.setLong(1, PLANEJAMENTO_LOCK_KEY);
@@ -690,27 +678,6 @@ public class RotaService {
                     return false;
                 }
                 return rs.getBoolean(1);
-            }
-        }
-    }
-
-    private boolean hasTable(Connection conn, String tabela) throws SQLException {
-        String sql = "SELECT 1 FROM information_schema.tables WHERE table_name = ?";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, tabela);
-            try (ResultSet rs = stmt.executeQuery()) {
-                return rs.next();
-            }
-        }
-    }
-
-    private boolean hasColumn(Connection conn, String tabela, String coluna) throws SQLException {
-        String sql = "SELECT 1 FROM information_schema.columns WHERE table_name = ? AND column_name = ?";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, tabela);
-            stmt.setString(2, coluna);
-            try (ResultSet rs = stmt.executeQuery()) {
-                return rs.next();
             }
         }
     }
@@ -727,7 +694,7 @@ public class RotaService {
         if (!solverJobsEnabled) {
             return false;
         }
-        return isCancelamentoSolicitadoNoBanco(conn, jobId);
+        return RotaSolverJobSupport.isCancelamentoSolicitadoNoBanco(conn, jobId);
     }
 
     private boolean isCurrentJobActive(String jobId) {
@@ -735,138 +702,6 @@ public class RotaService {
             return false;
         }
         return jobId.equals(activeJobId.get());
-    }
-
-    private boolean isCancelamentoSolicitadoNoBanco(Connection conn, String jobId) throws SQLException {
-        String sql = "SELECT cancel_requested, status::text FROM solver_jobs WHERE job_id = ?";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, jobId);
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (!rs.next()) {
-                    return false;
-                }
-                boolean cancelRequested = rs.getBoolean("cancel_requested");
-                String status = rs.getString("status");
-                return cancelRequested || "CANCELADO".equals(status);
-            }
-        }
-    }
-
-    private List<String> marcarCancelamentoSolicitadoEmJobsAtivos(Connection conn, int limite) throws SQLException {
-        String selectSql = "SELECT job_id FROM solver_jobs "
-                + "WHERE status::text IN ('PENDENTE', 'EM_EXECUCAO') "
-                + "AND cancel_requested = false "
-                + "ORDER BY solicitado_em DESC "
-                + "LIMIT ?";
-
-        List<String> jobIds = new ArrayList<>();
-        try (PreparedStatement stmt = conn.prepareStatement(selectSql)) {
-            stmt.setInt(1, Math.max(1, limite));
-            try (ResultSet rs = stmt.executeQuery()) {
-                while (rs.next()) {
-                    jobIds.add(rs.getString("job_id"));
-                }
-            }
-        }
-
-        if (jobIds.isEmpty()) {
-            return jobIds;
-        }
-
-        String updateSql = "UPDATE solver_jobs "
-                + "SET cancel_requested = true, status = ?, finalizado_em = CURRENT_TIMESTAMP "
-                + "WHERE job_id = ?";
-        try (PreparedStatement stmt = conn.prepareStatement(updateSql)) {
-            for (String jobId : jobIds) {
-                stmt.setObject(1, "CANCELADO", Types.OTHER);
-                stmt.setString(2, jobId);
-                stmt.addBatch();
-            }
-            stmt.executeBatch();
-        }
-
-        return jobIds;
-    }
-
-    private void registrarSolverJobEmExecucao(String jobId, long planVersion, SolverRequest request)
-            throws SQLException {
-        try (Connection conn = connectionFactory.getConnection()) {
-            if (!hasSolverJobsSchema(conn)) {
-                return;
-            }
-            boolean hasRequestPayload = hasColumn(conn, "solver_jobs", "request_payload");
-            String requestPayload = gson.toJson(request);
-            String sql =
-                    "INSERT INTO solver_jobs (job_id, plan_version, status, cancel_requested, solicitado_em, iniciado_em, finalizado_em, erro) "
-                            + "VALUES (?, ?, ?, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, NULL) "
-                            + "ON CONFLICT (job_id) DO UPDATE SET "
-                            + "plan_version = EXCLUDED.plan_version, "
-                            + "status = EXCLUDED.status, "
-                            + "cancel_requested = false, "
-                            + "solicitado_em = CURRENT_TIMESTAMP, "
-                            + "iniciado_em = CURRENT_TIMESTAMP, "
-                            + "finalizado_em = NULL, "
-                            + "erro = NULL";
-            if (hasRequestPayload) {
-                sql =
-                        "INSERT INTO solver_jobs (job_id, plan_version, status, cancel_requested, solicitado_em, iniciado_em, finalizado_em, erro, request_payload) "
-                                + "VALUES (?, ?, ?, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, NULL, CAST(? AS jsonb)) "
-                                + "ON CONFLICT (job_id) DO UPDATE SET "
-                                + "plan_version = EXCLUDED.plan_version, "
-                                + "status = EXCLUDED.status, "
-                                + "cancel_requested = false, "
-                                + "solicitado_em = CURRENT_TIMESTAMP, "
-                                + "iniciado_em = CURRENT_TIMESTAMP, "
-                                + "finalizado_em = NULL, "
-                                + "erro = NULL, "
-                                + "request_payload = EXCLUDED.request_payload";
-            }
-            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-                stmt.setString(1, jobId);
-                stmt.setLong(2, planVersion);
-                stmt.setObject(3, "EM_EXECUCAO", Types.OTHER);
-                if (hasRequestPayload) {
-                    stmt.setString(4, requestPayload);
-                }
-                stmt.executeUpdate();
-            }
-        }
-    }
-
-    private void finalizarSolverJob(String jobId, String status, String erro, SolverResponse response) {
-        try (Connection conn = connectionFactory.getConnection()) {
-            if (!hasSolverJobsSchema(conn)) {
-                return;
-            }
-            boolean hasResponsePayload = hasColumn(conn, "solver_jobs", "response_payload");
-            String responsePayload = response == null ? null : gson.toJson(response);
-            String sql = "UPDATE solver_jobs "
-                    + "SET status = ?, finalizado_em = CURRENT_TIMESTAMP, erro = ?, "
-                    + "cancel_requested = CASE WHEN ? = 'CANCELADO' THEN true ELSE cancel_requested END "
-                    + "WHERE job_id = ?";
-            if (hasResponsePayload) {
-                sql = "UPDATE solver_jobs "
-                        + "SET status = ?, finalizado_em = CURRENT_TIMESTAMP, erro = ?, "
-                        + "cancel_requested = CASE WHEN ? = 'CANCELADO' THEN true ELSE cancel_requested END, "
-                        + "response_payload = CASE WHEN ? IS NULL THEN NULL ELSE CAST(? AS jsonb) END "
-                        + "WHERE job_id = ?";
-            }
-            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-                stmt.setObject(1, status, Types.OTHER);
-                stmt.setString(2, erro);
-                stmt.setString(3, status);
-                if (hasResponsePayload) {
-                    stmt.setString(4, responsePayload);
-                    stmt.setString(5, responsePayload);
-                    stmt.setString(6, jobId);
-                } else {
-                    stmt.setString(4, jobId);
-                }
-                stmt.executeUpdate();
-            }
-        } catch (Exception ignored) {
-            // Melhor esforco para trilha operacional de jobs.
-        }
     }
 
     private void clearActiveJob(String currentJobId) {

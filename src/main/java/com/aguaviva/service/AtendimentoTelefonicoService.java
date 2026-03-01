@@ -9,23 +9,13 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
-import java.time.LocalTime;
-import java.time.format.DateTimeFormatter;
-import java.time.format.DateTimeParseException;
-import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 
 public class AtendimentoTelefonicoService {
 
     private static final String ENDERECO_PENDENTE = "Endereco pendente";
-    private static final String METODO_PAGAMENTO_PADRAO = "NAO_INFORMADO";
     private static final String METODO_PAGAMENTO_VALE = "VALE";
-    private static final DateTimeFormatter WINDOW_TIME_FORMATTER = DateTimeFormatter.ofPattern("HH:mm");
-    private static final String ORIGEM_CANAL_MANUAL = "MANUAL";
-    private static final String ORIGEM_CANAL_WHATSAPP = "WHATSAPP";
-    private static final String ORIGEM_CANAL_BINA_FIXO = "BINA_FIXO";
-    private static final String ORIGEM_CANAL_TELEFONIA_FIXO = "TELEFONIA_FIXO";
     private static final String COBERTURA_BBOX_PADRAO = "-43.9600,-16.8200,-43.7800,-16.6200";
 
     private final ConnectionFactory connectionFactory;
@@ -65,9 +55,9 @@ public class AtendimentoTelefonicoService {
             String janelaTipo,
             String janelaInicio,
             String janelaFim) {
-        String externalCallIdNormalizado = normalizeExternalCallId(externalCallId);
+        String externalCallIdNormalizado = AtendimentoRequestNormalizer.normalizeExternalCallId(externalCallId);
         return registrarPedidoOmnichannel(
-                ORIGEM_CANAL_TELEFONIA_FIXO,
+                AtendimentoRequestNormalizer.ORIGEM_CANAL_TELEFONIA_FIXO,
                 externalCallIdNormalizado,
                 null,
                 telefoneInformado,
@@ -103,7 +93,7 @@ public class AtendimentoTelefonicoService {
             String janelaInicio,
             String janelaFim) {
         return registrarPedidoOmnichannel(
-                ORIGEM_CANAL_MANUAL,
+                AtendimentoRequestNormalizer.ORIGEM_CANAL_MANUAL,
                 null,
                 null,
                 telefoneInformado,
@@ -134,18 +124,22 @@ public class AtendimentoTelefonicoService {
             String endereco,
             Double latitude,
             Double longitude) {
-        String telefoneNormalizado = normalizePhone(telefoneInformado);
-        String metodoPagamentoNormalizado = normalizeMetodoPagamento(metodoPagamento);
-        JanelaPedido janelaPedido = normalizeJanelaPedido(janelaTipo, janelaInicio, janelaFim);
-        String origemCanalNormalizado = normalizeOrigemCanal(origemCanal, sourceEventId, manualRequestId);
-        String sourceEventIdNormalizado = normalizeSourceEventIdOpcional(sourceEventId);
-        String manualRequestIdNormalizado = normalizeSourceEventIdOpcional(manualRequestId);
-        validarConsistenciaCanalEChaves(origemCanalNormalizado, sourceEventIdNormalizado, manualRequestIdNormalizado);
+        String telefoneNormalizado = AtendimentoRequestNormalizer.normalizePhone(telefoneInformado);
+        String metodoPagamentoNormalizado = AtendimentoRequestNormalizer.normalizeMetodoPagamento(metodoPagamento);
+        AtendimentoRequestNormalizer.JanelaPedidoInput janelaPedido =
+                AtendimentoRequestNormalizer.normalizeJanelaPedido(janelaTipo, janelaInicio, janelaFim);
+        String origemCanalNormalizado =
+                AtendimentoRequestNormalizer.normalizeOrigemCanal(origemCanal, sourceEventId, manualRequestId);
+        String sourceEventIdNormalizado = AtendimentoRequestNormalizer.normalizeSourceEventIdOpcional(sourceEventId);
+        String manualRequestIdNormalizado =
+                AtendimentoRequestNormalizer.normalizeSourceEventIdOpcional(manualRequestId);
+        AtendimentoRequestNormalizer.validarConsistenciaCanalEChaves(
+                origemCanalNormalizado, sourceEventIdNormalizado, manualRequestIdNormalizado);
         String dedupeKey =
                 resolveDedupeKey(origemCanalNormalizado, sourceEventIdNormalizado, manualRequestIdNormalizado);
         String externalCallIdLegacy = resolveExternalCallIdLegacy(origemCanalNormalizado, sourceEventIdNormalizado);
-        CadastroClienteInput cadastroClienteInput =
-                normalizeCadastroClienteInput(nomeCliente, endereco, latitude, longitude);
+        AtendimentoRequestNormalizer.CadastroClienteInput cadastroClienteInput =
+                AtendimentoRequestNormalizer.normalizeCadastroClienteInput(nomeCliente, endereco, latitude, longitude);
         String atendimentoRequestHash = dedupeKey == null
                 ? null
                 : buildAtendimentoRequestHash(
@@ -158,8 +152,8 @@ public class AtendimentoTelefonicoService {
                         janelaPedido,
                         cadastroClienteInput);
 
-        validateQuantidade(quantidadeGaloes);
-        validateAtendenteId(atendenteId);
+        AtendimentoRequestNormalizer.validateQuantidade(quantidadeGaloes);
+        AtendimentoRequestNormalizer.validateAtendenteId(atendenteId);
 
         try (Connection conn = connectionFactory.getConnection()) {
             conn.setAutoCommit(false);
@@ -186,7 +180,7 @@ public class AtendimentoTelefonicoService {
                         obterOuCriarClientePorTelefone(conn, telefoneNormalizado, cadastroClienteInput);
                 int clienteId = clienteResolucao.clienteId();
 
-                if (ORIGEM_CANAL_MANUAL.equals(origemCanalNormalizado)) {
+                if (AtendimentoRequestNormalizer.ORIGEM_CANAL_MANUAL.equals(origemCanalNormalizado)) {
                     Optional<PedidoExistente> pedidoAtivo = buscarPedidoAbertoPorClienteId(conn, clienteId);
                     if (pedidoAtivo.isPresent()) {
                         PedidoExistente existente = pedidoAtivo.get();
@@ -278,7 +272,7 @@ public class AtendimentoTelefonicoService {
         if (sourceEventId != null) {
             return sourceEventId;
         }
-        if (ORIGEM_CANAL_MANUAL.equals(origemCanal)) {
+        if (AtendimentoRequestNormalizer.ORIGEM_CANAL_MANUAL.equals(origemCanal)) {
             return manualRequestId;
         }
         return null;
@@ -382,8 +376,8 @@ public class AtendimentoTelefonicoService {
             int quantidadeGaloes,
             int atendenteId,
             String metodoPagamento,
-            JanelaPedido janelaPedido,
-            CadastroClienteInput cadastroClienteInput) {
+            AtendimentoRequestNormalizer.JanelaPedidoInput janelaPedido,
+            AtendimentoRequestNormalizer.CadastroClienteInput cadastroClienteInput) {
         StringBuilder canonical = new StringBuilder(256);
         appendCanonicalField(canonical, "origemCanal", origemCanal);
         appendCanonicalField(canonical, "dedupeKey", dedupeKey);
@@ -393,13 +387,8 @@ public class AtendimentoTelefonicoService {
         appendCanonicalField(canonical, "metodoPagamento", metodoPagamento);
         appendCanonicalField(canonical, "janelaTipo", janelaPedido.tipo());
         appendCanonicalField(
-                canonical,
-                "janelaInicio",
-                janelaPedido.inicio() == null ? null : janelaPedido.inicio().format(WINDOW_TIME_FORMATTER));
-        appendCanonicalField(
-                canonical,
-                "janelaFim",
-                janelaPedido.fim() == null ? null : janelaPedido.fim().format(WINDOW_TIME_FORMATTER));
+                canonical, "janelaInicio", AtendimentoRequestNormalizer.formatWindowTime(janelaPedido.inicio()));
+        appendCanonicalField(canonical, "janelaFim", AtendimentoRequestNormalizer.formatWindowTime(janelaPedido.fim()));
         appendCanonicalField(canonical, "nomeCliente", cadastroClienteInput.nomeCliente());
         appendCanonicalField(canonical, "endereco", cadastroClienteInput.endereco());
         appendCanonicalField(
@@ -437,7 +426,8 @@ public class AtendimentoTelefonicoService {
         if (sourceEventId == null) {
             return null;
         }
-        if (sourceEventId.length() <= 64 && ORIGEM_CANAL_TELEFONIA_FIXO.equals(origemCanal)) {
+        if (sourceEventId.length() <= 64
+                && AtendimentoRequestNormalizer.ORIGEM_CANAL_TELEFONIA_FIXO.equals(origemCanal)) {
             return sourceEventId;
         }
 
@@ -464,7 +454,9 @@ public class AtendimentoTelefonicoService {
     }
 
     private ClienteResolucao obterOuCriarClientePorTelefone(
-            Connection conn, String telefoneNormalizado, CadastroClienteInput cadastroClienteInput)
+            Connection conn,
+            String telefoneNormalizado,
+            AtendimentoRequestNormalizer.CadastroClienteInput cadastroClienteInput)
             throws SQLException {
         Optional<ClienteCadastro> clienteExistente = buscarClientePorTelefoneNormalizado(conn, telefoneNormalizado);
         if (clienteExistente.isPresent()) {
@@ -478,7 +470,9 @@ public class AtendimentoTelefonicoService {
     }
 
     private ClienteCadastro criarClienteInicial(
-            Connection conn, String telefoneNormalizado, CadastroClienteInput cadastroClienteInput)
+            Connection conn,
+            String telefoneNormalizado,
+            AtendimentoRequestNormalizer.CadastroClienteInput cadastroClienteInput)
             throws SQLException {
         String nome = cadastroClienteInput.nomeCliente();
         if (nome == null) {
@@ -527,7 +521,9 @@ public class AtendimentoTelefonicoService {
     }
 
     private ClienteCadastro atualizarCadastroClienteSeInformado(
-            Connection conn, ClienteCadastro clienteAtual, CadastroClienteInput cadastroClienteInput)
+            Connection conn,
+            ClienteCadastro clienteAtual,
+            AtendimentoRequestNormalizer.CadastroClienteInput cadastroClienteInput)
             throws SQLException {
         boolean temNome = cadastroClienteInput.nomeCliente() != null;
         boolean temEndereco = cadastroClienteInput.endereco() != null;
@@ -781,7 +777,7 @@ public class AtendimentoTelefonicoService {
             int atendenteId,
             String externalCallId,
             String metodoPagamento,
-            JanelaPedido janelaPedido)
+            AtendimentoRequestNormalizer.JanelaPedidoInput janelaPedido)
             throws SQLException {
         String sql = "INSERT INTO pedidos "
                 + "(cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por, external_call_id, metodo_pagamento) "
@@ -826,7 +822,7 @@ public class AtendimentoTelefonicoService {
             int quantidadeGaloes,
             int atendenteId,
             String metodoPagamento,
-            JanelaPedido janelaPedido)
+            AtendimentoRequestNormalizer.JanelaPedidoInput janelaPedido)
             throws SQLException {
         String sql = "INSERT INTO pedidos "
                 + "(cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por, metodo_pagamento) "
@@ -860,170 +856,6 @@ public class AtendimentoTelefonicoService {
         throw new SQLException("Falha ao criar pedido pendente em atendimento");
     }
 
-    private static String normalizeExternalCallId(String value) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException("external_call_id nao pode ser nulo ou vazio");
-        }
-
-        String normalized = value.trim();
-        if (normalized.length() > 64) {
-            throw new IllegalArgumentException("external_call_id deve ter no maximo 64 caracteres");
-        }
-        return normalized;
-    }
-
-    private static String normalizePhone(String value) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException("Telefone nao pode ser nulo ou vazio");
-        }
-
-        String digits = value.replaceAll("\\D", "");
-        if (digits.length() < 10 || digits.length() > 15) {
-            throw new IllegalArgumentException("Telefone deve ter entre 10 e 15 digitos apos normalizacao");
-        }
-        return digits;
-    }
-
-    private static String normalizeMetodoPagamento(String value) {
-        if (value == null || value.isBlank()) {
-            return METODO_PAGAMENTO_PADRAO;
-        }
-
-        String normalized = value.trim().toUpperCase(Locale.ROOT);
-        return switch (normalized) {
-            case "NAO_INFORMADO", "DINHEIRO", "PIX", "CARTAO", "VALE" -> normalized;
-            default -> throw new IllegalArgumentException("metodoPagamento invalido");
-        };
-    }
-
-    private static JanelaPedido normalizeJanelaPedido(
-            String janelaTipoRaw, String janelaInicioRaw, String janelaFimRaw) {
-        String janelaTipo = normalizeJanelaTipo(janelaTipoRaw);
-        LocalTime janelaInicio = parseOptionalWindowTime(janelaInicioRaw, "janelaInicio");
-        LocalTime janelaFim = parseOptionalWindowTime(janelaFimRaw, "janelaFim");
-
-        if ("ASAP".equals(janelaTipo)) {
-            if (janelaInicio != null || janelaFim != null) {
-                throw new IllegalArgumentException("janelaInicio/janelaFim so podem ser enviados com janelaTipo=HARD");
-            }
-            return new JanelaPedido("ASAP", null, null);
-        }
-
-        if (janelaInicio == null || janelaFim == null) {
-            throw new IllegalArgumentException("janelaTipo=HARD exige janelaInicio e janelaFim no formato HH:mm");
-        }
-        if (!janelaFim.isAfter(janelaInicio)) {
-            throw new IllegalArgumentException("janelaFim deve ser maior que janelaInicio para janelaTipo=HARD");
-        }
-        return new JanelaPedido("HARD", janelaInicio, janelaFim);
-    }
-
-    private static String normalizeJanelaTipo(String janelaTipoRaw) {
-        if (janelaTipoRaw == null || janelaTipoRaw.isBlank()) {
-            return "ASAP";
-        }
-
-        String normalized = janelaTipoRaw.trim().toUpperCase(Locale.ROOT);
-        return switch (normalized) {
-            case "ASAP", "FLEX", "FLEXIVEL", "LIVRE" -> "ASAP";
-            case "HARD" -> "HARD";
-            default -> throw new IllegalArgumentException("janelaTipo invalido");
-        };
-    }
-
-    private static LocalTime parseOptionalWindowTime(String value, String fieldName) {
-        if (value == null) {
-            return null;
-        }
-        String trimmed = value.trim();
-        if (trimmed.isEmpty()) {
-            return null;
-        }
-        try {
-            return LocalTime.parse(trimmed, WINDOW_TIME_FORMATTER);
-        } catch (DateTimeParseException e) {
-            throw new IllegalArgumentException(fieldName + " deve estar no formato HH:mm");
-        }
-    }
-
-    private static String normalizeOrigemCanal(String origemCanal, String sourceEventId, String manualRequestId) {
-        if (origemCanal == null || origemCanal.isBlank()) {
-            if (sourceEventId != null && !sourceEventId.isBlank()) {
-                return ORIGEM_CANAL_TELEFONIA_FIXO;
-            }
-            if (manualRequestId != null && !manualRequestId.isBlank()) {
-                return ORIGEM_CANAL_MANUAL;
-            }
-            return ORIGEM_CANAL_MANUAL;
-        }
-
-        String normalized = origemCanal.trim().toUpperCase(Locale.ROOT);
-        return switch (normalized) {
-            case "MANUAL" -> ORIGEM_CANAL_MANUAL;
-            case "WHATSAPP", "WA" -> ORIGEM_CANAL_WHATSAPP;
-            case "BINA", "BINA_FIXO" -> ORIGEM_CANAL_BINA_FIXO;
-            case "TELEFONIA", "TELEFONIA_FIXO", "LIGACAO_FIXA" -> ORIGEM_CANAL_TELEFONIA_FIXO;
-            default -> throw new IllegalArgumentException("origemCanal invalido");
-        };
-    }
-
-    private static String normalizeSourceEventIdOpcional(String value) {
-        if (value == null) {
-            return null;
-        }
-        String trimmed = value.trim();
-        if (trimmed.isEmpty()) {
-            return null;
-        }
-        if (trimmed.length() > 128) {
-            throw new IllegalArgumentException("sourceEventId/manualRequestId deve ter no maximo 128 caracteres");
-        }
-        return trimmed;
-    }
-
-    private static void validarConsistenciaCanalEChaves(
-            String origemCanal, String sourceEventId, String manualRequestId) {
-        if (ORIGEM_CANAL_MANUAL.equals(origemCanal) && sourceEventId != null) {
-            throw new IllegalArgumentException("sourceEventId nao pode ser usado com origemCanal=MANUAL");
-        }
-        if (!ORIGEM_CANAL_MANUAL.equals(origemCanal) && sourceEventId == null) {
-            throw new IllegalArgumentException("sourceEventId obrigatorio para origemCanal automatica");
-        }
-        if (!ORIGEM_CANAL_MANUAL.equals(origemCanal) && manualRequestId != null) {
-            throw new IllegalArgumentException("manualRequestId so pode ser usado com origemCanal=MANUAL");
-        }
-    }
-
-    private static CadastroClienteInput normalizeCadastroClienteInput(
-            String nomeCliente, String endereco, Double latitude, Double longitude) {
-        String nomeNormalizado = normalizeOptionalText(nomeCliente);
-        String enderecoNormalizado = normalizeOptionalText(endereco);
-        if ((latitude == null) != (longitude == null)) {
-            throw new IllegalArgumentException("latitude e longitude devem ser informadas juntas");
-        }
-        return new CadastroClienteInput(nomeNormalizado, enderecoNormalizado, latitude, longitude);
-    }
-
-    private static String normalizeOptionalText(String value) {
-        if (value == null) {
-            return null;
-        }
-        String trimmed = value.trim();
-        return trimmed.isEmpty() ? null : trimmed;
-    }
-
-    private static void validateQuantidade(int quantidadeGaloes) {
-        if (quantidadeGaloes <= 0) {
-            throw new IllegalArgumentException("Quantidade de galoes deve ser maior que zero");
-        }
-    }
-
-    private static void validateAtendenteId(int atendenteId) {
-        if (atendenteId <= 0) {
-            throw new IllegalArgumentException("AtendenteId deve ser maior que zero");
-        }
-    }
-
     private RuntimeException mapearSqlException(SQLException e, String mensagemPadrao) {
         if ("23503".equals(e.getSQLState())) {
             return new IllegalArgumentException("Atendente informado nao existe", e);
@@ -1045,16 +877,12 @@ public class AtendimentoTelefonicoService {
 
     private record ClienteResolucao(int clienteId, boolean clienteCriado, ClienteCadastro cadastro) {}
 
-    private record CadastroClienteInput(String nomeCliente, String endereco, Double latitude, Double longitude) {}
-
     private record AtendimentoIdempotenteExistente(
             int pedidoId, int clienteId, String telefoneNormalizado, String requestHash) {}
 
     private record InsertPedidoResult(int pedidoId, int clienteId, boolean idempotente) {}
 
     private record PedidoCriadoPayload(int pedidoId, int clienteId, String externalCallId) {}
-
-    private record JanelaPedido(String tipo, LocalTime inicio, LocalTime fim) {}
 
     private record CoberturaBbox(double minLon, double minLat, double maxLon, double maxLat) {}
 }
