@@ -14,7 +14,6 @@ jobs:
     name: style-check
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    continue-on-error: true # Rollout gradual: nao bloqueia merge nesta fase inicial.
 
     steps:
       - name: Checkout
@@ -31,13 +30,35 @@ jobs:
             echo "sha=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Install style tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          python3 -m pip install --user yamllint
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
       - name: Run style script on changed files
         run: |
           BASE_SHA="${{ steps.base.outputs.sha }}"
           if [[ -z "$BASE_SHA" || "$BASE_SHA" == "0000000000000000000000000000000000000000" ]]; then
-            echo "Base SHA invalido; checando repositorio inteiro."
-            scripts/check-style.sh
-            exit 0
+            echo "Base SHA invalido; tentando merge-base com origin/main."
+            BASE_SHA="$(git merge-base "$GITHUB_SHA" origin/main || true)"
+          fi
+
+          if [[ -z "$BASE_SHA" || "$BASE_SHA" == "0000000000000000000000000000000000000000" ]]; then
+            if git rev-parse --verify "$GITHUB_SHA^" >/dev/null 2>&1; then
+              BASE_SHA="$(git rev-parse "$GITHUB_SHA^")"
+              echo "Usando commit pai como base: $BASE_SHA"
+            else
+              echo "Sem base diff disponivel; checando apenas arquivos do commit atual."
+              mapfile -t changed_files < <(git diff-tree --no-commit-id --name-only --diff-filter=ACMRT -r "$GITHUB_SHA")
+              if [[ ${#changed_files[@]} -eq 0 ]]; then
+                echo "Nenhum arquivo alterado para checar."
+                exit 0
+              fi
+              scripts/check-style.sh "${changed_files[@]}"
+              exit 0
+            fi
           fi
 
           mapfile -t changed_files < <(git diff --name-only --diff-filter=ACMRT "$BASE_SHA" "$GITHUB_SHA")
