@@ -79,16 +79,25 @@ run_sql <<SQL
 TRUNCATE TABLE
   eventos_operacionais_idempotencia,
   atendimentos_idempotencia,
+  api_rate_limit_counters,
   dispatch_events,
   sessions,
   entregas,
   rotas,
+  solver_jobs,
   movimentacao_vales,
   saldo_vales,
   pedidos,
   clientes,
   users
 RESTART IDENTITY CASCADE;
+
+DO \$\$
+BEGIN
+  IF to_regclass('public.solver_plan_version_seq') IS NOT NULL THEN
+    PERFORM setval('solver_plan_version_seq', 1, false);
+  END IF;
+END \$\$;
 
 UPDATE configuracoes SET valor = '5' WHERE chave = 'capacidade_veiculo';
 INSERT INTO configuracoes (chave, valor, descricao)
