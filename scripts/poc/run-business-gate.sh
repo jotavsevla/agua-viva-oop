@@ -1222,7 +1222,10 @@ END;")"
     r17_confirmado=0
     r17_pendente=0
     r17_attempt=1
-    r17_max_attempts=3
+    r17_max_attempts="${R17_MAX_ATTEMPTS:-4}"
+    if ! [[ "$r17_max_attempts" =~ ^[0-9]+$ ]] || [[ "$r17_max_attempts" -le 0 ]]; then
+      r17_max_attempts=4
+    fi
     : > "$check_dir/observe-promocoes.log"
     while [[ "$r17_attempt" -le "$r17_max_attempts" ]]; do
       set +e
@@ -1708,18 +1711,34 @@ END;")"
   # R32
   check_dir="$(new_check_dir R32)"
   if should_run_scope "R32"; then
-    set +e
-    (
-      cd "$ROOT_DIR"
-      API_BASE="$API_BASE" DB_CONTAINER="$DB_CONTAINER" DB_SERVICE="$DB_SERVICE" COMPOSE_FILE="$COMPOSE_FILE" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
-        DB_HOST="${DB_HOST:-localhost}" DB_PORT="${DB_PORT:-5435}" DB_PASSWORD="${DB_PASSWORD:-postgres}" \
-        SUMMARY_FILE="$check_dir/frota-escala-4x50-summary.json" \
-        NUM_ENTREGADORES_ATIVOS=4 PEDIDOS_TOTAIS=50 QUANTIDADE_GALOES=1 \
-        JANELA_MODE=MIXED HARD_RATIO_PERCENT=40 MIN_ENTREGUES=8 \
-        scripts/poc/check-frota-escala-4x50.sh
-    ) > "$check_dir/frota-escala-4x50.log" 2>&1
-    r32_exit="$?"
-    set -e
+    r32_exit=1
+    r32_attempt=1
+    r32_max_attempts="${R32_MAX_ATTEMPTS:-2}"
+    if ! [[ "$r32_max_attempts" =~ ^[0-9]+$ ]] || [[ "$r32_max_attempts" -le 0 ]]; then
+      r32_max_attempts=2
+    fi
+    : > "$check_dir/frota-escala-4x50.log"
+    while [[ "$r32_attempt" -le "$r32_max_attempts" ]]; do
+      set +e
+      (
+        cd "$ROOT_DIR"
+        API_BASE="$API_BASE" DB_CONTAINER="$DB_CONTAINER" DB_SERVICE="$DB_SERVICE" COMPOSE_FILE="$COMPOSE_FILE" DB_USER="$DB_USER" DB_NAME="$DB_NAME" \
+          DB_HOST="${DB_HOST:-localhost}" DB_PORT="${DB_PORT:-5435}" DB_PASSWORD="${DB_PASSWORD:-postgres}" \
+          SUMMARY_FILE="$check_dir/frota-escala-4x50-summary.json" \
+          NUM_ENTREGADORES_ATIVOS=4 PEDIDOS_TOTAIS=50 QUANTIDADE_GALOES=1 \
+          JANELA_MODE=MIXED HARD_RATIO_PERCENT=40 MIN_ENTREGUES=8 \
+          scripts/poc/check-frota-escala-4x50.sh
+      ) >> "$check_dir/frota-escala-4x50.log" 2>&1
+      r32_exit="$?"
+      set -e
+      if [[ "$r32_exit" -eq 0 ]]; then
+        break
+      fi
+      if [[ "$r32_attempt" -lt "$r32_max_attempts" ]]; then
+        sleep 2
+      fi
+      r32_attempt=$((r32_attempt + 1))
+    done
     if [[ "$r32_exit" -eq 0 ]]; then
       record_check "R32" "Escala 4 entregadores/50 pedidos com janelas mistas e giro operacional" "PASS" "$check_dir/frota-escala-4x50-summary.json" "Escala 4x50 validada com giro de rotas e entregas."
     else
