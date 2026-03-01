@@ -387,13 +387,8 @@ public class AtendimentoTelefonicoService {
         appendCanonicalField(canonical, "metodoPagamento", metodoPagamento);
         appendCanonicalField(canonical, "janelaTipo", janelaPedido.tipo());
         appendCanonicalField(
-                canonical,
-                "janelaInicio",
-                AtendimentoRequestNormalizer.formatWindowTime(janelaPedido.inicio()));
-        appendCanonicalField(
-                canonical,
-                "janelaFim",
-                AtendimentoRequestNormalizer.formatWindowTime(janelaPedido.fim()));
+                canonical, "janelaInicio", AtendimentoRequestNormalizer.formatWindowTime(janelaPedido.inicio()));
+        appendCanonicalField(canonical, "janelaFim", AtendimentoRequestNormalizer.formatWindowTime(janelaPedido.fim()));
         appendCanonicalField(canonical, "nomeCliente", cadastroClienteInput.nomeCliente());
         appendCanonicalField(canonical, "endereco", cadastroClienteInput.endereco());
         appendCanonicalField(

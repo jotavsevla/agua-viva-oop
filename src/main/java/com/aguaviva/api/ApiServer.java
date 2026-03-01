@@ -323,7 +323,8 @@ public final class ApiServer {
 
             try {
                 EventoRequest req = parseBody(exchange, EventoRequest.class);
-                String eventType = ApiServerRequestParsers.requireText(req.eventType(), "event_type").toUpperCase(Locale.ROOT);
+                String eventType = ApiServerRequestParsers.requireText(req.eventType(), "event_type")
+                        .toUpperCase(Locale.ROOT);
                 String externalEventId = ApiServerRequestParsers.normalizeOptionalText(req.externalEventId());
                 ExecucaoEntregaResultado resultadoProcessamento;
                 if (externalEventId == null) {
@@ -474,8 +475,8 @@ public final class ApiServer {
             }
 
             try {
-                int entregadorId =
-                        ApiServerRequestParsers.parseEntregadorIdRoteiro(exchange.getRequestURI().getPath());
+                int entregadorId = ApiServerRequestParsers.parseEntregadorIdRoteiro(
+                        exchange.getRequestURI().getPath());
                 RoteiroEntregadorService.RoteiroEntregadorResultado roteiro =
                         roteiroEntregadorService.consultarRoteiro(entregadorId);
                 writeJson(exchange, 200, roteiro);
@@ -511,7 +512,8 @@ public final class ApiServer {
                     return;
                 }
                 if ("/api/operacao/eventos".equals(path)) {
-                    Integer limite = ApiServerRequestParsers.parseLimiteQuery(exchange.getRequestURI().getQuery());
+                    Integer limite = ApiServerRequestParsers.parseLimiteQuery(
+                            exchange.getRequestURI().getQuery());
                     writeJson(exchange, 200, operacaoEventosService.listarEventos(limite));
                     return;
                 }
@@ -520,7 +522,8 @@ public final class ApiServer {
                     return;
                 }
                 if ("/api/operacao/replanejamento/jobs".equals(path)) {
-                    Integer limite = ApiServerRequestParsers.parseLimiteQuery(exchange.getRequestURI().getQuery());
+                    Integer limite = ApiServerRequestParsers.parseLimiteQuery(
+                            exchange.getRequestURI().getQuery());
                     writeJson(exchange, 200, operacaoReplanejamentoService.listarJobs(limite));
                     return;
                 }
@@ -689,7 +692,9 @@ public final class ApiServer {
                         ApiServerRequestParsers.requireInt(req.entregaId(), "entrega_id"), req.actorEntregadorId());
             case DispatchEventTypes.PEDIDO_FALHOU ->
                 execucaoEntregaService.registrarPedidoFalhou(
-                        ApiServerRequestParsers.requireInt(req.entregaId(), "entrega_id"), req.motivo(), req.actorEntregadorId());
+                        ApiServerRequestParsers.requireInt(req.entregaId(), "entrega_id"),
+                        req.motivo(),
+                        req.actorEntregadorId());
             case DispatchEventTypes.PEDIDO_CANCELADO ->
                 execucaoEntregaService.registrarPedidoCancelado(
                         ApiServerRequestParsers.requireInt(req.entregaId(), "entrega_id"),
@@ -738,7 +743,8 @@ public final class ApiServer {
 
     private ScopeRef resolveScope(String eventType, EventoRequest req) {
         return switch (eventType) {
-            case DispatchEventTypes.ROTA_INICIADA -> new ScopeRef("ROTA", ApiServerRequestParsers.requireInt(req.rotaId(), "rota_id"));
+            case DispatchEventTypes.ROTA_INICIADA ->
+                new ScopeRef("ROTA", ApiServerRequestParsers.requireInt(req.rotaId(), "rota_id"));
             case DispatchEventTypes.PEDIDO_ENTREGUE,
                     DispatchEventTypes.PEDIDO_FALHOU,
                     DispatchEventTypes.PEDIDO_CANCELADO ->

@@ -218,7 +218,12 @@ public class RotaService {
                 conn.rollback();
                 if (solverJobsEnabled && currentJobId != null) {
                     RotaSolverJobSupport.finalizarSolverJob(
-                            connectionFactory, gson, currentJobId, "FALHOU", "Thread interrompida ao chamar solver", null);
+                            connectionFactory,
+                            gson,
+                            currentJobId,
+                            "FALHOU",
+                            "Thread interrompida ao chamar solver",
+                            null);
                 }
                 Thread.currentThread().interrupt();
                 throw new IllegalStateException("Thread interrompida ao chamar solver", e);

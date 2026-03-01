@@ -144,7 +144,12 @@ final class RotaSolverJobSupport {
     }
 
     static void finalizarSolverJob(
-            ConnectionFactory connectionFactory, Gson gson, String jobId, String status, String erro, SolverResponse response) {
+            ConnectionFactory connectionFactory,
+            Gson gson,
+            String jobId,
+            String status,
+            String erro,
+            SolverResponse response) {
         try (Connection conn = connectionFactory.getConnection()) {
             if (!hasSolverJobsSchema(conn)) {
                 return;
