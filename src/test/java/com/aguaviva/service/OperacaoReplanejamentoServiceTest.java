@@ -104,8 +104,7 @@ class OperacaoReplanejamentoServiceTest {
 
     @Test
     void deveValidarLimiteDeListagem() {
-        IllegalArgumentException limiteZero =
-                assertThrows(IllegalArgumentException.class, () -> service.listarJobs(0));
+        IllegalArgumentException limiteZero = assertThrows(IllegalArgumentException.class, () -> service.listarJobs(0));
         assertTrue(limiteZero.getMessage().contains("maior que zero"));
 
         IllegalArgumentException limiteAcimaMaximo =
@@ -169,10 +168,12 @@ class OperacaoReplanejamentoServiceTest {
         return pedido.getId();
     }
 
-    private void inserirJobSolver(String jobId, long planVersion, String status, String requestPayload, String responsePayload)
+    private void inserirJobSolver(
+            String jobId, long planVersion, String status, String requestPayload, String responsePayload)
             throws Exception {
-        String sql = "INSERT INTO solver_jobs (job_id, plan_version, status, cancel_requested, request_payload, response_payload) "
-                + "VALUES (?, ?, ?, false, CAST(? AS jsonb), CAST(? AS jsonb))";
+        String sql =
+                "INSERT INTO solver_jobs (job_id, plan_version, status, cancel_requested, request_payload, response_payload) "
+                        + "VALUES (?, ?, ?, false, CAST(? AS jsonb), CAST(? AS jsonb))";
         try (Connection conn = factory.getConnection();
                 PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, jobId);

@@ -149,13 +149,7 @@ class OperacaoMapaServiceTest {
 
     private int criarCliente(String telefone, BigDecimal latitude, BigDecimal longitude) throws Exception {
         Cliente cliente = new Cliente(
-                "Cliente Mapa " + telefone,
-                telefone,
-                ClienteTipo.PF,
-                "Rua Mapa, 100",
-                latitude,
-                longitude,
-                null);
+                "Cliente Mapa " + telefone, telefone, ClienteTipo.PF, "Rua Mapa, 100", latitude, longitude, null);
         return clienteRepository.save(cliente).getId();
     }
 

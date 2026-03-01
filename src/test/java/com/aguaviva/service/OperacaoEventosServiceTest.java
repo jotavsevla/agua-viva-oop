@@ -133,8 +133,9 @@ class OperacaoEventosServiceTest {
             LocalDateTime createdEm,
             LocalDateTime processedEm)
             throws Exception {
-        String sql = "INSERT INTO dispatch_events (event_type, status, aggregate_type, aggregate_id, payload, created_em, available_em, processed_em) "
-                + "VALUES (?, ?, ?, ?, CAST(? AS jsonb), ?, ?, ?) RETURNING id";
+        String sql =
+                "INSERT INTO dispatch_events (event_type, status, aggregate_type, aggregate_id, payload, created_em, available_em, processed_em) "
+                        + "VALUES (?, ?, ?, ?, CAST(? AS jsonb), ?, ?, ?) RETURNING id";
         try (Connection conn = factory.getConnection();
                 PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, eventType);
