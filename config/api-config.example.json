@@ -1,6 +1,8 @@
 {
   "featureFlags": {
-    "startupLogs": true
+    "startupLogs": true,
+    "rateLimitEnabled": true,
+    "mockSolverEnabled": false
   },
   "rateLimits": {
     "POST /api/atendimento/pedidos": {

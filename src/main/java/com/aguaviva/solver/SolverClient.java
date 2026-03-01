@@ -12,7 +12,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 
-public final class SolverClient {
+public final class SolverClient implements SolverGateway {
 
     private final HttpClient httpClient;
     private final String solverUrl;

@@ -20,6 +20,8 @@ class ApiRuntimeConfigTest {
         assertEquals("local", config.appEnv());
         assertTrue(config.structuredConfig().rateLimits().containsKey("POST /api/atendimento/pedidos"));
         assertTrue(config.structuredConfig().sourcePath().contains("api-config.local.json"));
+        assertTrue(config.featureFlag("startupLogs", false));
+        assertTrue(!config.featureFlag("rateLimitEnabled", true));
     }
 
     @Test

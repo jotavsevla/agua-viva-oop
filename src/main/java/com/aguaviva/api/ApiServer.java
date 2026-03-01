@@ -18,7 +18,9 @@ import com.aguaviva.service.PedidoTimelineService;
 import com.aguaviva.service.ReplanejamentoWorkerService;
 import com.aguaviva.service.RotaService;
 import com.aguaviva.service.RoteiroEntregadorService;
+import com.aguaviva.solver.MockSolverClient;
 import com.aguaviva.solver.SolverClient;
+import com.aguaviva.solver.SolverGateway;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonParseException;
@@ -56,6 +58,7 @@ public final class ApiServer {
     private final OperacaoEventosService operacaoEventosService;
     private final OperacaoMapaService operacaoMapaService;
     private final OperacaoReplanejamentoService operacaoReplanejamentoService;
+    private final ApiRateLimitService rateLimitService;
     private final Database database;
     private final boolean startupLogsEnabled;
 
@@ -71,6 +74,7 @@ public final class ApiServer {
             OperacaoEventosService operacaoEventosService,
             OperacaoMapaService operacaoMapaService,
             OperacaoReplanejamentoService operacaoReplanejamentoService,
+            ApiRateLimitService rateLimitService,
             Database database,
             boolean startupLogsEnabled) {
         this.atendimentoTelefonicoService = Objects.requireNonNull(atendimentoTelefonicoService);
@@ -84,6 +88,7 @@ public final class ApiServer {
         this.operacaoEventosService = Objects.requireNonNull(operacaoEventosService);
         this.operacaoMapaService = Objects.requireNonNull(operacaoMapaService);
         this.operacaoReplanejamentoService = Objects.requireNonNull(operacaoReplanejamentoService);
+        this.rateLimitService = Objects.requireNonNull(rateLimitService);
         this.database = Objects.requireNonNull(database);
         this.startupLogsEnabled = startupLogsEnabled;
     }
@@ -94,9 +99,11 @@ public final class ApiServer {
         Database database = new Database(connectionFactory);
         String solverUrl = runtimeConfig.solverUrl();
         int port = runtimeConfig.apiPort();
+        boolean mockSolverEnabled = runtimeConfig.featureFlag("mockSolverEnabled", false);
+        boolean rateLimitEnabled = runtimeConfig.featureFlag("rateLimitEnabled", false);
 
-        SolverClient solverClient = new SolverClient(solverUrl);
-        RotaService rotaService = new RotaService(solverClient, connectionFactory);
+        SolverGateway solverGateway = mockSolverEnabled ? new MockSolverClient() : new SolverClient(solverUrl);
+        RotaService rotaService = new RotaService(solverGateway, connectionFactory);
 
         AtendimentoTelefonicoService atendimentoTelefonicoService = new AtendimentoTelefonicoService(connectionFactory);
         ExecucaoEntregaService execucaoEntregaService = new ExecucaoEntregaService(connectionFactory);
@@ -114,6 +121,9 @@ public final class ApiServer {
         OperacaoMapaService operacaoMapaService = new OperacaoMapaService(connectionFactory);
         OperacaoReplanejamentoService operacaoReplanejamentoService =
                 new OperacaoReplanejamentoService(connectionFactory);
+        ApiRateLimitService rateLimitService = new ApiRateLimitService(
+                connectionFactory, runtimeConfig.structuredConfig().rateLimits(), rateLimitEnabled);
+        rateLimitService.ensureSchema();
 
         ApiServer app = new ApiServer(
                 atendimentoTelefonicoService,
@@ -127,6 +137,7 @@ public final class ApiServer {
                 operacaoEventosService,
                 operacaoMapaService,
                 operacaoReplanejamentoService,
+                rateLimitService,
                 database,
                 runtimeConfig.startupLogsEnabled());
         if (runtimeConfig.startupLogsEnabled()) {
@@ -135,7 +146,11 @@ public final class ApiServer {
                     + ", API_CONFIG_FILE="
                     + runtimeConfig.structuredConfig().sourcePath()
                     + ", rateLimits="
-                    + runtimeConfig.structuredConfig().rateLimits().size());
+                    + runtimeConfig.structuredConfig().rateLimits().size()
+                    + ", rateLimitEnabled="
+                    + rateLimitEnabled
+                    + ", mockSolverEnabled="
+                    + mockSolverEnabled);
         }
         app.start(port);
     }
@@ -172,6 +187,9 @@ public final class ApiServer {
             if (handleCorsPreflight(exchange)) {
                 return;
             }
+            if (enforceRateLimit(exchange)) {
+                return;
+            }
             if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
                 writeJson(exchange, 405, Map.of("erro", "Metodo nao permitido"));
                 return;
@@ -188,6 +206,9 @@ public final class ApiServer {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
             if (handleCorsPreflight(exchange)) {
+                return;
+            }
+            if (enforceRateLimit(exchange)) {
                 return;
             }
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
@@ -292,6 +313,9 @@ public final class ApiServer {
             if (handleCorsPreflight(exchange)) {
                 return;
             }
+            if (enforceRateLimit(exchange)) {
+                return;
+            }
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 writeJson(exchange, 405, Map.of("erro", "Metodo nao permitido"));
                 return;
@@ -346,6 +370,9 @@ public final class ApiServer {
             if (handleCorsPreflight(exchange)) {
                 return;
             }
+            if (enforceRateLimit(exchange)) {
+                return;
+            }
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 writeJson(exchange, 405, Map.of("erro", "Metodo nao permitido"));
                 return;
@@ -392,6 +419,9 @@ public final class ApiServer {
             if (handleCorsPreflight(exchange)) {
                 return;
             }
+            if (enforceRateLimit(exchange)) {
+                return;
+            }
             if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
                 writeJson(exchange, 405, Map.of("erro", "Metodo nao permitido"));
                 return;
@@ -435,6 +465,9 @@ public final class ApiServer {
             if (handleCorsPreflight(exchange)) {
                 return;
             }
+            if (enforceRateLimit(exchange)) {
+                return;
+            }
             if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
                 writeJson(exchange, 405, Map.of("erro", "Metodo nao permitido"));
                 return;
@@ -461,6 +494,9 @@ public final class ApiServer {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
             if (handleCorsPreflight(exchange)) {
+                return;
+            }
+            if (enforceRateLimit(exchange)) {
                 return;
             }
             if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
@@ -645,6 +681,24 @@ public final class ApiServer {
         return e.getMessage() != null && e.getMessage().startsWith("Pedido nao encontrado com id:");
     }
 
+    private boolean enforceRateLimit(HttpExchange exchange) throws IOException {
+        ApiRateLimitService.RateLimitDecision decision = rateLimitService.evaluate(
+                exchange.getRequestMethod(), exchange.getRequestURI().getPath());
+        if (decision.allowed()) {
+            return false;
+        }
+        writeJson(
+                exchange,
+                429,
+                Map.of(
+                        "erro", "Rate limit excedido",
+                        "chave", decision.key(),
+                        "limite", decision.limit(),
+                        "janela", decision.window(),
+                        "atual", decision.currentCount()));
+        return true;
+    }
+
     public static RunningServer startForTests(
             int port,
             AtendimentoTelefonicoService atendimentoTelefonicoService,
@@ -661,6 +715,7 @@ public final class ApiServer {
         OperacaoMapaService operacaoMapaService = new OperacaoMapaService(connectionFactory);
         OperacaoReplanejamentoService operacaoReplanejamentoService =
                 new OperacaoReplanejamentoService(connectionFactory);
+        ApiRateLimitService rateLimitService = new ApiRateLimitService(connectionFactory, Map.of(), false);
         Database database = new Database(connectionFactory);
         ApiServer app = new ApiServer(
                 atendimentoTelefonicoService,
@@ -674,6 +729,7 @@ public final class ApiServer {
                 operacaoEventosService,
                 operacaoMapaService,
                 operacaoReplanejamentoService,
+                rateLimitService,
                 database,
                 Boolean.getBoolean(TEST_VERBOSE_PROPERTY));
         return app.start(port);

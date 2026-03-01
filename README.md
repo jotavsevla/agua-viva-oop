@@ -196,6 +196,9 @@ Prioridade para segredo de banco:
   - bloqueia host local (`localhost/127.0.0.1`) para DB e solver
   - bloqueia senha padrao `postgres`
 - Config estruturada (rate limits/flags) deve vir de `API_CONFIG_FILE` (`json` versionado), nao de env gigante.
+- Feature flags operacionais (em `API_CONFIG_FILE`):
+  - `rateLimitEnabled`: habilita rate limit por endpoint (`METHOD + path`) com contador compartilhado em PostgreSQL.
+  - `mockSolverEnabled`: substitui chamada HTTP ao solver por solver deterministico em memoria (uso controlado para dev/homolog).
 
 Arquivos de referencia:
 

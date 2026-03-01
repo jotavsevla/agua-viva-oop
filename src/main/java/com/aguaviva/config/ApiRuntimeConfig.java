@@ -68,6 +68,14 @@ public record ApiRuntimeConfig(
         return structuredConfig.featureFlags().getOrDefault("startupLogs", true);
     }
 
+    public boolean featureFlag(String key, boolean defaultValue) {
+        String normalized = normalizeOptional(key);
+        if (normalized == null) {
+            throw new IllegalArgumentException("key de feature flag nao pode ser nula/vazia");
+        }
+        return structuredConfig.featureFlags().getOrDefault(normalized, defaultValue);
+    }
+
     private static void validateStrictConfig(
             String appEnv,
             String solverUrl,

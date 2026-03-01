@@ -7,6 +7,7 @@ import com.aguaviva.solver.Parada;
 import com.aguaviva.solver.PedidoSolver;
 import com.aguaviva.solver.RotaSolver;
 import com.aguaviva.solver.SolverClient;
+import com.aguaviva.solver.SolverGateway;
 import com.aguaviva.solver.SolverRequest;
 import com.aguaviva.solver.SolverResponse;
 import com.google.gson.FieldNamingPolicy;
@@ -41,7 +42,7 @@ public class RotaService {
 
     private final AtomicReference<String> activeJobId = new AtomicReference<>();
 
-    private final SolverClient solverClient;
+    private final SolverGateway solverClient;
     private final ConnectionFactory connectionFactory;
     private final PedidoLifecycleService pedidoLifecycleService;
     private final Gson gson = new GsonBuilder()
@@ -53,8 +54,12 @@ public class RotaService {
         this(solverClient, connectionFactory, new PedidoLifecycleService());
     }
 
+    public RotaService(SolverGateway solverClient, ConnectionFactory connectionFactory) {
+        this(solverClient, connectionFactory, new PedidoLifecycleService());
+    }
+
     RotaService(
-            SolverClient solverClient,
+            SolverGateway solverClient,
             ConnectionFactory connectionFactory,
             PedidoLifecycleService pedidoLifecycleService) {
         this.solverClient = Objects.requireNonNull(solverClient, "SolverClient nao pode ser nulo");
