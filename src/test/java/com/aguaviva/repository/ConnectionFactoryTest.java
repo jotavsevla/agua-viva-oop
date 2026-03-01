@@ -2,9 +2,12 @@ package com.aguaviva.repository;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.aguaviva.support.TestConnectionFactory;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.sql.Connection;
 import java.sql.ResultSet;
 import java.sql.Statement;
@@ -104,5 +107,28 @@ class ConnectionFactoryTest {
         assertEquals("agua_viva_oop_dev", config.db());
         assertEquals("postgres", config.user());
         assertEquals("postgres", config.password());
+    }
+
+    @Test
+    void devePriorizarArquivoDeSegredoQuandoPostgresPasswordFileEstiverDefinido() throws Exception {
+        Path secretFile = Files.createTempFile("pg-secret-", ".txt");
+        Files.writeString(secretFile, "segredo-em-arquivo\n");
+
+        ConnectionFactory.DatabaseConfig config = ConnectionFactory.resolveConfig(
+                Map.of("POSTGRES_PASSWORD", "segredo-inline", "POSTGRES_PASSWORD_FILE", secretFile.toString()),
+                key -> null);
+
+        assertEquals("segredo-em-arquivo", config.password());
+        Files.deleteIfExists(secretFile);
+    }
+
+    @Test
+    void deveFalharQuandoArquivoDeSegredoNaoExistir() {
+        IllegalStateException ex = assertThrows(
+                IllegalStateException.class,
+                () -> ConnectionFactory.resolveConfig(
+                        Map.of("POSTGRES_PASSWORD_FILE", "/tmp/segredo-inexistente.txt"), key -> null));
+
+        assertTrue(ex.getMessage().contains("POSTGRES_PASSWORD_FILE"));
     }
 }

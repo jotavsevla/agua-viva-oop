@@ -1,0 +1,21 @@
+{
+  "featureFlags": {
+    "startupLogs": true,
+    "rateLimitEnabled": false,
+    "mockSolverEnabled": false
+  },
+  "rateLimits": {
+    "POST /api/atendimento/pedidos": {
+      "requests": 5,
+      "window": "15m"
+    },
+    "POST /api/eventos": {
+      "requests": 30,
+      "window": "1m"
+    },
+    "POST /api/operacao/rotas/prontas/iniciar": {
+      "requests": 10,
+      "window": "5m"
+    }
+  }
+}
