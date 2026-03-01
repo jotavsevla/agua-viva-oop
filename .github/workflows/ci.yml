@@ -31,6 +31,13 @@ jobs:
             echo "sha=${{ github.event.before }}" >> "$GITHUB_OUTPUT"
           fi
 
+      - name: Install style tooling
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+          python3 -m pip install --user yamllint
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
       - name: Run style script on changed files
         run: |
           BASE_SHA="${{ steps.base.outputs.sha }}"
