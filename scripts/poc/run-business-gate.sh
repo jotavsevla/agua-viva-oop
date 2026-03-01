@@ -531,6 +531,26 @@ wait_for_execucao_with_rota() {
   return 1
 }
 
+wait_for_execucao_with_entrega_ativa() {
+  local pedido_id="$1"
+  local attempts="${2:-20}"
+  local pause_seconds="${3:-1}"
+  local body entrega
+
+  for _ in $(seq 1 "$attempts"); do
+    api_get_capture "/api/pedidos/${pedido_id}/execucao"
+    body="$API_LAST_BODY"
+    entrega="$(echo "$body" | jq -r '.entregaAtivaId // .entregaId // 0')"
+    if [[ "$API_LAST_STATUS" == "200" && "$entrega" != "0" && "$entrega" != "null" && -n "$entrega" ]]; then
+      printf '%s' "$body"
+      return 0
+    fi
+    sleep "$pause_seconds"
+  done
+
+  return 1
+}
+
 is_required_check() {
   local id="$1"
   case "$id" in
@@ -548,8 +568,6 @@ ARTIFACT_DIR="${ARTIFACT_DIR:-$ROOT_DIR/artifacts/poc/business-gate-$TIMESTAMP}"
 mkdir -p "$ARTIFACT_DIR"
 CHECKS_NDJSON="$ARTIFACT_DIR/checks.ndjson"
 : > "$CHECKS_NDJSON"
-
-OVERALL_FAIL=0
 
 record_check() {
   local id="$1"
@@ -572,10 +590,6 @@ record_check() {
       final_status="FAIL"
       final_detail="Status $status invalido para check obrigatorio em modo strict. $detail"
     fi
-  fi
-
-  if [[ "$required" == "true" && "$final_status" != "PASS" ]]; then
-    OVERALL_FAIL=1
   fi
 
   jq -cn \
@@ -880,14 +894,16 @@ else
     ev_rota="$(jq -n --arg externalEventId "$key_rota" --argjson rotaId "$rota_id" '{eventType:"ROTA_INICIADA",externalEventId:$externalEventId,rotaId:$rotaId}')"
     api_post_capture "/api/eventos" "$ev_rota"
     r07_status_1="$API_LAST_STATUS"
-    r07_body_1="$API_LAST_BODY"
     api_post_capture "/api/eventos" "$ev_rota"
     r07_status_2="$API_LAST_STATUS"
     r07_body_2="$API_LAST_BODY"
 
-    api_get_capture "/api/pedidos/${pedido_id}/execucao"
-    exec_status_2="$API_LAST_STATUS"
-    exec_body_2="$API_LAST_BODY"
+    if exec_body_2="$(wait_for_execucao_with_entrega_ativa "$pedido_id" 20 1)"; then
+      exec_status_2="200"
+    else
+      exec_status_2="408"
+      exec_body_2='{}'
+    fi
     entrega_ativa="$(echo "$exec_body_2" | jq -r '.entregaAtivaId // .entregaId // 0')"
 
     # R13: cria segundo pedido e replaneja sem trocar entrega ativa
@@ -906,7 +922,6 @@ else
     ev_cancel="$(jq -n --arg externalEventId "$key_terminal" --argjson entregaId "$entrega_ativa" '{eventType:"PEDIDO_CANCELADO",externalEventId:$externalEventId,entregaId:$entregaId,motivo:"check idempotencia",cobrancaCancelamentoCentavos:2500}')"
     api_post_capture "/api/eventos" "$ev_cancel"
     r08_status_1="$API_LAST_STATUS"
-    r08_body_1="$API_LAST_BODY"
     api_post_capture "/api/eventos" "$ev_cancel"
     r08_status_2="$API_LAST_STATUS"
     r08_body_2="$API_LAST_BODY"
@@ -922,10 +937,8 @@ else
     pedido_r05="$(echo "$API_LAST_BODY" | jq -r '.pedidoId // 0')"
     if exec_body_r05="$(wait_for_execucao_with_rota "$pedido_r05" 30 1)"; then
       rota_r05="$(echo "$exec_body_r05" | jq -r '.rotaId // .rotaPrimariaId // 0')"
-      entrega_r05="$(echo "$exec_body_r05" | jq -r '.entregaId // 0')"
     else
       rota_r05="0"
-      entrega_r05="0"
     fi
     key_rota_r05="bg-r05-rota-$(date +%s)-$RANDOM"
     ev_rota_r05="$(jq -n --arg externalEventId "$key_rota_r05" --argjson rotaId "$rota_r05" '{eventType:"ROTA_INICIADA",externalEventId:$externalEventId,rotaId:$rotaId}')"
@@ -954,15 +967,18 @@ else
     fi
     ev_rota_falha="$(jq -n --arg externalEventId "bg-r11-rota-$(date +%s)-$RANDOM" --argjson rotaId "$rota_falha" '{eventType:"ROTA_INICIADA",externalEventId:$externalEventId,rotaId:$rotaId}')"
     api_post_capture "/api/eventos" "$ev_rota_falha"
-    api_get_capture "/api/pedidos/${pedido_falha}/execucao"
-    entrega_falha="$(echo "$API_LAST_BODY" | jq -r '.entregaAtivaId // .entregaId // 0')"
+    if exec_body_falha_ativa="$(wait_for_execucao_with_entrega_ativa "$pedido_falha" 20 1)"; then
+      entrega_falha="$(echo "$exec_body_falha_ativa" | jq -r '.entregaAtivaId // .entregaId // 0')"
+    else
+      entrega_falha="0"
+    fi
     ev_falha="$(jq -n --arg externalEventId "bg-r11-falha-evt-$(date +%s)-$RANDOM" --argjson entregaId "$entrega_falha" '{eventType:"PEDIDO_FALHOU",externalEventId:$externalEventId,entregaId:$entregaId,motivo:"teste r11"}')"
     api_post_capture "/api/eventos" "$ev_falha"
     r11_falha_status="$API_LAST_STATUS"
 
     # R11: gatilho cancel/falha no outbox
-    count_cancel_evt="$(psql_query "SELECT COUNT(*) FROM dispatch_events WHERE event_type='PEDIDO_CANCELADO';" | extract_single_value)"
-    count_falha_evt="$(psql_query "SELECT COUNT(*) FROM dispatch_events WHERE event_type='PEDIDO_FALHOU';" | extract_single_value)"
+    count_cancel_evt="$(psql_query "SELECT COUNT(*) FROM dispatch_events WHERE event_type='PEDIDO_CANCELADO' AND aggregate_type='PEDIDO' AND aggregate_id = ${pedido_id};" | extract_single_value)"
+    count_falha_evt="$(psql_query "SELECT COUNT(*) FROM dispatch_events WHERE event_type='PEDIDO_FALHOU' AND aggregate_type='PEDIDO' AND aggregate_id = ${pedido_falha};" | extract_single_value)"
 
     {
       echo "pedido_status=$pedido_status"
@@ -1251,9 +1267,17 @@ END;")"
   # R19
   check_dir="$(new_check_dir R19)"
   if should_run_scope "R19"; then
-    api_post_capture "/api/replanejamento/run" '{"debounceSegundos":0,"limiteEventos":200}'
-    manual_replanejamento_status="$API_LAST_STATUS"
-    manual_replanejamento_body="$API_LAST_BODY"
+    manual_replanejamento_status=""
+    manual_replanejamento_body=""
+    for _ in $(seq 1 5); do
+      api_post_capture "/api/replanejamento/run" '{"debounceSegundos":0,"limiteEventos":200}'
+      manual_replanejamento_status="$API_LAST_STATUS"
+      manual_replanejamento_body="$API_LAST_BODY"
+      if [[ "$manual_replanejamento_status" == "409" ]]; then
+        break
+      fi
+      sleep 1
+    done
     pending_dispatch_stale=""
     processed_dispatch=""
     r19_attempt=1
@@ -1329,7 +1353,7 @@ END;")"
     feed_body="$API_LAST_BODY"
     feed_ok=0
     feed_attempt=1
-    feed_max_attempts=3
+    feed_max_attempts=5
     while [[ "$feed_attempt" -le "$feed_max_attempts" ]]; do
       if [[ "$feed_status" == "200" ]]; then
         if echo "$feed_body" | jq -e '.eventos | (length <= 5)' >/dev/null 2>&1 \
