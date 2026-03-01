@@ -218,19 +218,19 @@ public final class ApiServer {
 
             try {
                 AtendimentoRequest req = parseBody(exchange, AtendimentoRequest.class);
-                String telefone = requireText(req.telefone(), "telefone");
-                int quantidadeGaloes = requireInt(req.quantidadeGaloes(), "quantidade_galoes");
-                int atendenteId = requireInt(req.atendenteId(), "atendente_id");
+                String telefone = ApiServerRequestParsers.requireText(req.telefone(), "telefone");
+                int quantidadeGaloes = ApiServerRequestParsers.requireInt(req.quantidadeGaloes(), "quantidade_galoes");
+                int atendenteId = ApiServerRequestParsers.requireInt(req.atendenteId(), "atendente_id");
                 String metodoPagamento = req.metodoPagamento();
                 String janelaTipo = req.janelaTipo();
                 String janelaInicio = req.janelaInicio();
                 String janelaFim = req.janelaFim();
                 String origemCanal = req.origemCanal();
-                boolean origemCanalManual = isOrigemCanalManual(origemCanal);
-                String sourceEventId = normalizeOptionalText(req.sourceEventId());
-                String manualRequestId = normalizeOptionalText(req.manualRequestId());
-                String externalCallId = normalizeOptionalText(req.externalCallId());
-                String idempotencyKeyHeader = resolveIdempotencyKeyHeader(exchange);
+                boolean origemCanalManual = ApiServerRequestParsers.isOrigemCanalManual(origemCanal);
+                String sourceEventId = ApiServerRequestParsers.normalizeOptionalText(req.sourceEventId());
+                String manualRequestId = ApiServerRequestParsers.normalizeOptionalText(req.manualRequestId());
+                String externalCallId = ApiServerRequestParsers.normalizeOptionalText(req.externalCallId());
+                String idempotencyKeyHeader = ApiServerRequestParsers.resolveIdempotencyKeyHeader(exchange);
                 boolean origemCanalOmitida = origemCanal == null || origemCanal.isBlank();
                 if (sourceEventId != null && externalCallId != null && !sourceEventId.equals(externalCallId)) {
                     throw new IllegalArgumentException("sourceEventId diverge de externalCallId");
@@ -323,8 +323,8 @@ public final class ApiServer {
 
             try {
                 EventoRequest req = parseBody(exchange, EventoRequest.class);
-                String eventType = requireText(req.eventType(), "event_type").toUpperCase(Locale.ROOT);
-                String externalEventId = normalizeOptionalText(req.externalEventId());
+                String eventType = ApiServerRequestParsers.requireText(req.eventType(), "event_type").toUpperCase(Locale.ROOT);
+                String externalEventId = ApiServerRequestParsers.normalizeOptionalText(req.externalEventId());
                 ExecucaoEntregaResultado resultadoProcessamento;
                 if (externalEventId == null) {
                     resultadoProcessamento = processarEventoOperacional(eventType, req);
@@ -400,7 +400,7 @@ public final class ApiServer {
 
             try {
                 IniciarRotaProntaRequest req = parseBody(exchange, IniciarRotaProntaRequest.class);
-                int entregadorId = requireInt(req.entregadorId(), "entregadorId");
+                int entregadorId = ApiServerRequestParsers.requireInt(req.entregadorId(), "entregadorId");
                 ExecucaoEntregaResultado resultado = execucaoEntregaService.iniciarProximaRotaPronta(entregadorId);
                 writeJson(exchange, 200, resultado);
             } catch (IllegalArgumentException e) {
@@ -430,7 +430,7 @@ public final class ApiServer {
             String path = exchange.getRequestURI().getPath();
             try {
                 if (path.endsWith("/timeline")) {
-                    int pedidoId = parsePedidoIdTimeline(path);
+                    int pedidoId = ApiServerRequestParsers.parsePedidoIdTimeline(path);
                     PedidoTimelineService.PedidoTimelineResultado resultado =
                             pedidoTimelineService.consultarTimeline(pedidoId);
                     writeJson(exchange, 200, resultado);
@@ -438,7 +438,7 @@ public final class ApiServer {
                 }
 
                 if (path.endsWith("/execucao")) {
-                    int pedidoId = parsePedidoIdExecucao(path);
+                    int pedidoId = ApiServerRequestParsers.parsePedidoIdExecucao(path);
                     PedidoExecucaoService.PedidoExecucaoResultado resultado =
                             pedidoExecucaoService.consultarExecucao(pedidoId);
                     writeJson(exchange, 200, resultado);
@@ -475,7 +475,7 @@ public final class ApiServer {
 
             try {
                 int entregadorId =
-                        parseEntregadorIdRoteiro(exchange.getRequestURI().getPath());
+                        ApiServerRequestParsers.parseEntregadorIdRoteiro(exchange.getRequestURI().getPath());
                 RoteiroEntregadorService.RoteiroEntregadorResultado roteiro =
                         roteiroEntregadorService.consultarRoteiro(entregadorId);
                 writeJson(exchange, 200, roteiro);
@@ -511,7 +511,7 @@ public final class ApiServer {
                     return;
                 }
                 if ("/api/operacao/eventos".equals(path)) {
-                    Integer limite = parseLimiteQuery(exchange.getRequestURI().getQuery());
+                    Integer limite = ApiServerRequestParsers.parseLimiteQuery(exchange.getRequestURI().getQuery());
                     writeJson(exchange, 200, operacaoEventosService.listarEventos(limite));
                     return;
                 }
@@ -520,12 +520,12 @@ public final class ApiServer {
                     return;
                 }
                 if ("/api/operacao/replanejamento/jobs".equals(path)) {
-                    Integer limite = parseLimiteQuery(exchange.getRequestURI().getQuery());
+                    Integer limite = ApiServerRequestParsers.parseLimiteQuery(exchange.getRequestURI().getQuery());
                     writeJson(exchange, 200, operacaoReplanejamentoService.listarJobs(limite));
                     return;
                 }
                 if (path != null && path.startsWith("/api/operacao/replanejamento/jobs/")) {
-                    String jobId = parseJobIdReplanejamento(path);
+                    String jobId = ApiServerRequestParsers.parseJobIdReplanejamento(path);
                     writeJson(exchange, 200, operacaoReplanejamentoService.detalharJob(jobId));
                     return;
                 }
@@ -583,98 +583,6 @@ public final class ApiServer {
         try (OutputStream os = exchange.getResponseBody()) {
             os.write(bytes);
         }
-    }
-
-    private static int requireInt(Integer value, String field) {
-        if (value == null || value <= 0) {
-            throw new IllegalArgumentException(field + " deve ser maior que zero");
-        }
-        return value;
-    }
-
-    private static String requireText(String value, String field) {
-        if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(field + " obrigatorio");
-        }
-        return value;
-    }
-
-    private static int parsePedidoIdTimeline(String path) {
-        return parsePedidoIdWithSuffix(path, "/timeline", "timeline");
-    }
-
-    private static int parsePedidoIdExecucao(String path) {
-        return parsePedidoIdWithSuffix(path, "/execucao", "execucao");
-    }
-
-    private static int parsePedidoIdWithSuffix(String path, String suffix, String endpoint) {
-        String prefix = "/api/pedidos/";
-        if (path == null || !path.startsWith(prefix) || !path.endsWith(suffix)) {
-            throw new IllegalArgumentException("Path invalido para " + endpoint);
-        }
-        String pedidoIdRaw = path.substring(prefix.length(), path.length() - suffix.length());
-        if (pedidoIdRaw.isBlank() || pedidoIdRaw.contains("/")) {
-            throw new IllegalArgumentException("pedidoId invalido");
-        }
-        try {
-            return requireInt(Integer.parseInt(pedidoIdRaw), "pedidoId");
-        } catch (NumberFormatException e) {
-            throw new IllegalArgumentException("pedidoId invalido", e);
-        }
-    }
-
-    private static int parseEntregadorIdRoteiro(String path) {
-        String prefix = "/api/entregadores/";
-        String suffix = "/roteiro";
-        if (path == null || !path.startsWith(prefix) || !path.endsWith(suffix)) {
-            throw new IllegalArgumentException("Path invalido para roteiro");
-        }
-        String entregadorIdRaw = path.substring(prefix.length(), path.length() - suffix.length());
-        if (entregadorIdRaw.isBlank() || entregadorIdRaw.contains("/")) {
-            throw new IllegalArgumentException("entregadorId invalido");
-        }
-        try {
-            return requireInt(Integer.parseInt(entregadorIdRaw), "entregadorId");
-        } catch (NumberFormatException e) {
-            throw new IllegalArgumentException("entregadorId invalido", e);
-        }
-    }
-
-    private static Integer parseLimiteQuery(String query) {
-        if (query == null || query.isBlank()) {
-            return null;
-        }
-        for (String pair : query.split("&")) {
-            if (pair == null || pair.isBlank()) {
-                continue;
-            }
-            String[] parts = pair.split("=", 2);
-            String key = parts[0];
-            if (!"limite".equals(key)) {
-                continue;
-            }
-            if (parts.length < 2 || parts[1].isBlank()) {
-                throw new IllegalArgumentException("limite invalido");
-            }
-            try {
-                return Integer.parseInt(parts[1]);
-            } catch (NumberFormatException e) {
-                throw new IllegalArgumentException("limite invalido", e);
-            }
-        }
-        return null;
-    }
-
-    private static String parseJobIdReplanejamento(String path) {
-        String prefix = "/api/operacao/replanejamento/jobs/";
-        if (path == null || !path.startsWith(prefix)) {
-            throw new IllegalArgumentException("Path invalido para detalhe de replanejamento");
-        }
-        String jobId = path.substring(prefix.length());
-        if (jobId.isBlank() || jobId.contains("/")) {
-            throw new IllegalArgumentException("jobId invalido");
-        }
-        return jobId;
     }
 
     private static boolean isPedidoNotFound(IllegalArgumentException e) {
@@ -775,16 +683,16 @@ public final class ApiServer {
         return switch (eventType) {
             case DispatchEventTypes.ROTA_INICIADA ->
                 execucaoEntregaService.registrarRotaIniciada(
-                        requireInt(req.rotaId(), "rota_id"), req.actorEntregadorId());
+                        ApiServerRequestParsers.requireInt(req.rotaId(), "rota_id"), req.actorEntregadorId());
             case DispatchEventTypes.PEDIDO_ENTREGUE ->
                 execucaoEntregaService.registrarPedidoEntregue(
-                        requireInt(req.entregaId(), "entrega_id"), req.actorEntregadorId());
+                        ApiServerRequestParsers.requireInt(req.entregaId(), "entrega_id"), req.actorEntregadorId());
             case DispatchEventTypes.PEDIDO_FALHOU ->
                 execucaoEntregaService.registrarPedidoFalhou(
-                        requireInt(req.entregaId(), "entrega_id"), req.motivo(), req.actorEntregadorId());
+                        ApiServerRequestParsers.requireInt(req.entregaId(), "entrega_id"), req.motivo(), req.actorEntregadorId());
             case DispatchEventTypes.PEDIDO_CANCELADO ->
                 execucaoEntregaService.registrarPedidoCancelado(
-                        requireInt(req.entregaId(), "entrega_id"),
+                        ApiServerRequestParsers.requireInt(req.entregaId(), "entrega_id"),
                         req.motivo(),
                         req.cobrancaCancelamentoCentavos(),
                         req.actorEntregadorId());
@@ -830,11 +738,11 @@ public final class ApiServer {
 
     private ScopeRef resolveScope(String eventType, EventoRequest req) {
         return switch (eventType) {
-            case DispatchEventTypes.ROTA_INICIADA -> new ScopeRef("ROTA", requireInt(req.rotaId(), "rota_id"));
+            case DispatchEventTypes.ROTA_INICIADA -> new ScopeRef("ROTA", ApiServerRequestParsers.requireInt(req.rotaId(), "rota_id"));
             case DispatchEventTypes.PEDIDO_ENTREGUE,
                     DispatchEventTypes.PEDIDO_FALHOU,
                     DispatchEventTypes.PEDIDO_CANCELADO ->
-                new ScopeRef("ENTREGA", requireInt(req.entregaId(), "entrega_id"));
+                new ScopeRef("ENTREGA", ApiServerRequestParsers.requireInt(req.entregaId(), "entrega_id"));
             default -> throw new IllegalArgumentException("event_type invalido: " + eventType);
         };
     }
@@ -845,39 +753,10 @@ public final class ApiServer {
         canonical.put("rotaId", req.rotaId());
         canonical.put("entregaId", req.entregaId());
         canonical.put("actorEntregadorId", req.actorEntregadorId());
-        canonical.put("motivo", normalizeOptionalText(req.motivo()));
+        canonical.put("motivo", ApiServerRequestParsers.normalizeOptionalText(req.motivo()));
         canonical.put("cobrancaCancelamentoCentavos", req.cobrancaCancelamentoCentavos());
         String payload = gson.toJson(canonical);
         return sha256(payload);
-    }
-
-    private static String normalizeOptionalText(String value) {
-        if (value == null) {
-            return null;
-        }
-        String trimmed = value.trim();
-        return trimmed.isEmpty() ? null : trimmed;
-    }
-
-    private static boolean isOrigemCanalManual(String origemCanal) {
-        if (origemCanal == null) {
-            return false;
-        }
-        return "MANUAL".equalsIgnoreCase(origemCanal.trim());
-    }
-
-    private static String resolveIdempotencyKeyHeader(HttpExchange exchange) {
-        String idempotencyKey =
-                normalizeOptionalText(exchange.getRequestHeaders().getFirst("Idempotency-Key"));
-        String idempotencyKeyAlias =
-                normalizeOptionalText(exchange.getRequestHeaders().getFirst("X-Idempotency-Key"));
-        if (idempotencyKey != null && idempotencyKeyAlias != null && !idempotencyKey.equals(idempotencyKeyAlias)) {
-            throw new IllegalArgumentException("Idempotency-Key e X-Idempotency-Key devem ter o mesmo valor");
-        }
-        if (idempotencyKey != null) {
-            return idempotencyKey;
-        }
-        return idempotencyKeyAlias;
     }
 
     private static String sha256(String value) {
