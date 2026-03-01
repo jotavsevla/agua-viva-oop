@@ -14,7 +14,6 @@ jobs:
     name: style-check
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    continue-on-error: true # Rollout gradual: nao bloqueia merge nesta fase inicial.
 
     steps:
       - name: Checkout
