@@ -222,3 +222,6 @@ O script cria/atualiza a role de aplicacao e aplica grants minimos em `public`
 - Backup/restore: rotina validada e teste de restauracao periodico.
 - Rollback: estrategia testada (imagem imutavel + config versionada).
 - Deploy: manter paridade local/CI via `docker compose` e runners em container.
+
+## Gemini Code Assist Smoke Test
+Linha temporária para validar review automático do Gemini em PR de teste (2026-03-02).
