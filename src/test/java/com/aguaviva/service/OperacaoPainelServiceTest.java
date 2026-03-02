@@ -94,6 +94,11 @@ class OperacaoPainelServiceTest {
         assertEquals(1, pedidos.emRota());
         assertEquals(0, pedidos.entregue());
         assertEquals(0, pedidos.cancelado());
+        OperacaoPainelService.IndicadoresEntrega indicadores = resultado.indicadoresEntrega();
+        assertEquals(0, indicadores.totalFinalizadas());
+        assertEquals(0, indicadores.entregasConcluidas());
+        assertEquals(0, indicadores.entregasCanceladas());
+        assertEquals(0.0, indicadores.taxaSucessoPercentual());
 
         OperacaoPainelService.RotasResumo rotas = resultado.rotas();
         assertEquals(1, rotas.emAndamento().size());
@@ -110,6 +115,30 @@ class OperacaoPainelServiceTest {
         assertEquals(pedidoConfirmado, filas.confirmadosSecundaria().getFirst().pedidoId());
         assertEquals(1, filas.emRotaPrimaria().size());
         assertEquals(pedidoEmRota, filas.emRotaPrimaria().getFirst().pedidoId());
+    }
+
+    @Test
+    void deveCalcularTaxaDeSucessoDeEntregasComBaseNosStatusFinalizados() throws Exception {
+        int atendenteId = criarUsuario("atendente-painel-kpi@teste.com", UserPapel.ATENDENTE);
+        int clienteEntregue1 = criarCliente("(38) 99911-2001", -16.723, -43.863);
+        int clienteEntregue2 = criarCliente("(38) 99911-2002", -16.724, -43.864);
+        int clienteCancelado = criarCliente("(38) 99911-2003", -16.725, -43.865);
+
+        int pedidoEntregue1 = criarPedido(clienteEntregue1, atendenteId);
+        int pedidoEntregue2 = criarPedido(clienteEntregue2, atendenteId);
+        int pedidoCancelado = criarPedido(clienteCancelado, atendenteId);
+
+        atualizarStatusPedido(pedidoEntregue1, "ENTREGUE");
+        atualizarStatusPedido(pedidoEntregue2, "ENTREGUE");
+        atualizarStatusPedido(pedidoCancelado, "CANCELADO");
+
+        OperacaoPainelService.OperacaoPainelResultado resultado = service.consultarPainel();
+        OperacaoPainelService.IndicadoresEntrega indicadores = resultado.indicadoresEntrega();
+
+        assertEquals(3, indicadores.totalFinalizadas());
+        assertEquals(2, indicadores.entregasConcluidas());
+        assertEquals(1, indicadores.entregasCanceladas());
+        assertEquals(66.67, indicadores.taxaSucessoPercentual());
     }
 
     private void limparBase() throws Exception {
