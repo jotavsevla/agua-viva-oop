@@ -44,12 +44,11 @@ public class OperacaoPainelService {
         int entregasConcluidas = pedidosPorStatus.entregue();
         int entregasCanceladas = pedidosPorStatus.cancelado();
         int totalFinalizadas = entregasConcluidas + entregasCanceladas;
-        double taxaSucessoPercentual = calcularTaxaSucessoPercentual(entregasConcluidas, entregasCanceladas);
+        double taxaSucessoPercentual = calcularTaxaSucessoPercentual(entregasConcluidas, totalFinalizadas);
         return new IndicadoresEntrega(totalFinalizadas, entregasConcluidas, entregasCanceladas, taxaSucessoPercentual);
     }
 
-    private double calcularTaxaSucessoPercentual(int entregasConcluidas, int entregasCanceladas) {
-        int totalFinalizadas = entregasConcluidas + entregasCanceladas;
+    private double calcularTaxaSucessoPercentual(int entregasConcluidas, int totalFinalizadas) {
         if (totalFinalizadas == 0) {
             return 0.0;
         }
