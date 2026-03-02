@@ -1,6 +1,8 @@
 package com.aguaviva.service;
 
 import com.aguaviva.repository.ConnectionFactory;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -24,6 +26,7 @@ public class OperacaoPainelService {
         try (Connection conn = connectionFactory.getConnection()) {
             String ambiente = resolverAmbiente(conn);
             PedidosPorStatus pedidosPorStatus = consultarPedidosPorStatus(conn);
+            IndicadoresEntrega indicadoresEntrega = construirIndicadoresEntrega(pedidosPorStatus);
             RotasResumo rotas = new RotasResumo(consultarRotasEmAndamento(conn), consultarRotasPlanejadas(conn));
             FilasResumo filas = new FilasResumo(
                     consultarPendentesElegiveis(conn),
@@ -31,10 +34,29 @@ public class OperacaoPainelService {
                     consultarEmRotaPrimaria(conn));
 
             return new OperacaoPainelResultado(
-                    LocalDateTime.now().toString(), ambiente, pedidosPorStatus, rotas, filas);
+                    LocalDateTime.now().toString(), ambiente, pedidosPorStatus, indicadoresEntrega, rotas, filas);
         } catch (SQLException e) {
             throw new IllegalStateException("Falha ao consultar painel operacional", e);
         }
+    }
+
+    private IndicadoresEntrega construirIndicadoresEntrega(PedidosPorStatus pedidosPorStatus) {
+        int entregasConcluidas = pedidosPorStatus.entregue();
+        int entregasCanceladas = pedidosPorStatus.cancelado();
+        int totalFinalizadas = entregasConcluidas + entregasCanceladas;
+        double taxaSucessoPercentual = calcularTaxaSucessoPercentual(entregasConcluidas, entregasCanceladas);
+        return new IndicadoresEntrega(totalFinalizadas, entregasConcluidas, entregasCanceladas, taxaSucessoPercentual);
+    }
+
+    private double calcularTaxaSucessoPercentual(int entregasConcluidas, int entregasCanceladas) {
+        int totalFinalizadas = entregasConcluidas + entregasCanceladas;
+        if (totalFinalizadas == 0) {
+            return 0.0;
+        }
+        return BigDecimal.valueOf(entregasConcluidas)
+                .multiply(BigDecimal.valueOf(100))
+                .divide(BigDecimal.valueOf(totalFinalizadas), 2, RoundingMode.HALF_UP)
+                .doubleValue();
     }
 
     private String resolverAmbiente(Connection conn) throws SQLException {
@@ -213,10 +235,14 @@ public class OperacaoPainelService {
             String atualizadoEm,
             String ambiente,
             PedidosPorStatus pedidosPorStatus,
+            IndicadoresEntrega indicadoresEntrega,
             RotasResumo rotas,
             FilasResumo filas) {}
 
     public record PedidosPorStatus(int pendente, int confirmado, int emRota, int entregue, int cancelado) {}
+
+    public record IndicadoresEntrega(
+            int totalFinalizadas, int entregasConcluidas, int entregasCanceladas, double taxaSucessoPercentual) {}
 
     public record RotasResumo(List<RotaEmAndamentoResumo> emAndamento, List<RotaPlanejadaResumo> planejadas) {
         public RotasResumo {

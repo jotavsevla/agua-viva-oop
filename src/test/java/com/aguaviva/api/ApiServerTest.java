@@ -3017,6 +3017,11 @@ class ApiServerTest {
             assertEquals(
                     1,
                     payload.getAsJsonObject("pedidosPorStatus").get("cancelado").getAsInt());
+            JsonObject indicadoresEntrega = payload.getAsJsonObject("indicadoresEntrega");
+            assertEquals(2, indicadoresEntrega.get("totalFinalizadas").getAsInt());
+            assertEquals(1, indicadoresEntrega.get("entregasConcluidas").getAsInt());
+            assertEquals(1, indicadoresEntrega.get("entregasCanceladas").getAsInt());
+            assertEquals(50.0, indicadoresEntrega.get("taxaSucessoPercentual").getAsDouble());
 
             JsonArray rotasEmAndamento = payload.getAsJsonObject("rotas").getAsJsonArray("emAndamento");
             JsonArray rotasPlanejadas = payload.getAsJsonObject("rotas").getAsJsonArray("planejadas");
