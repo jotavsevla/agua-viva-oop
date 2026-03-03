@@ -52,6 +52,13 @@ Pacote canonico em `contracts/v1`:
 - `contracts/v1/events/catalogo-eventos.json`
 - `contracts/v1/examples/*.json`
 
+Guard-rail anti-drift (obrigatorio em PR):
+
+1. Mudou endpoint, metodo HTTP, payload ou semantica de campo: atualizar `openapi.yaml` + exemplo(s) JSON.
+2. Rodar testes de contrato antes de abrir PR:
+- `mvn -Dtest=ContractsV1Test,ApiContractDriftTest test`
+3. Nao mergear com teste de contrato falhando.
+
 ## Comandos Praticos
 
 ### 1) Bootstrap de dependencias
