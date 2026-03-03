@@ -7,10 +7,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 
@@ -20,16 +22,15 @@ class ApiContractDriftTest {
     private static final Path OPENAPI_PATH = Path.of("contracts", "v1", "openapi.yaml");
     private static final Path API_SERVER_PATH =
             Path.of("src", "main", "java", "com", "aguaviva", "api", "ApiServer.java");
-    private static final Pattern OPENAPI_PATH_PATTERN = Pattern.compile("^\\s{2}(/[^:]+):\\s*$");
-    private static final Pattern OPENAPI_METHOD_PATTERN =
-            Pattern.compile("^\\s{4}(get|post|put|patch|delete|options|head):\\s*$");
     private static final Pattern CREATE_CONTEXT_PATTERN = Pattern.compile("server\\.createContext\\(\"([^\"]+)\"");
+    private static final Set<String> HTTP_METHODS = Set.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD");
 
     @Test
     void deveManterMatrizPathMetodoAlinhadaComApiServer() throws Exception {
         String openApi = Files.readString(OPENAPI_PATH);
+        Map<String, Object> openApiDocument = OpenApiYamlSupport.load(OPENAPI_PATH);
         String apiServer = Files.readString(API_SERVER_PATH);
-        Map<String, Set<String>> pathMethodsOpenApi = parsePathMethods(openApi);
+        Map<String, Set<String>> pathMethodsOpenApi = parsePathMethods(openApiDocument);
         Map<String, Set<String>> expected = expectedApiPathMethods();
         Set<String> apiServerContexts = parseApiServerContexts(apiServer);
 
@@ -77,7 +78,7 @@ class ApiContractDriftTest {
                 () -> assertTrue(openApi.contains("eventType:"), "Contrato deve mapear eventType"),
                 () -> assertTrue(openApi.contains("idempotente:"), "Contrato deve mapear flag idempotente"),
                 () -> assertTrue(
-                        extractEventoRequestEnum(openApi)
+                        extractEventoRequestEnum(OpenApiYamlSupport.load(OPENAPI_PATH))
                                 .equals(Set.of(
                                         "ROTA_INICIADA", "PEDIDO_ENTREGUE", "PEDIDO_FALHOU", "PEDIDO_CANCELADO")),
                         "Contrato deve manter enum de eventos operacionais aceitos"));
@@ -101,26 +102,18 @@ class ApiContractDriftTest {
         return expected;
     }
 
-    private static Map<String, Set<String>> parsePathMethods(String openApi) {
-        int start = openApi.indexOf("\npaths:");
-        int end = openApi.indexOf("\ncomponents:");
-        if (start < 0 || end < 0 || end <= start) {
-            throw new IllegalStateException("Nao foi possivel localizar bloco paths/components no openapi");
-        }
-
+    private static Map<String, Set<String>> parsePathMethods(Map<String, Object> openApiDocument) {
+        Map<String, Object> paths = OpenApiYamlSupport.requiredMap(openApiDocument, "paths", "openapi");
         Map<String, Set<String>> pathMethods = new LinkedHashMap<>();
-        String[] lines = openApi.substring(start, end).split("\\R");
-        String currentPath = null;
-        for (String line : lines) {
-            Matcher pathMatcher = OPENAPI_PATH_PATTERN.matcher(line);
-            if (pathMatcher.matches()) {
-                currentPath = pathMatcher.group(1);
-                pathMethods.putIfAbsent(currentPath, new LinkedHashSet<>());
-                continue;
-            }
-            Matcher methodMatcher = OPENAPI_METHOD_PATTERN.matcher(line);
-            if (currentPath != null && methodMatcher.matches()) {
-                pathMethods.get(currentPath).add(methodMatcher.group(1).toUpperCase());
+        for (Map.Entry<String, Object> pathEntry : paths.entrySet()) {
+            Map<String, Object> pathItem =
+                    OpenApiYamlSupport.asMap(pathEntry.getValue(), "openapi.paths." + pathEntry.getKey());
+            Set<String> methods = pathItem.keySet().stream()
+                    .map(method -> method.toUpperCase(Locale.ROOT))
+                    .filter(HTTP_METHODS::contains)
+                    .collect(Collectors.toCollection(LinkedHashSet::new));
+            if (!methods.isEmpty()) {
+                pathMethods.put(pathEntry.getKey(), methods);
             }
         }
         return pathMethods;
@@ -135,25 +128,19 @@ class ApiContractDriftTest {
         return contexts;
     }
 
-    private static Set<String> extractEventoRequestEnum(String openApi) {
-        int start = openApi.indexOf("\n    EventoRequest:");
-        if (start < 0) {
-            throw new IllegalStateException("Schema EventoRequest nao encontrado em openapi");
-        }
-        int end = openApi.indexOf("\n    EventoResponse:", start);
-        if (end < 0) {
-            throw new IllegalStateException("Schema EventoResponse nao encontrado apos EventoRequest");
-        }
-        String eventoRequestBlock = openApi.substring(start, end);
-        Matcher matcher = Pattern.compile("enum:\\s*\\[(.+?)]").matcher(eventoRequestBlock);
-        if (!matcher.find()) {
-            throw new IllegalStateException("Enum de eventType nao encontrado no schema EventoRequest");
-        }
-
-        Set<String> values = new LinkedHashSet<>();
-        for (String raw : matcher.group(1).split(",")) {
-            values.add(raw.trim());
-        }
-        return values;
+    private static Set<String> extractEventoRequestEnum(Map<String, Object> openApiDocument) {
+        Map<String, Object> components = OpenApiYamlSupport.requiredMap(openApiDocument, "components", "openapi");
+        Map<String, Object> schemas = OpenApiYamlSupport.requiredMap(components, "schemas", "openapi.components");
+        Map<String, Object> eventoRequest =
+                OpenApiYamlSupport.requiredMap(schemas, "EventoRequest", "openapi.components.schemas");
+        Map<String, Object> properties =
+                OpenApiYamlSupport.requiredMap(eventoRequest, "properties", "openapi.components.schemas.EventoRequest");
+        Map<String, Object> eventType = OpenApiYamlSupport.requiredMap(
+                properties, "eventType", "openapi.components.schemas.EventoRequest.properties");
+        return OpenApiYamlSupport.requiredList(
+                        eventType, "enum", "openapi.components.schemas.EventoRequest.properties.eventType")
+                .stream()
+                .map(String::valueOf)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 }

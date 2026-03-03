@@ -16,8 +16,6 @@ import java.nio.file.Path;
 import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -173,14 +171,14 @@ class ContractsV1Test {
 
     @Test
     void deveManterSemanticaDoContratoNoExemploDePainelOperacional() throws Exception {
-        String openApi = Files.readString(CONTRACTS_V1_DIR.resolve("openapi.yaml"));
+        Map<String, Object> openApiDocument = OpenApiYamlSupport.load(CONTRACTS_V1_DIR.resolve("openapi.yaml"));
         JsonObject painelExemplo = JsonParser.parseString(Files.readString(
                         CONTRACTS_V1_DIR.resolve(Path.of("examples", "operacao-painel.response.json"))))
                 .getAsJsonObject();
 
-        Set<String> requiredPainel = extractSchemaRequired(openApi, "OperacaoPainelResponse");
-        Set<String> requiredPedidos = extractSchemaRequired(openApi, "OperacaoPainelPedidosPorStatus");
-        Set<String> requiredIndicadores = extractSchemaRequired(openApi, "OperacaoPainelIndicadoresEntrega");
+        Set<String> requiredPainel = extractSchemaRequired(openApiDocument, "OperacaoPainelResponse");
+        Set<String> requiredPedidos = extractSchemaRequired(openApiDocument, "OperacaoPainelPedidosPorStatus");
+        Set<String> requiredIndicadores = extractSchemaRequired(openApiDocument, "OperacaoPainelIndicadoresEntrega");
 
         assertObjectContainsRequiredFields(painelExemplo, requiredPainel, "OperacaoPainelResponse");
         JsonObject pedidosPorStatus = painelExemplo.getAsJsonObject("pedidosPorStatus");
@@ -216,26 +214,14 @@ class ContractsV1Test {
                 "Semantica invalida: taxaSucessoPercentual deve refletir entregasConcluidas/totalFinalizadas");
     }
 
-    private static Set<String> extractSchemaRequired(String openApi, String schemaName) {
-        Pattern schemaPattern = Pattern.compile(
-                "(?ms)^\\s{4}" + Pattern.quote(schemaName) + ":\\s*$([\\s\\S]*?)(?=^\\s{4}[A-Za-z0-9_]+:\\s*$|\\z)");
-        Matcher schemaMatcher = schemaPattern.matcher(openApi);
-        if (!schemaMatcher.find()) {
-            throw new IllegalStateException("Schema nao encontrado no openapi: " + schemaName);
-        }
+    private static Set<String> extractSchemaRequired(Map<String, Object> openApiDocument, String schemaName) {
+        Map<String, Object> components = OpenApiYamlSupport.requiredMap(openApiDocument, "components", "openapi");
+        Map<String, Object> schemas = OpenApiYamlSupport.requiredMap(components, "schemas", "openapi.components");
+        Map<String, Object> schema = OpenApiYamlSupport.requiredMap(schemas, schemaName, "openapi.components.schemas");
 
-        String schemaBody = schemaMatcher.group(1);
-        Matcher requiredMatcher =
-                Pattern.compile("(?m)^\\s{6}required:\\s*\\[(.+)]\\s*$").matcher(schemaBody);
-        if (!requiredMatcher.find()) {
-            throw new IllegalStateException("Schema sem bloco required: " + schemaName);
-        }
-        String requiredValues = requiredMatcher.group(1);
-        Set<String> required = new LinkedHashSet<>();
-        for (String value : requiredValues.split(",")) {
-            required.add(value.trim());
-        }
-        return required;
+        return OpenApiYamlSupport.requiredList(schema, "required", "openapi.components.schemas." + schemaName).stream()
+                .map(String::valueOf)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
     }
 
     private static void assertObjectContainsRequiredFields(
