@@ -2,16 +2,22 @@ package com.aguaviva.contracts;
 
 import static org.junit.jupiter.api.Assertions.assertAll;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import com.aguaviva.service.DispatchEventTypes;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.LinkedHashSet;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
@@ -162,6 +168,80 @@ class ContractsV1Test {
             JsonObject conteudo =
                     JsonParser.parseString(Files.readString(arquivo)).getAsJsonObject();
             assertTrue(!conteudo.isEmpty(), "Exemplo nao pode ser JSON vazio: " + nomeArquivo);
+        }
+    }
+
+    @Test
+    void deveManterSemanticaDoContratoNoExemploDePainelOperacional() throws Exception {
+        String openApi = Files.readString(CONTRACTS_V1_DIR.resolve("openapi.yaml"));
+        JsonObject painelExemplo = JsonParser.parseString(Files.readString(
+                        CONTRACTS_V1_DIR.resolve(Path.of("examples", "operacao-painel.response.json"))))
+                .getAsJsonObject();
+
+        Set<String> requiredPainel = extractSchemaRequired(openApi, "OperacaoPainelResponse");
+        Set<String> requiredPedidos = extractSchemaRequired(openApi, "OperacaoPainelPedidosPorStatus");
+        Set<String> requiredIndicadores = extractSchemaRequired(openApi, "OperacaoPainelIndicadoresEntrega");
+
+        assertObjectContainsRequiredFields(painelExemplo, requiredPainel, "OperacaoPainelResponse");
+        JsonObject pedidosPorStatus = painelExemplo.getAsJsonObject("pedidosPorStatus");
+        assertNotNull(pedidosPorStatus, "Exemplo deve incluir objeto pedidosPorStatus");
+        assertObjectContainsRequiredFields(
+                pedidosPorStatus, requiredPedidos, "OperacaoPainelResponse.pedidosPorStatus");
+
+        JsonObject indicadoresEntrega = painelExemplo.getAsJsonObject("indicadoresEntrega");
+        assertNotNull(indicadoresEntrega, "Exemplo deve incluir objeto indicadoresEntrega");
+        assertObjectContainsRequiredFields(
+                indicadoresEntrega, requiredIndicadores, "OperacaoPainelResponse.indicadoresEntrega");
+
+        int totalFinalizadas = indicadoresEntrega.get("totalFinalizadas").getAsInt();
+        int entregasConcluidas = indicadoresEntrega.get("entregasConcluidas").getAsInt();
+        int entregasCanceladas = indicadoresEntrega.get("entregasCanceladas").getAsInt();
+        double taxaSucessoPercentual =
+                indicadoresEntrega.get("taxaSucessoPercentual").getAsDouble();
+
+        assertEquals(
+                entregasConcluidas + entregasCanceladas,
+                totalFinalizadas,
+                "Semantica invalida: totalFinalizadas deve ser soma de entregas concluidas + canceladas");
+        double taxaEsperada = totalFinalizadas == 0
+                ? 0.0
+                : BigDecimal.valueOf(entregasConcluidas)
+                        .multiply(BigDecimal.valueOf(100))
+                        .divide(BigDecimal.valueOf(totalFinalizadas), 2, RoundingMode.HALF_UP)
+                        .doubleValue();
+        assertEquals(
+                taxaEsperada,
+                taxaSucessoPercentual,
+                0.001,
+                "Semantica invalida: taxaSucessoPercentual deve refletir entregasConcluidas/totalFinalizadas");
+    }
+
+    private static Set<String> extractSchemaRequired(String openApi, String schemaName) {
+        Pattern schemaPattern = Pattern.compile(
+                "(?ms)^\\s{4}" + Pattern.quote(schemaName) + ":\\s*$([\\s\\S]*?)(?=^\\s{4}[A-Za-z0-9_]+:\\s*$|\\z)");
+        Matcher schemaMatcher = schemaPattern.matcher(openApi);
+        if (!schemaMatcher.find()) {
+            throw new IllegalStateException("Schema nao encontrado no openapi: " + schemaName);
+        }
+
+        String schemaBody = schemaMatcher.group(1);
+        Matcher requiredMatcher =
+                Pattern.compile("(?m)^\\s{6}required:\\s*\\[(.+)]\\s*$").matcher(schemaBody);
+        if (!requiredMatcher.find()) {
+            throw new IllegalStateException("Schema sem bloco required: " + schemaName);
+        }
+        String requiredValues = requiredMatcher.group(1);
+        Set<String> required = new LinkedHashSet<>();
+        for (String value : requiredValues.split(",")) {
+            required.add(value.trim());
+        }
+        return required;
+    }
+
+    private static void assertObjectContainsRequiredFields(
+            JsonObject payload, Set<String> requiredFields, String scope) {
+        for (String field : requiredFields) {
+            assertTrue(payload.has(field), "Exemplo deve conter campo obrigatorio " + scope + "." + field);
         }
     }
 }
