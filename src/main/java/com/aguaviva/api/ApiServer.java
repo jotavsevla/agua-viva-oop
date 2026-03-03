@@ -1,10 +1,10 @@
 package com.aguaviva.api;
 
-import com.aguaviva.config.ApiRuntimeConfig;
 import com.aguaviva.api.dto.request.AtendimentoRequestDto;
 import com.aguaviva.api.dto.request.EventoRequestDto;
 import com.aguaviva.api.dto.request.IniciarRotaProntaRequestDto;
 import com.aguaviva.api.mapper.OperacaoPainelMapper;
+import com.aguaviva.config.ApiRuntimeConfig;
 import com.aguaviva.repository.ConnectionFactory;
 import com.aguaviva.repository.Database;
 import com.aguaviva.service.AtendimentoTelefonicoResultado;

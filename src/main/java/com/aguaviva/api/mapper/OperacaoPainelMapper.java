@@ -23,11 +23,7 @@ public final class OperacaoPainelMapper {
     private static OperacaoPainelResponseDto.PedidosPorStatusDto toPedidosPorStatusDto(
             OperacaoPainelService.PedidosPorStatus source) {
         return new OperacaoPainelResponseDto.PedidosPorStatusDto(
-                source.pendente(),
-                source.confirmado(),
-                source.emRota(),
-                source.entregue(),
-                source.cancelado());
+                source.pendente(), source.confirmado(), source.emRota(), source.entregue(), source.cancelado());
     }
 
     private static OperacaoPainelResponseDto.IndicadoresEntregaDto toIndicadoresEntregaDto(
@@ -41,8 +37,12 @@ public final class OperacaoPainelMapper {
 
     private static OperacaoPainelResponseDto.RotasResumoDto toRotasResumoDto(OperacaoPainelService.RotasResumo source) {
         return new OperacaoPainelResponseDto.RotasResumoDto(
-                source.emAndamento().stream().map(OperacaoPainelMapper::toRotaEmAndamentoDto).toList(),
-                source.planejadas().stream().map(OperacaoPainelMapper::toRotaPlanejadaDto).toList());
+                source.emAndamento().stream()
+                        .map(OperacaoPainelMapper::toRotaEmAndamentoDto)
+                        .toList(),
+                source.planejadas().stream()
+                        .map(OperacaoPainelMapper::toRotaPlanejadaDto)
+                        .toList());
     }
 
     private static OperacaoPainelResponseDto.RotaEmAndamentoDto toRotaEmAndamentoDto(
@@ -58,11 +58,15 @@ public final class OperacaoPainelMapper {
 
     private static OperacaoPainelResponseDto.FilasResumoDto toFilasResumoDto(OperacaoPainelService.FilasResumo source) {
         return new OperacaoPainelResponseDto.FilasResumoDto(
-                source.pendentesElegiveis().stream().map(OperacaoPainelMapper::toPendenteElegivelDto).toList(),
+                source.pendentesElegiveis().stream()
+                        .map(OperacaoPainelMapper::toPendenteElegivelDto)
+                        .toList(),
                 source.confirmadosSecundaria().stream()
                         .map(OperacaoPainelMapper::toConfirmadoSecundariaDto)
                         .toList(),
-                source.emRotaPrimaria().stream().map(OperacaoPainelMapper::toEmRotaPrimariaDto).toList());
+                source.emRotaPrimaria().stream()
+                        .map(OperacaoPainelMapper::toEmRotaPrimariaDto)
+                        .toList());
     }
 
     private static OperacaoPainelResponseDto.PendenteElegivelDto toPendenteElegivelDto(
