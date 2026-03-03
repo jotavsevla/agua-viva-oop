@@ -1,5 +1,9 @@
 package com.aguaviva.api;
 
+import com.aguaviva.api.dto.request.AtendimentoRequestDto;
+import com.aguaviva.api.dto.request.EventoRequestDto;
+import com.aguaviva.api.dto.request.IniciarRotaProntaRequestDto;
+import com.aguaviva.api.mapper.OperacaoPainelMapper;
 import com.aguaviva.config.ApiRuntimeConfig;
 import com.aguaviva.repository.ConnectionFactory;
 import com.aguaviva.repository.Database;
@@ -217,7 +221,7 @@ public final class ApiServer {
             }
 
             try {
-                AtendimentoRequest req = parseBody(exchange, AtendimentoRequest.class);
+                AtendimentoRequestDto req = parseBody(exchange, AtendimentoRequestDto.class);
                 String telefone = ApiServerRequestParsers.requireText(req.telefone(), "telefone");
                 int quantidadeGaloes = ApiServerRequestParsers.requireInt(req.quantidadeGaloes(), "quantidade_galoes");
                 int atendenteId = ApiServerRequestParsers.requireInt(req.atendenteId(), "atendente_id");
@@ -322,7 +326,7 @@ public final class ApiServer {
             }
 
             try {
-                EventoRequest req = parseBody(exchange, EventoRequest.class);
+                EventoRequestDto req = parseBody(exchange, EventoRequestDto.class);
                 String eventType = ApiServerRequestParsers.requireText(req.eventType(), "event_type")
                         .toUpperCase(Locale.ROOT);
                 String externalEventId = ApiServerRequestParsers.normalizeOptionalText(req.externalEventId());
@@ -400,7 +404,7 @@ public final class ApiServer {
             }
 
             try {
-                IniciarRotaProntaRequest req = parseBody(exchange, IniciarRotaProntaRequest.class);
+                IniciarRotaProntaRequestDto req = parseBody(exchange, IniciarRotaProntaRequestDto.class);
                 int entregadorId = ApiServerRequestParsers.requireInt(req.entregadorId(), "entregadorId");
                 ExecucaoEntregaResultado resultado = execucaoEntregaService.iniciarProximaRotaPronta(entregadorId);
                 writeJson(exchange, 200, resultado);
@@ -508,7 +512,7 @@ public final class ApiServer {
             String path = exchange.getRequestURI().getPath();
             try {
                 if ("/api/operacao/painel".equals(path)) {
-                    writeJson(exchange, 200, operacaoPainelService.consultarPainel());
+                    writeJson(exchange, 200, OperacaoPainelMapper.toResponse(operacaoPainelService.consultarPainel()));
                     return;
                 }
                 if ("/api/operacao/eventos".equals(path)) {
@@ -665,24 +669,7 @@ public final class ApiServer {
         }
     }
 
-    private record AtendimentoRequest(
-            String externalCallId,
-            String sourceEventId,
-            String manualRequestId,
-            String origemCanal,
-            String telefone,
-            Integer quantidadeGaloes,
-            Integer atendenteId,
-            String metodoPagamento,
-            String janelaTipo,
-            String janelaInicio,
-            String janelaFim,
-            String nomeCliente,
-            String endereco,
-            Double latitude,
-            Double longitude) {}
-
-    private ExecucaoEntregaResultado processarEventoOperacional(String eventType, EventoRequest req) {
+    private ExecucaoEntregaResultado processarEventoOperacional(String eventType, EventoRequestDto req) {
         return switch (eventType) {
             case DispatchEventTypes.ROTA_INICIADA ->
                 execucaoEntregaService.registrarRotaIniciada(
@@ -741,7 +728,7 @@ public final class ApiServer {
         });
     }
 
-    private ScopeRef resolveScope(String eventType, EventoRequest req) {
+    private ScopeRef resolveScope(String eventType, EventoRequestDto req) {
         return switch (eventType) {
             case DispatchEventTypes.ROTA_INICIADA ->
                 new ScopeRef("ROTA", ApiServerRequestParsers.requireInt(req.rotaId(), "rota_id"));
@@ -753,7 +740,7 @@ public final class ApiServer {
         };
     }
 
-    private String buildEventoRequestHash(String eventType, EventoRequest req) {
+    private String buildEventoRequestHash(String eventType, EventoRequestDto req) {
         Map<String, Object> canonical = new LinkedHashMap<>();
         canonical.put("eventType", eventType);
         canonical.put("rotaId", req.rotaId());
@@ -780,16 +767,5 @@ public final class ApiServer {
         }
     }
 
-    private record EventoRequest(
-            String externalEventId,
-            String eventType,
-            Integer rotaId,
-            Integer entregaId,
-            Integer actorEntregadorId,
-            String motivo,
-            Integer cobrancaCancelamentoCentavos) {}
-
     private record ScopeRef(String scopeType, int scopeId) {}
-
-    private record IniciarRotaProntaRequest(Integer entregadorId) {}
 }
