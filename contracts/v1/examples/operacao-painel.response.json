@@ -8,6 +8,12 @@
     "entregue": 10,
     "cancelado": 3
   },
+  "indicadoresEntrega": {
+    "totalFinalizadas": 13,
+    "entregasConcluidas": 10,
+    "entregasCanceladas": 3,
+    "taxaSucessoPercentual": 76.92
+  },
   "rotas": {
     "emAndamento": [
       {

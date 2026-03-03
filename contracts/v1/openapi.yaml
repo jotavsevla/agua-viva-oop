@@ -727,6 +727,19 @@ components:
           type: integer
       required: [pendente, confirmado, emRota, entregue, cancelado]
 
+    OperacaoPainelIndicadoresEntrega:
+      type: object
+      properties:
+        totalFinalizadas:
+          type: integer
+        entregasConcluidas:
+          type: integer
+        entregasCanceladas:
+          type: integer
+        taxaSucessoPercentual:
+          type: number
+      required: [totalFinalizadas, entregasConcluidas, entregasCanceladas, taxaSucessoPercentual]
+
     OperacaoPainelRotaEmAndamento:
       type: object
       properties:
@@ -807,6 +820,8 @@ components:
           type: string
         pedidosPorStatus:
           $ref: '#/components/schemas/OperacaoPainelPedidosPorStatus'
+        indicadoresEntrega:
+          $ref: '#/components/schemas/OperacaoPainelIndicadoresEntrega'
         rotas:
           type: object
           properties:
@@ -835,7 +850,7 @@ components:
               items:
                 $ref: '#/components/schemas/OperacaoPainelEmRotaPrimaria'
           required: [pendentesElegiveis, confirmadosSecundaria, emRotaPrimaria]
-      required: [atualizadoEm, ambiente, pedidosPorStatus, rotas, filas]
+      required: [atualizadoEm, ambiente, pedidosPorStatus, indicadoresEntrega, rotas, filas]
 
     OperacaoEventoItem:
       type: object
