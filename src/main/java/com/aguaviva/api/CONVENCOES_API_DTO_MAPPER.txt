@@ -1,0 +1,7 @@
+Padrao API DTO/Mapper (v1)
+
+- Todo endpoint HTTP deve usar DTO explicito de request/response no boundary da API.
+- DTOs de request ficam em com.aguaviva.api.dto.request.
+- DTOs de response ficam em com.aguaviva.api.dto.response.
+- Conversao entre resultado de service e payload HTTP fica em com.aguaviva.api.mapper.
+- Refactors internos nao devem alterar contrato externo sem atualizacao explicita de contracts/v1/openapi.yaml.
