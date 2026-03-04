@@ -152,6 +152,18 @@ scripts/poc/run-business-gate.sh
 scripts/poc/run-business-gate.sh --mode strict --rounds 3
 ```
 
+Meta versionada de SLO logístico no gate:
+
+- `SLO_MIN_TAXA_SUCESSO_PERCENT` (default `90`)
+- validada junto do check `R31` (além do SLA de latência)
+- pipeline de PR reprova quando a taxa de sucesso da rodada fica abaixo do mínimo
+
+Exemplo de execução isolada do check de SLA/SLO:
+
+```bash
+SLO_MIN_TAXA_SUCESSO_PERCENT=90 scripts/poc/run-business-gate.sh --mode strict --rounds 1 --only-check R31
+```
+
 Evidencias em:
 
 - `artifacts/poc/business-gate-<timestamp>/business-summary.json`
