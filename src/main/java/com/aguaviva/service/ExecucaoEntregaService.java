@@ -172,6 +172,7 @@ public class ExecucaoEntregaService {
                 }
 
                 atualizarStatusEntrega(conn, entregaId, entregaStatusDestino, true);
+                int actorEntregadorAuditoria = actorEntregadorId != null ? actorEntregadorId : entrega.entregadorId();
 
                 if ("ENTREGUE".equals(entregaStatusDestino)) {
                     lifecycleService.transicionar(conn, entrega.pedidoId(), PedidoStatus.ENTREGUE);
@@ -198,7 +199,8 @@ public class ExecucaoEntregaService {
                                 entrega.idEntrega(),
                                 entrega.pedidoId(),
                                 entregaStatusDestino,
-                                motivo));
+                                motivo,
+                                actorEntregadorAuditoria));
                 if (rotaConcluida) {
                     dispatchEventService.publicar(
                             conn,
@@ -511,5 +513,5 @@ public class ExecucaoEntregaService {
     private record RotaConcluidaPayload(int rotaId) {}
 
     private record EntregaAtualizadaPayload(
-            int rotaId, int entregaId, int pedidoId, String statusEntrega, String motivo) {}
+            int rotaId, int entregaId, int pedidoId, String statusEntrega, String motivo, int actorEntregadorId) {}
 }

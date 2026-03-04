@@ -19,11 +19,18 @@ import com.aguaviva.repository.ConnectionFactory;
 import com.aguaviva.repository.PedidoRepository;
 import com.aguaviva.repository.UserRepository;
 import com.aguaviva.support.TestConnectionFactory;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.time.LocalTime;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -338,6 +345,63 @@ class ExecucaoEntregaServiceTest {
     }
 
     @Test
+    void deveManterIdempotenciaNoFechamentoConcorrenteDaMesmaEntrega() throws Exception {
+        int atendenteId = criarAtendenteId("exec6c@teste.com");
+        int entregadorId = criarEntregadorId("ent6c@teste.com");
+        int clienteId = criarClienteId("(38) 99999-9198");
+        int pedidoId = criarPedido(clienteId, atendenteId, PedidoStatus.EM_ROTA);
+        int rotaId = criarRota(entregadorId, "EM_ANDAMENTO");
+        int entregaId = criarEntrega(pedidoId, rotaId, "EM_EXECUCAO");
+
+        ExecutorService executor = Executors.newFixedThreadPool(2);
+        CountDownLatch start = new CountDownLatch(1);
+        try {
+            Future<ExecucaoEntregaResultado> f1 = executor.submit(() -> {
+                start.await(3, TimeUnit.SECONDS);
+                return execucaoService.registrarPedidoEntregue(entregaId);
+            });
+            Future<ExecucaoEntregaResultado> f2 = executor.submit(() -> {
+                start.await(3, TimeUnit.SECONDS);
+                return execucaoService.registrarPedidoEntregue(entregaId);
+            });
+            start.countDown();
+
+            ExecucaoEntregaResultado r1 = f1.get(5, TimeUnit.SECONDS);
+            ExecucaoEntregaResultado r2 = f2.get(5, TimeUnit.SECONDS);
+
+            int idempotentes = (r1.idempotente() ? 1 : 0) + (r2.idempotente() ? 1 : 0);
+            assertEquals(1, idempotentes);
+            assertEquals("ENTREGUE", statusEntrega(entregaId));
+            assertEquals("ENTREGUE", statusPedido(pedidoId));
+            assertEquals("CONCLUIDA", statusRota(rotaId));
+            assertEquals(1, contarEventos(DispatchEventTypes.PEDIDO_ENTREGUE));
+            assertEquals(1, contarEventos(DispatchEventTypes.ROTA_CONCLUIDA));
+        } finally {
+            executor.shutdownNow();
+        }
+    }
+
+    @Test
+    void deveRegistrarActorEntregadorNoPayloadDoEventoDeEntregaConcluida() throws Exception {
+        int atendenteId = criarAtendenteId("exec6d@teste.com");
+        int entregadorId = criarEntregadorId("ent6d@teste.com");
+        int clienteId = criarClienteId("(38) 99999-9199");
+        int pedidoId = criarPedido(clienteId, atendenteId, PedidoStatus.EM_ROTA);
+        int rotaId = criarRota(entregadorId, "EM_ANDAMENTO");
+        int entregaId = criarEntrega(pedidoId, rotaId, "EM_EXECUCAO");
+
+        ExecucaoEntregaResultado resultado = execucaoService.registrarPedidoEntregue(entregaId, entregadorId);
+
+        assertFalse(resultado.idempotente());
+        String payload = payloadUltimoEventoPorPedido(DispatchEventTypes.PEDIDO_ENTREGUE, pedidoId);
+        JsonObject payloadJson = JsonParser.parseString(payload).getAsJsonObject();
+        assertEquals(rotaId, payloadJson.get("rotaId").getAsInt());
+        assertEquals(entregaId, payloadJson.get("entregaId").getAsInt());
+        assertEquals(pedidoId, payloadJson.get("pedidoId").getAsInt());
+        assertEquals(entregadorId, payloadJson.get("actorEntregadorId").getAsInt());
+    }
+
+    @Test
     void deveBloquearEventoTerminalDivergenteQuandoEntregaJaFinalizada() throws Exception {
         int atendenteId = criarAtendenteId("exec6b@teste.com");
         int entregadorId = criarEntregadorId("ent6b@teste.com");
@@ -555,6 +619,24 @@ class ExecucaoEntregaServiceTest {
             try (ResultSet rs = stmt.executeQuery()) {
                 rs.next();
                 return rs.getInt(1);
+            }
+        }
+    }
+
+    private String payloadUltimoEventoPorPedido(String eventType, int pedidoId) throws Exception {
+        String sql = "SELECT payload::text FROM dispatch_events "
+                + "WHERE event_type = ? AND aggregate_type = 'PEDIDO' AND aggregate_id = ? "
+                + "ORDER BY id DESC LIMIT 1";
+        try (Connection conn = factory.getConnection();
+                PreparedStatement stmt = conn.prepareStatement(sql)) {
+            stmt.setString(1, eventType);
+            stmt.setInt(2, pedidoId);
+            try (ResultSet rs = stmt.executeQuery()) {
+                if (!rs.next()) {
+                    throw new IllegalStateException(
+                            "Evento nao encontrado para eventType=" + eventType + " pedidoId=" + pedidoId);
+                }
+                return rs.getString(1);
             }
         }
     }
