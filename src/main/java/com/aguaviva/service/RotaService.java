@@ -24,8 +24,8 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.HashSet;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -182,8 +182,7 @@ public class RotaService {
                     throw new PlanejamentoPreemptadoException();
                 }
                 Map<Integer, PedidoPlanejavel> pedidosPorId = indexarPedidosPorId(pedidosPlanejaveis);
-                validarRespostaSolver(
-                        solverResponse, entregadoresAtivos, capacidadesEntregadores, pedidosPorId);
+                validarRespostaSolver(solverResponse, entregadoresAtivos, capacidadesEntregadores, pedidosPorId);
 
                 for (RotaSolver rota : solverResponse.getRotas()) {
                     int rotaId = inserirRota(
@@ -486,14 +485,13 @@ public class RotaService {
 
             int capacidadeEntregador = capacidadePorEntregador.getOrDefault(entregadorId, 0);
             if (cargaPlanejada > capacidadeEntregador) {
-                throw new IllegalStateException(
-                        "Solver retornou carga acima da capacidade para entregador "
-                                + entregadorId
-                                + " (carga="
-                                + cargaPlanejada
-                                + ", capacidade="
-                                + capacidadeEntregador
-                                + ")");
+                throw new IllegalStateException("Solver retornou carga acima da capacidade para entregador "
+                        + entregadorId
+                        + " (carga="
+                        + cargaPlanejada
+                        + ", capacidade="
+                        + capacidadeEntregador
+                        + ")");
             }
         }
     }
@@ -503,7 +501,7 @@ public class RotaService {
         if (entregadoresAtivos.size() != capacidadesEntregadores.size()) {
             throw new IllegalStateException("Configuracao invalida: capacidades por entregador inconsistente");
         }
-        Map<Integer, Integer> capacidades = new HashMap<>();
+        Map<Integer, Integer> capacidades = new HashMap<>(entregadoresAtivos.size());
         for (int i = 0; i < entregadoresAtivos.size(); i++) {
             capacidades.put(entregadoresAtivos.get(i), Math.max(0, capacidadesEntregadores.get(i)));
         }

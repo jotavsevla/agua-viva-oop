@@ -34,6 +34,7 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
@@ -1660,14 +1661,12 @@ class RotaServiceTest {
             int capacidadeTotal = Integer.MAX_VALUE;
             Matcher capacidadesMatcher = capacidadesPattern.matcher(requestBody);
             if (capacidadesMatcher.find()) {
-                capacidadeTotal = 0;
-                String[] capacidades = capacidadesMatcher.group(1).split(",");
-                for (String capacidade : capacidades) {
-                    String valor = capacidade.trim();
-                    if (!valor.isEmpty()) {
-                        capacidadeTotal += Math.max(0, Integer.parseInt(valor));
-                    }
-                }
+                capacidadeTotal = Arrays.stream(capacidadesMatcher.group(1).split(","))
+                        .map(String::trim)
+                        .filter(valor -> !valor.isEmpty())
+                        .mapToInt(Integer::parseInt)
+                        .map(valor -> Math.max(0, valor))
+                        .sum();
             }
 
             Matcher matcher = pedidoIdPattern.matcher(requestBody);
@@ -1678,8 +1677,7 @@ class RotaServiceTest {
                 int pid = Integer.parseInt(matcher.group(1));
                 if (paradas.size() < capacidadeTotal) {
                     paradas.add("""
-                            {"ordem": %d, "pedido_id": %d, "lat": -16.72%02d, "lon": -43.86%02d, "hora_prevista": "%02d:30"}"""
-                            .formatted(ordem, pid, ordem, ordem, 8 + ordem));
+                            {"ordem": %d, "pedido_id": %d, "lat": -16.72%02d, "lon": -43.86%02d, "hora_prevista": "%02d:30"}""".formatted(ordem, pid, ordem, ordem, 8 + ordem));
                     ordem++;
                 } else {
                     naoAtendidos.add(Integer.toString(pid));
@@ -1689,8 +1687,7 @@ class RotaServiceTest {
                 return "{\"rotas\":[],\"nao_atendidos\":[]}";
             }
             return """
-                    {"rotas":[{"entregador_id": %d, "numero_no_dia": 1, "paradas": [%s]}], "nao_atendidos": [%s]}"""
-                    .formatted(entregadorId, String.join(",", paradas), String.join(",", naoAtendidos));
+                    {"rotas":[{"entregador_id": %d, "numero_no_dia": 1, "paradas": [%s]}], "nao_atendidos": [%s]}""".formatted(entregadorId, String.join(",", paradas), String.join(",", naoAtendidos));
         });
 
         int rodadas = 10;
