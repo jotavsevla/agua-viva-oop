@@ -16,6 +16,7 @@ DB_PASSWORD="${DB_PASSWORD:-postgres}"
 SLA_ROUNDS="${SLA_ROUNDS:-3}"
 SLA_MAX_PEDIDO_ROTA_SEGUNDOS="${SLA_MAX_PEDIDO_ROTA_SEGUNDOS:-45}"
 SLA_MAX_ROTA_INICIO_SEGUNDOS="${SLA_MAX_ROTA_INICIO_SEGUNDOS:-30}"
+SLO_MIN_TAXA_SUCESSO_PERCENT="${SLO_MIN_TAXA_SUCESSO_PERCENT:-90}"
 NUM_ENTREGADORES_ATIVOS="${NUM_ENTREGADORES_ATIVOS:-1}"
 SUMMARY_FILE="${SUMMARY_FILE:-$ROOT_DIR/artifacts/poc/sla-operacional-summary.json}"
 WORK_DIR="${WORK_DIR:-$ROOT_DIR/artifacts/poc/sla-operacional}"
@@ -36,6 +37,7 @@ Variaveis opcionais:
   SLA_ROUNDS=3
   SLA_MAX_PEDIDO_ROTA_SEGUNDOS=45
   SLA_MAX_ROTA_INICIO_SEGUNDOS=30
+  SLO_MIN_TAXA_SUCESSO_PERCENT=90
   NUM_ENTREGADORES_ATIVOS=1
   SUMMARY_FILE=artifacts/poc/sla-operacional-summary.json
   WORK_DIR=artifacts/poc/sla-operacional
@@ -51,6 +53,10 @@ require_cmd() {
 
 is_positive_int() {
   [[ "$1" =~ ^[0-9]+$ ]] && [[ "$1" -gt 0 ]]
+}
+
+is_positive_number() {
+  awk -v n="$1" 'BEGIN { exit (n+0 > 0 ? 0 : 1) }'
 }
 
 extract_single_value() {
@@ -92,6 +98,11 @@ for n in "$SLA_ROUNDS" "$SLA_MAX_PEDIDO_ROTA_SEGUNDOS" "$SLA_MAX_ROTA_INICIO_SEG
   fi
 done
 
+if ! is_positive_number "$SLO_MIN_TAXA_SUCESSO_PERCENT"; then
+  echo "Parametro numerico invalido: SLO_MIN_TAXA_SUCESSO_PERCENT=$SLO_MIN_TAXA_SUCESSO_PERCENT" >&2
+  exit 1
+fi
+
 if ! curl -fsS "$API_BASE/health" >/dev/null 2>&1; then
   echo "API offline em $API_BASE" >&2
   exit 1
@@ -123,6 +134,9 @@ for round in $(seq 1 "$SLA_ROUNDS"); do
   rota_id=""
   pedido_rota_segundos=""
   rota_inicio_segundos=""
+  taxa_sucesso_percentual=""
+  total_finalizadas=""
+  entregas_concluidas=""
   ok=true
   viol='[]'
 
@@ -184,6 +198,32 @@ WHERE r.id = ${rota_id};" | extract_single_value)"
         ok=false
         viol="$(jq -cn --argjson arr "$viol" --arg msg "rota->inicio acima do SLA (${rota_inicio_segundos}s > ${SLA_MAX_ROTA_INICIO_SEGUNDOS}s)" '$arr + [$msg]')"
       fi
+
+      painel_json="$(curl -fsS "$API_BASE/api/operacao/painel" 2>/dev/null || true)"
+      if [[ -z "$painel_json" ]]; then
+        ok=false
+        viol="$(jq -cn --argjson arr "$viol" --arg msg "nao foi possivel consultar painel operacional para SLO" '$arr + [$msg]')"
+      else
+        taxa_sucesso_percentual="$(jq -r '.indicadoresEntrega.taxaSucessoPercentual // empty' <<< "$painel_json")"
+        total_finalizadas="$(jq -r '.indicadoresEntrega.totalFinalizadas // empty' <<< "$painel_json")"
+        entregas_concluidas="$(jq -r '.indicadoresEntrega.entregasConcluidas // empty' <<< "$painel_json")"
+
+        if [[ -z "$taxa_sucesso_percentual" ]]; then
+          ok=false
+          viol="$(jq -cn --argjson arr "$viol" --arg msg "taxaSucessoPercentual ausente no painel operacional" '$arr + [$msg]')"
+        elif ! awk -v taxa="$taxa_sucesso_percentual" -v min="$SLO_MIN_TAXA_SUCESSO_PERCENT" 'BEGIN { exit (taxa+0 >= min+0 ? 0 : 1) }'; then
+          ok=false
+          viol="$(jq -cn --argjson arr "$viol" --arg msg "taxa de sucesso abaixo do SLO (${taxa_sucesso_percentual}% < ${SLO_MIN_TAXA_SUCESSO_PERCENT}%)" '$arr + [$msg]')"
+        fi
+
+        if [[ -z "$total_finalizadas" ]]; then
+          ok=false
+          viol="$(jq -cn --argjson arr "$viol" --arg msg "totalFinalizadas ausente no painel operacional" '$arr + [$msg]')"
+        elif [[ "$total_finalizadas" -lt 1 ]]; then
+          ok=false
+          viol="$(jq -cn --argjson arr "$viol" --arg msg "nenhuma entrega finalizada para avaliar SLO" '$arr + [$msg]')"
+        fi
+      fi
     fi
   fi
 
@@ -195,6 +235,9 @@ WHERE r.id = ${rota_id};" | extract_single_value)"
     --argjson rotaId "${rota_id:-null}" \
     --argjson pedidoRotaSegundos "${pedido_rota_segundos:-null}" \
     --argjson rotaInicioSegundos "${rota_inicio_segundos:-null}" \
+    --argjson taxaSucessoPercentual "${taxa_sucesso_percentual:-null}" \
+    --argjson totalFinalizadas "${total_finalizadas:-null}" \
+    --argjson entregasConcluidas "${entregas_concluidas:-null}" \
     --argjson ok "$ok" \
     --argjson violacoes "$viol" \
     --arg logFile "$round_dir/run-cenario.log" \
@@ -206,6 +249,9 @@ WHERE r.id = ${rota_id};" | extract_single_value)"
       rotaId: $rotaId,
       pedidoParaRotaSegundos: $pedidoRotaSegundos,
       rotaParaInicioSegundos: $rotaInicioSegundos,
+      taxaSucessoPercentual: $taxaSucessoPercentual,
+      totalFinalizadas: $totalFinalizadas,
+      entregasConcluidas: $entregasConcluidas,
       ok: $ok,
       violacoes: $violacoes,
       logFile: $logFile
@@ -219,6 +265,9 @@ max_pedido_rota="$(jq -r '[.[] | .pedidoParaRotaSegundos // 0] | max // 0' <<< "
 max_rota_inicio="$(jq -r '[.[] | .rotaParaInicioSegundos // 0] | max // 0' <<< "$rounds_json")"
 avg_pedido_rota="$(jq -r '[.[] | select(.pedidoParaRotaSegundos != null) | .pedidoParaRotaSegundos] as $x | if ($x|length)==0 then 0 else (($x|add)/($x|length)) end' <<< "$rounds_json")"
 avg_rota_inicio="$(jq -r '[.[] | select(.rotaParaInicioSegundos != null) | .rotaParaInicioSegundos] as $x | if ($x|length)==0 then 0 else (($x|add)/($x|length)) end' <<< "$rounds_json")"
+min_taxa_sucesso="$(jq -r '[.[] | .taxaSucessoPercentual // 0] | min // 0' <<< "$rounds_json")"
+avg_taxa_sucesso="$(jq -r '[.[] | select(.taxaSucessoPercentual != null) | .taxaSucessoPercentual] as $x | if ($x|length)==0 then 0 else (($x|add)/($x|length)) end' <<< "$rounds_json")"
+rounds_below_slo="$(jq -r --argjson min "$SLO_MIN_TAXA_SUCESSO_PERCENT" '[.[] | select((.taxaSucessoPercentual // 0) < $min)] | length' <<< "$rounds_json")"
 violacoes_total="$(jq -r '[.[] | (.violacoes | length)] | add // 0' <<< "$rounds_json")"
 
 overall_ok=true
@@ -234,6 +283,7 @@ jq -n \
   --argjson slaRounds "$SLA_ROUNDS" \
   --argjson slaMaxPedidoRotaSegundos "$SLA_MAX_PEDIDO_ROTA_SEGUNDOS" \
   --argjson slaMaxRotaInicioSegundos "$SLA_MAX_ROTA_INICIO_SEGUNDOS" \
+  --argjson sloMinTaxaSucessoPercent "$SLO_MIN_TAXA_SUCESSO_PERCENT" \
   --argjson numEntregadoresAtivos "$NUM_ENTREGADORES_ATIVOS" \
   --argjson rounds "$rounds_json" \
   --argjson roundsTotal "$rounds_total" \
@@ -242,6 +292,9 @@ jq -n \
   --argjson maxRotaInicio "$max_rota_inicio" \
   --argjson avgPedidoRota "$avg_pedido_rota" \
   --argjson avgRotaInicio "$avg_rota_inicio" \
+  --argjson minTaxaSucesso "$min_taxa_sucesso" \
+  --argjson avgTaxaSucesso "$avg_taxa_sucesso" \
+  --argjson roundsBelowSlo "$rounds_below_slo" \
   --argjson violacoesTotal "$violacoes_total" \
   --argjson ok "$overall_ok" \
   '{
@@ -251,6 +304,7 @@ jq -n \
       slaRounds: $slaRounds,
       maxPedidoParaRotaSegundos: $slaMaxPedidoRotaSegundos,
       maxRotaParaInicioSegundos: $slaMaxRotaInicioSegundos,
+      minTaxaSucessoPercent: $sloMinTaxaSucessoPercent,
       numEntregadoresAtivos: $numEntregadoresAtivos
     },
     totals: {
@@ -260,19 +314,22 @@ jq -n \
       maxPedidoParaRotaSegundos: $maxPedidoRota,
       maxRotaParaInicioSegundos: $maxRotaInicio,
       avgPedidoParaRotaSegundos: $avgPedidoRota,
-      avgRotaParaInicioSegundos: $avgRotaInicio
+      avgRotaParaInicioSegundos: $avgRotaInicio,
+      minTaxaSucessoPercent: $minTaxaSucesso,
+      avgTaxaSucessoPercent: $avgTaxaSucesso,
+      roundsBelowSlo: $roundsBelowSlo
     },
     rounds: $rounds,
     ok: $ok
   }' > "$SUMMARY_FILE"
 
 echo "[check-sla-operacional] summary=$SUMMARY_FILE"
-echo "[check-sla-operacional] rounds_ok=${rounds_ok}/${rounds_total}"
+echo "[check-sla-operacional] rounds_ok=${rounds_ok}/${rounds_total} min_taxa=${min_taxa_sucesso}% slo_min=${SLO_MIN_TAXA_SUCESSO_PERCENT}%"
 
 if [[ "$overall_ok" != "true" ]]; then
-  echo "[check-sla-operacional] FALHA: SLA fora do limite." >&2
+  echo "[check-sla-operacional] FALHA: SLA/SLO fora do limite." >&2
   jq -r '.rounds[] | select(.ok == false) | "- [\(.round)] \(.violacoes | join("; "))"' "$SUMMARY_FILE" >&2
   exit 1
 fi
 
-echo "[check-sla-operacional] OK: SLA operacional dentro dos limites definidos."
+echo "[check-sla-operacional] OK: SLA operacional e SLO de sucesso dentro dos limites definidos."

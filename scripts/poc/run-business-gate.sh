@@ -737,7 +737,7 @@ if [[ "$START_EXIT" -ne 0 ]]; then
   record_check "R28" "Clientes e deposito dentro da geofence operacional" "SKIPPED" "$START_LOG" "Bootstrap falhou"
   record_check "R29" "Cenario oficial 1/2/N entregadores com capacidade igual/diferente" "SKIPPED" "$START_LOG" "Bootstrap falhou"
   record_check "R30" "Perfil de frota MOTO/CARRO parametriza capacidade sem alterar regra core" "SKIPPED" "$START_LOG" "Bootstrap falhou"
-  record_check "R31" "SLA minimo operacional (pedido->rota, rota->inicio)" "SKIPPED" "$START_LOG" "Bootstrap falhou"
+  record_check "R31" "SLA minimo + SLO de sucesso logistico" "SKIPPED" "$START_LOG" "Bootstrap falhou"
   record_check "R32" "Escala 4 entregadores/50 pedidos com janelas mistas e giro operacional" "SKIPPED" "$START_LOG" "Bootstrap falhou"
   record_check "R33" "Manual cria cliente novo e pedido com dados completos" "SKIPPED" "$START_LOG" "Bootstrap falhou"
   record_check "R34" "Canal automatico exige sourceEventId e rejeita manualRequestId" "SKIPPED" "$START_LOG" "Bootstrap falhou"
@@ -1702,9 +1702,9 @@ END;")"
     r31_exit="$?"
     set -e
     if [[ "$r31_exit" -eq 0 ]]; then
-      record_check "R31" "SLA minimo operacional (pedido->rota, rota->inicio)" "PASS" "$check_dir/sla-operacional-summary.json" "SLA minimo validado com relatorio por rodada."
+      record_check "R31" "SLA minimo + SLO de sucesso logistico" "PASS" "$check_dir/sla-operacional-summary.json" "SLA minimo e SLO de sucesso validados com relatorio por rodada."
     else
-      record_check "R31" "SLA minimo operacional (pedido->rota, rota->inicio)" "FAIL" "$check_dir/sla-operacional.log" "Falha no SLA minimo operacional."
+      record_check "R31" "SLA minimo + SLO de sucesso logistico" "FAIL" "$check_dir/sla-operacional.log" "Falha no SLA/SLO operacional."
     fi
   fi
 
