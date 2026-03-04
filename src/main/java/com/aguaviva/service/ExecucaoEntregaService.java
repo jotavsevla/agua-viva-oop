@@ -172,8 +172,7 @@ public class ExecucaoEntregaService {
                 }
 
                 atualizarStatusEntrega(conn, entregaId, entregaStatusDestino, true);
-                int actorEntregadorAuditoria =
-                        actorEntregadorId != null ? actorEntregadorId : entrega.entregadorId();
+                int actorEntregadorAuditoria = actorEntregadorId != null ? actorEntregadorId : entrega.entregadorId();
 
                 if ("ENTREGUE".equals(entregaStatusDestino)) {
                     lifecycleService.transicionar(conn, entrega.pedidoId(), PedidoStatus.ENTREGUE);

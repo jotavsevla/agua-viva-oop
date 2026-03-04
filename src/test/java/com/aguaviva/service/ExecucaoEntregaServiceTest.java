@@ -21,16 +21,16 @@ import com.aguaviva.repository.UserRepository;
 import com.aguaviva.support.TestConnectionFactory;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import java.util.concurrent.CountDownLatch;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.time.LocalTime;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeAll;
@@ -632,7 +632,10 @@ class ExecucaoEntregaServiceTest {
             stmt.setString(1, eventType);
             stmt.setInt(2, pedidoId);
             try (ResultSet rs = stmt.executeQuery()) {
-                rs.next();
+                if (!rs.next()) {
+                    throw new IllegalStateException(
+                            "Evento nao encontrado para eventType=" + eventType + " pedidoId=" + pedidoId);
+                }
                 return rs.getString(1);
             }
         }
