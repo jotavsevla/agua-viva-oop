@@ -24,6 +24,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.HashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -180,8 +181,9 @@ public class RotaService {
                 if (isPlanejamentoPreemptado(conn, currentJobId, solverJobsEnabled)) {
                     throw new PlanejamentoPreemptadoException();
                 }
-                validarPoliticaTemporariaCamadaSecundaria(solverResponse);
                 Map<Integer, PedidoPlanejavel> pedidosPorId = indexarPedidosPorId(pedidosPlanejaveis);
+                validarRespostaSolver(
+                        solverResponse, entregadoresAtivos, capacidadesEntregadores, pedidosPorId);
 
                 for (RotaSolver rota : solverResponse.getRotas()) {
                     int rotaId = inserirRota(
@@ -443,16 +445,69 @@ public class RotaService {
         throw new SQLException("Falha ao inserir rota apos tentativas");
     }
 
-    private void validarPoliticaTemporariaCamadaSecundaria(SolverResponse solverResponse) {
+    private void validarRespostaSolver(
+            SolverResponse solverResponse,
+            List<Integer> entregadoresAtivos,
+            List<Integer> capacidadesEntregadores,
+            Map<Integer, PedidoPlanejavel> pedidosPorId) {
+        Set<Integer> entregadoresNoCiclo = new HashSet<>(entregadoresAtivos);
+        Map<Integer, Integer> capacidadePorEntregador =
+                mapearCapacidadePorEntregador(entregadoresAtivos, capacidadesEntregadores);
+        Set<Integer> pedidosJaPlanejados = new HashSet<>();
         Map<Integer, Integer> rotasPorEntregador = new HashMap<>();
+
         for (RotaSolver rota : solverResponse.getRotas()) {
+            int entregadorId = rota.getEntregadorId();
+            if (!entregadoresNoCiclo.contains(entregadorId)) {
+                throw new IllegalStateException(
+                        "Solver retornou rota para entregador que nao pertence ao ciclo atual: " + entregadorId);
+            }
+
             int quantidade = rotasPorEntregador.merge(rota.getEntregadorId(), 1, Integer::sum);
             if (quantidade > 1) {
                 throw new IllegalStateException(
                         "Solver violou politica temporaria: mais de uma rota PLANEJADA para entregador "
-                                + rota.getEntregadorId());
+                                + entregadorId);
+            }
+
+            int cargaPlanejada = 0;
+            for (Parada parada : rota.getParadas()) {
+                int pedidoId = parada.getPedidoId();
+                PedidoPlanejavel pedidoPlanejavel = pedidosPorId.get(pedidoId);
+                if (pedidoPlanejavel == null) {
+                    throw new IllegalStateException(
+                            "Solver retornou pedido nao elegivel para o ciclo atual: " + pedidoId);
+                }
+                if (!pedidosJaPlanejados.add(pedidoId)) {
+                    throw new IllegalStateException("Solver retornou pedido duplicado no ciclo atual: " + pedidoId);
+                }
+                cargaPlanejada += pedidoPlanejavel.pedidoSolver().getGaloes();
+            }
+
+            int capacidadeEntregador = capacidadePorEntregador.getOrDefault(entregadorId, 0);
+            if (cargaPlanejada > capacidadeEntregador) {
+                throw new IllegalStateException(
+                        "Solver retornou carga acima da capacidade para entregador "
+                                + entregadorId
+                                + " (carga="
+                                + cargaPlanejada
+                                + ", capacidade="
+                                + capacidadeEntregador
+                                + ")");
             }
         }
+    }
+
+    private Map<Integer, Integer> mapearCapacidadePorEntregador(
+            List<Integer> entregadoresAtivos, List<Integer> capacidadesEntregadores) {
+        if (entregadoresAtivos.size() != capacidadesEntregadores.size()) {
+            throw new IllegalStateException("Configuracao invalida: capacidades por entregador inconsistente");
+        }
+        Map<Integer, Integer> capacidades = new HashMap<>();
+        for (int i = 0; i < entregadoresAtivos.size(); i++) {
+            capacidades.put(entregadoresAtivos.get(i), Math.max(0, capacidadesEntregadores.get(i)));
+        }
+        return capacidades;
     }
 
     private int reservarNumeroNoDia(Connection conn, int entregadorId, int numeroNoDiaSugerido) throws SQLException {

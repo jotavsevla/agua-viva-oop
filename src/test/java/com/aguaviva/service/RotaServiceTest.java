@@ -1016,6 +1016,123 @@ class RotaServiceTest {
     }
 
     @Test
+    void deveFalharQuandoSolverRetornarCargaAcimaDaCapacidadeDoEntregador() throws Exception {
+        int atendenteId = criarAtendenteId("atendente-capacidade-invalida@teste.com");
+        int entregadorId = criarEntregadorId("entregador-capacidade-invalida@teste.com", true);
+        int cliente1 = criarClienteComSaldo("(38) 99999-77241", 10);
+        int cliente2 = criarClienteComSaldo("(38) 99999-77242", 10);
+
+        atualizarConfiguracao("capacidade_veiculo", "1");
+
+        Pedido pedido1 = pedidoRepository.save(new Pedido(cliente1, 1, JanelaTipo.ASAP, null, null, atendenteId));
+        Pedido pedido2 = pedidoRepository.save(new Pedido(cliente2, 1, JanelaTipo.ASAP, null, null, atendenteId));
+
+        solverStub.setSolveResponse("""
+                {
+                  "rotas": [
+                    {
+                      "entregador_id": %d,
+                      "numero_no_dia": 1,
+                      "paradas": [
+                        {"ordem": 1, "pedido_id": %d, "lat": -16.7310, "lon": -43.8710, "hora_prevista": "10:30"},
+                        {"ordem": 2, "pedido_id": %d, "lat": -16.7320, "lon": -43.8720, "hora_prevista": "10:45"}
+                      ]
+                    }
+                  ],
+                  "nao_atendidos": []
+                }
+                """.formatted(entregadorId, pedido1.getId(), pedido2.getId()));
+
+        IllegalStateException ex =
+                assertThrows(IllegalStateException.class, () -> criarService().planejarRotasPendentes());
+
+        assertEquals("Falha ao planejar rotas", ex.getMessage());
+        assertInstanceOf(IllegalStateException.class, ex.getCause());
+        assertTrue(ex.getCause().getMessage().contains("capacidade"));
+        assertEquals(0, contarLinhas("rotas"));
+        assertEquals(0, contarLinhas("entregas"));
+        assertEquals("PENDENTE", statusDoPedido(pedido1.getId()));
+        assertEquals("PENDENTE", statusDoPedido(pedido2.getId()));
+    }
+
+    @Test
+    void deveFalharQuandoSolverRetornarRotaParaEntregadorForaDoCicloAtual() throws Exception {
+        int atendenteId = criarAtendenteId("atendente-entregador-invalido@teste.com");
+        int entregadorAtivo = criarEntregadorId("entregador-valido@teste.com", true);
+        int cliente1 = criarClienteComSaldo("(38) 99999-77243", 10);
+
+        Pedido pedido1 = pedidoRepository.save(new Pedido(cliente1, 1, JanelaTipo.ASAP, null, null, atendenteId));
+
+        int entregadorInvalido = entregadorAtivo + 99999;
+        solverStub.setSolveResponse("""
+                {
+                  "rotas": [
+                    {
+                      "entregador_id": %d,
+                      "numero_no_dia": 1,
+                      "paradas": [
+                        {"ordem": 1, "pedido_id": %d, "lat": -16.7310, "lon": -43.8710, "hora_prevista": "10:30"}
+                      ]
+                    }
+                  ],
+                  "nao_atendidos": []
+                }
+                """.formatted(entregadorInvalido, pedido1.getId()));
+
+        IllegalStateException ex =
+                assertThrows(IllegalStateException.class, () -> criarService().planejarRotasPendentes());
+
+        assertEquals("Falha ao planejar rotas", ex.getMessage());
+        assertInstanceOf(IllegalStateException.class, ex.getCause());
+        assertTrue(ex.getCause().getMessage().contains("nao pertence ao ciclo atual"));
+        assertEquals(0, contarLinhas("rotas"));
+        assertEquals(0, contarLinhas("entregas"));
+        assertEquals("PENDENTE", statusDoPedido(pedido1.getId()));
+    }
+
+    @Test
+    void deveFalharQuandoSolverDuplicarPedidoEmRotasDistintasNoMesmoCiclo() throws Exception {
+        int atendenteId = criarAtendenteId("atendente-dup-pedido@teste.com");
+        int entregadorA = criarEntregadorId("entregador-dup-a@teste.com", true);
+        int entregadorB = criarEntregadorId("entregador-dup-b@teste.com", true);
+        int cliente1 = criarClienteComSaldo("(38) 99999-77244", 10);
+
+        Pedido pedido1 = pedidoRepository.save(new Pedido(cliente1, 1, JanelaTipo.ASAP, null, null, atendenteId));
+
+        solverStub.setSolveResponse("""
+                {
+                  "rotas": [
+                    {
+                      "entregador_id": %d,
+                      "numero_no_dia": 1,
+                      "paradas": [
+                        {"ordem": 1, "pedido_id": %d, "lat": -16.7310, "lon": -43.8710, "hora_prevista": "10:30"}
+                      ]
+                    },
+                    {
+                      "entregador_id": %d,
+                      "numero_no_dia": 1,
+                      "paradas": [
+                        {"ordem": 1, "pedido_id": %d, "lat": -16.7320, "lon": -43.8720, "hora_prevista": "10:45"}
+                      ]
+                    }
+                  ],
+                  "nao_atendidos": []
+                }
+                """.formatted(entregadorA, pedido1.getId(), entregadorB, pedido1.getId()));
+
+        IllegalStateException ex =
+                assertThrows(IllegalStateException.class, () -> criarService().planejarRotasPendentes());
+
+        assertEquals("Falha ao planejar rotas", ex.getMessage());
+        assertInstanceOf(IllegalStateException.class, ex.getCause());
+        assertTrue(ex.getCause().getMessage().contains("pedido duplicado"));
+        assertEquals(0, contarLinhas("rotas"));
+        assertEquals(0, contarLinhas("entregas"));
+        assertEquals("PENDENTE", statusDoPedido(pedido1.getId()));
+    }
+
+    @Test
     void deveReplanejarComSolverAposCancelamentoSemInsercaoLocal() throws Exception {
         int atendenteId = criarAtendenteId("atendente8c@teste.com");
         int entregadorId = criarEntregadorId("entregador8c@teste.com", true);
@@ -1538,21 +1655,42 @@ class RotaServiceTest {
         int entregadorId = criarEntregadorId("entregador-fairness@teste.com", true);
 
         Pattern pedidoIdPattern = Pattern.compile("\"pedido_id\"\\s*:\\s*(\\d+)");
+        Pattern capacidadesPattern = Pattern.compile("\"capacidades_entregadores\"\\s*:\\s*\\[(.*?)\\]");
         solverStub.setDynamicSolveHandler(requestBody -> {
+            int capacidadeTotal = Integer.MAX_VALUE;
+            Matcher capacidadesMatcher = capacidadesPattern.matcher(requestBody);
+            if (capacidadesMatcher.find()) {
+                capacidadeTotal = 0;
+                String[] capacidades = capacidadesMatcher.group(1).split(",");
+                for (String capacidade : capacidades) {
+                    String valor = capacidade.trim();
+                    if (!valor.isEmpty()) {
+                        capacidadeTotal += Math.max(0, Integer.parseInt(valor));
+                    }
+                }
+            }
+
             Matcher matcher = pedidoIdPattern.matcher(requestBody);
             List<String> paradas = new ArrayList<>();
+            List<String> naoAtendidos = new ArrayList<>();
             int ordem = 1;
             while (matcher.find()) {
                 int pid = Integer.parseInt(matcher.group(1));
-                paradas.add("""
-                        {"ordem": %d, "pedido_id": %d, "lat": -16.72%02d, "lon": -43.86%02d, "hora_prevista": "%02d:30"}""".formatted(ordem, pid, ordem, ordem, 8 + ordem));
-                ordem++;
+                if (paradas.size() < capacidadeTotal) {
+                    paradas.add("""
+                            {"ordem": %d, "pedido_id": %d, "lat": -16.72%02d, "lon": -43.86%02d, "hora_prevista": "%02d:30"}"""
+                            .formatted(ordem, pid, ordem, ordem, 8 + ordem));
+                    ordem++;
+                } else {
+                    naoAtendidos.add(Integer.toString(pid));
+                }
             }
             if (paradas.isEmpty()) {
                 return "{\"rotas\":[],\"nao_atendidos\":[]}";
             }
             return """
-                    {"rotas":[{"entregador_id": %d, "numero_no_dia": 1, "paradas": [%s]}], "nao_atendidos": []}""".formatted(entregadorId, String.join(",", paradas));
+                    {"rotas":[{"entregador_id": %d, "numero_no_dia": 1, "paradas": [%s]}], "nao_atendidos": [%s]}"""
+                    .formatted(entregadorId, String.join(",", paradas), String.join(",", naoAtendidos));
         });
 
         int rodadas = 10;
