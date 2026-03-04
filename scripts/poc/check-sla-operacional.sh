@@ -216,7 +216,7 @@ WHERE r.id = ${rota_id};" | extract_single_value)"
           viol="$(jq -cn --argjson arr "$viol" --arg msg "taxa de sucesso abaixo do SLO (${taxa_sucesso_percentual}% < ${SLO_MIN_TAXA_SUCESSO_PERCENT}%)" '$arr + [$msg]')"
         fi
 
-        if [[ -z "$total_finalizadas" || "$total_finalizadas" == "null" ]]; then
+        if [[ -z "$total_finalizadas" ]]; then
           ok=false
           viol="$(jq -cn --argjson arr "$viol" --arg msg "totalFinalizadas ausente no painel operacional" '$arr + [$msg]')"
         elif [[ "$total_finalizadas" -lt 1 ]]; then
