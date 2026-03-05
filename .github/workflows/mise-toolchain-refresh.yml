@@ -1,0 +1,50 @@
+---
+name: mise-toolchain-refresh
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 8 * * 1"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  refresh:
+    name: Refresh mise lock/toolchain
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup mise
+        uses: jdx/mise-action@v3
+        with:
+          version: "2026.3.3"
+          install: true
+
+      - name: Refresh toolchain
+        env:
+          MISE_YES: "1"
+        run: |
+          set -euo pipefail
+          mise install
+          mise upgrade
+          mise lock
+
+      - name: Create PR
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: automation/mise-toolchain-refresh
+          delete-branch: true
+          commit-message: "chore(mise): refresh toolchain lock"
+          title: "chore(mise): refresh toolchain lock"
+          body: |
+            Atualizacao automatica semanal da toolchain gerenciada por `mise`.
+            Inclui refresh de lockfile e ajustes de versoes dentro das regras do `.mise.toml`.
+          labels: |
+            dependencies
+            toolchain

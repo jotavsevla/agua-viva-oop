@@ -9,9 +9,6 @@ maven = "3.9"
 python = "3.12"
 node = "20"
 
-[env]
-_.file = ".env"
-
 [tasks.bootstrap]
 description = "Bootstrap local de dependencias (macOS/Linux)."
 run = "./scripts/bootstrap-dev.sh"
@@ -43,6 +40,10 @@ run = "./scripts/poc/run-business-gate.sh --mode strict --rounds 1"
 [tasks."poc:gate:strict3"]
 description = "Business gate strict (3 rodadas)."
 run = "./scripts/poc/run-business-gate.sh --mode strict --rounds 3"
+
+[tasks."poc:demo"]
+description = "Playbook de demo reproduzivel (cenarios + gate strict)."
+run = "./scripts/poc/demo-playbook.sh"
 
 [tasks."poc:gate:strict:pr"]
 description = "Business gate strict com recorte deterministico para PR."
