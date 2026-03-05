@@ -10,11 +10,39 @@ A visibilidade do repositorio permanece inalterada.
 
 ## Stack em Uso
 
+- `mise` (gerenciador de toolchain por projeto)
 - Java 25.x (obrigatorio no build Maven)
 - Maven
 - PostgreSQL 16 (Docker)
 - Solver Python (FastAPI + OR-Tools)
 - UI prototipo (Node)
+
+## Toolchain Padrao (mise)
+
+Este repositorio usa `mise` como entrada canonica para runtime e tasks.
+
+Instalacao:
+
+```bash
+curl https://mise.run | sh
+```
+
+Setup inicial no projeto:
+
+```bash
+mise install
+```
+
+Arquivos de referencia:
+
+- `.mise.toml`: versoes e tasks oficiais
+- `mise.lock`: lock da toolchain (reprodutibilidade)
+- `mise.local.toml.example`: modelo para overrides locais nao versionados
+
+Compatibilidade de transicao:
+
+- scripts diretos continuam suportados temporariamente;
+- `.sdkmanrc` foi removido para evitar dois caminhos oficiais de versionamento.
 
 ## Regras de Negocio Vigentes
 
@@ -56,12 +84,18 @@ Guard-rail anti-drift (obrigatorio em PR):
 
 1. Mudou endpoint, metodo HTTP, payload ou semantica de campo: atualizar `openapi.yaml` + exemplo(s) JSON.
 2. Rodar testes de contrato antes de abrir PR:
-- `mvn -Dtest=ContractsV1Test,ApiContractDriftTest test`
+- `mise run contracts:test`
 3. Nao mergear com teste de contrato falhando.
 
 ## Comandos Praticos
 
 ### 1) Bootstrap de dependencias
+
+Padrao (recomendado):
+
+```bash
+mise run bootstrap
+```
 
 Linux/macOS:
 
@@ -78,7 +112,7 @@ Windows (PowerShell):
 ### 2) Subir ambiente de teste operacional (recomendado)
 
 ```bash
-scripts/poc/start-test-env.sh
+mise run poc:start-env
 ```
 
 Saida esperada:
@@ -125,7 +159,7 @@ SOLVER_URL=http://localhost:8080 API_PORT=8081 \
 Suite padrao (Java + solver + UI smoke):
 
 ```bash
-scripts/tests/run-container-tests.sh
+mise run test:container
 ```
 
 Atalhos:
@@ -146,10 +180,10 @@ docker compose --profile test run --rm test-java sh -lc 'mvn -Pmutation-tests pi
 
 ```bash
 # rodada diaria
-scripts/poc/run-business-gate.sh
+mise run poc:gate:strict
 
 # gate forte para PR/nightly
-scripts/poc/run-business-gate.sh --mode strict --rounds 3
+mise run poc:gate:strict3
 ```
 
 Meta versionada de SLO logístico no gate:
@@ -241,6 +275,3 @@ O script cria/atualiza a role de aplicacao e aplica grants minimos em `public`
 - Backup/restore: rotina validada e teste de restauracao periodico.
 - Rollback: estrategia testada (imagem imutavel + config versionada).
 - Deploy: manter paridade local/CI via `docker compose` e runners em container.
-
-## Gemini Code Assist Smoke Test
-Linha temporária para validar review automático do Gemini em PR de teste (2026-03-02).

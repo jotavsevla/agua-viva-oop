@@ -142,35 +142,20 @@ jobs:
           git config --global core.autocrlf false
           git reset --hard HEAD
 
-      - name: Setup Java 25
-        uses: actions/setup-java@v4
+      - name: Setup mise toolchain
+        uses: jdx/mise-action@v3
         with:
-          distribution: temurin
-          java-version: "25"
-          cache: maven
+          version: "2026.3.3"
+          install: true
 
-      - name: Setup Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: pip
-          cache-dependency-path: solver/requirements.txt
-
-      - name: Setup Node 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: produto-ui/prototipo/package-lock.json
-
-      - name: Bootstrap dependencies (macOS/Linux)
+      - name: Bootstrap dependencies via mise (macOS/Linux)
         if: runner.os != 'Windows'
-        run: scripts/bootstrap-dev.sh
+        run: mise run ci:bootstrap
 
-      - name: Bootstrap dependencies (Windows)
+      - name: Bootstrap dependencies via mise (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
-        run: .\scripts\bootstrap-dev.ps1
+        run: mise run ci:bootstrap:windows
 
       - name: Bootstrap smoke complete
         run: echo "Bootstrap smoke finalizado com sucesso."
@@ -185,27 +170,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Java 25
-        uses: actions/setup-java@v4
+      - name: Setup mise toolchain
+        uses: jdx/mise-action@v3
         with:
-          distribution: temurin
-          java-version: "25"
-          cache: maven
-
-      - name: Setup Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Setup Node 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
+          version: "2026.3.3"
+          install: true
 
       - name: Run business gate (strict, PR deterministic slice)
-        run: |
-          PR_BUSINESS_CHECKS="R01,R02,R03,R04,R05,R06,R07,R08,R09,R10,R11,R13,R14,R15,R16,R19,R21,R23,R24,R25,R26,R27,R28,R29,R30,R31,R33,R34,R35,R36,R37,R38,R39,R40,R41,R42,R43,R44,R45,R46,R47,R48,R49"
-          SLO_MIN_TAXA_SUCESSO_PERCENT=90 SCENARIO=feliz scripts/poc/run-business-gate.sh --mode strict --rounds 1 --only-check "$PR_BUSINESS_CHECKS"
+        run: mise run ci:business-gate:pr
 
       - name: Upload business gate artifacts
         if: always()
@@ -225,25 +197,14 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Java 25
-        uses: actions/setup-java@v4
+      - name: Setup mise toolchain
+        uses: jdx/mise-action@v3
         with:
-          distribution: temurin
-          java-version: "25"
-          cache: maven
-
-      - name: Setup Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Setup Node 20
-        uses: actions/setup-node@v4
-        with:
-          node-version: "20"
+          version: "2026.3.3"
+          install: true
 
       - name: Run business gate (strict, 3 rodadas)
-        run: scripts/poc/run-business-gate.sh --mode strict --rounds 3
+        run: mise run ci:business-gate:nightly
 
       - name: Upload business gate artifacts
         if: always()
