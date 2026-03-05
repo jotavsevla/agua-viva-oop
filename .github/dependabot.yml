@@ -1,3 +1,4 @@
+---
 version: 2
 updates:
   - package-ecosystem: "github-actions"
@@ -44,4 +45,3 @@ updates:
       time: "06:40"
       timezone: "America/Sao_Paulo"
     open-pull-requests-limit: 10
-
