@@ -1,0 +1,10 @@
+[env]
+# Exemplo de overrides locais nao versionados:
+# COPIE para `mise.local.toml` e ajuste conforme seu ambiente.
+#
+# DATABASE_URL = "postgres://user:pass@localhost:5432/db"
+# API_BASE = "http://localhost:8082"
+#
+# Opcional: carregar variaveis extras de arquivo local.
+# _.file = ".env.local"
+

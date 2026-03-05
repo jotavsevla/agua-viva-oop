@@ -1,0 +1,30 @@
+[[tools.java]]
+version = "temurin-25.0.2+10.0.LTS"
+backend = "core:java"
+
+[[tools.maven]]
+version = "3.9.12"
+backend = "aqua:apache/maven"
+"platforms.linux-arm64" = { url = "https://archive.apache.org/dist/maven/maven-3/3.9.12/binaries/apache-maven-3.9.12-bin.tar.gz"}
+"platforms.linux-x64" = { url = "https://archive.apache.org/dist/maven/maven-3/3.9.12/binaries/apache-maven-3.9.12-bin.tar.gz"}
+"platforms.macos-arm64" = { url = "https://archive.apache.org/dist/maven/maven-3/3.9.12/binaries/apache-maven-3.9.12-bin.tar.gz"}
+"platforms.macos-x64" = { url = "https://archive.apache.org/dist/maven/maven-3/3.9.12/binaries/apache-maven-3.9.12-bin.tar.gz"}
+"platforms.windows-x64" = { url = "https://archive.apache.org/dist/maven/maven-3/3.9.12/binaries/apache-maven-3.9.12-bin.tar.gz"}
+
+[[tools.node]]
+version = "20.20.0"
+backend = "core:node"
+"platforms.linux-arm64" = { checksum = "sha256:2b640b7fc19a1d2f12a226d7dfba9baff2de87cc15db5a3e58bcdb15582ac604", url = "https://nodejs.org/dist/v20.20.0/node-v20.20.0-linux-arm64.tar.gz"}
+"platforms.linux-x64" = { checksum = "sha256:92dfd59fb4837230abba5d6dd717b882ca897e22fde2f9268e1aac2c4bde0f5b", url = "https://nodejs.org/dist/v20.20.0/node-v20.20.0-linux-x64.tar.gz"}
+"platforms.macos-arm64" = { checksum = "sha256:69b98aa4662032ab06bd92216f0aebb2727d7ee4e1eb79ea5787bbbb38af4801", url = "https://nodejs.org/dist/v20.20.0/node-v20.20.0-darwin-arm64.tar.gz"}
+"platforms.macos-x64" = { checksum = "sha256:69bf9b294dc04e3b97c3d5e4f16b3c634201b7f5f617fb65d93a9a9ac4bec0f0", url = "https://nodejs.org/dist/v20.20.0/node-v20.20.0-darwin-x64.tar.gz"}
+"platforms.windows-x64" = { checksum = "sha256:32f24e1405b113d4e01ad2585c92024df673b6156ef6f43a5469a75bf52c0a5a", url = "https://nodejs.org/dist/v20.20.0/node-v20.20.0-win-x64.zip"}
+
+[[tools.python]]
+version = "3.12.13"
+backend = "core:python"
+"platforms.linux-arm64" = { checksum = "sha256:9e0349ac08f40e33151bb9693de762101541f07633dea61dbaca17d03290cb58", url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260303/cpython-3.12.13+20260303-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz"}
+"platforms.linux-x64" = { checksum = "sha256:c710dd6b63e4df92f4c5b7b29ccad4276226a024a9017d5018f15321c7854af4", url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260303/cpython-3.12.13+20260303-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"}
+"platforms.macos-arm64" = { checksum = "sha256:377234f346fce41b6d3112b5ead89cb6af2d5596244f9edc1a739065770dde1f", url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260303/cpython-3.12.13+20260303-aarch64-apple-darwin-install_only_stripped.tar.gz"}
+"platforms.macos-x64" = { checksum = "sha256:b7ad42eef6a5729af319ba8a89eedd155e4d7c2a9884beff174a4c13e1286e68", url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260303/cpython-3.12.13+20260303-x86_64-apple-darwin-install_only_stripped.tar.gz"}
+"platforms.windows-x64" = { checksum = "sha256:10b7a95b928e551fc78cac665999e1ae1f08fb738b255adb0a8d3b9c2824a9c0", url = "https://github.com/astral-sh/python-build-standalone/releases/download/20260303/cpython-3.12.13+20260303-x86_64-pc-windows-msvc-install_only_stripped.tar.gz"}
