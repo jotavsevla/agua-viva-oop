@@ -53,11 +53,11 @@ SLO_MIN_TAXA_SUCESSO_PERCENT=90 SCENARIO=feliz ./scripts/poc/run-business-gate.s
 
 [tasks."ci:bootstrap"]
 description = "Task canonica de bootstrap para CI matrix."
-run = "./scripts/bootstrap-dev.sh"
+depends = ["bootstrap"]
 
 [tasks."ci:bootstrap:windows"]
 description = "Task canonica de bootstrap para CI matrix (Windows)."
-run = "pwsh -NoLogo -NoProfile -File .\\scripts\\bootstrap-dev.ps1"
+depends = ["bootstrap:windows"]
 
 [tasks."ci:business-gate:pr"]
 description = "Task canonica de business gate para PR."
