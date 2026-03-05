@@ -28,8 +28,8 @@ SKIP_GATE=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --strict-rounds)
-      if [[ $# -lt 2 ]]; then
-        echo "Parametro invalido: --strict-rounds exige valor" >&2
+      if [[ $# -lt 2 || "$2" == -* ]]; then
+        echo "Erro: --strict-rounds requer um valor numerico." >&2
         usage
         exit 1
       fi
@@ -38,6 +38,11 @@ while [[ $# -gt 0 ]]; do
       ;;
     --strict-rounds=*)
       STRICT_ROUNDS="${1#*=}"
+      if [[ -z "$STRICT_ROUNDS" || "$STRICT_ROUNDS" == -* ]]; then
+        echo "Erro: --strict-rounds requer um valor numerico." >&2
+        usage
+        exit 1
+      fi
       ;;
     --skip-start-env)
       SKIP_START_ENV=1
