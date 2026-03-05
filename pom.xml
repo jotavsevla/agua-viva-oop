@@ -17,7 +17,7 @@
         <maven.compiler.source>25</maven.compiler.source>
         <maven.compiler.target>25</maven.compiler.target>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <pitest.version>1.17.2</pitest.version>
+        <pitest.version>1.22.1</pitest.version>
         <pitest.junit5.plugin.version>1.2.2</pitest.junit5.plugin.version>
     </properties>
 
