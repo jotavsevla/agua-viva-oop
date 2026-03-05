@@ -1,5 +1,8 @@
 # Ambiente
 .env
+.env.local
+mise.local.toml
+mise.local.lock
 
 # Maven
 target/
@@ -26,6 +29,9 @@ solver/osrm/data/
 
 # claude
 .claude
+
+# mise (toolchain)
+.mise/
 
 # Prototipo UI (node/playwright)
 produto-ui/prototipo/node_modules/

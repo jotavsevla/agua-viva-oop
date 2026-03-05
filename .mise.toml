@@ -1,0 +1,68 @@
+min_version = "2026.3.3"
+
+[settings]
+lockfile = true
+
+[tools]
+java = "temurin-25"
+maven = "3.9"
+python = "3.12"
+node = "20"
+
+[env]
+_.file = ".env"
+
+[tasks.bootstrap]
+description = "Bootstrap local de dependencias (macOS/Linux)."
+run = "./scripts/bootstrap-dev.sh"
+
+[tasks."bootstrap:windows"]
+description = "Bootstrap local de dependencias (Windows/PowerShell)."
+run = "pwsh -NoLogo -NoProfile -File .\\scripts\\bootstrap-dev.ps1"
+
+[tasks."poc:start-env"]
+description = "Sobe ambiente operacional local (API/UI/Solver)."
+run = "./scripts/poc/start-test-env.sh"
+
+[tasks."test:container"]
+description = "Suite padrao container-first (Java + solver + UI)."
+run = "./scripts/tests/run-container-tests.sh"
+
+[tasks."test:container:fast"]
+description = "Suite container-first sem UI (mais rapida)."
+run = "./scripts/tests/run-container-tests.sh --skip-ui"
+
+[tasks."contracts:test"]
+description = "Contract tests obrigatorios de API publica."
+run = "mvn -Dtest=ContractsV1Test,ApiContractDriftTest test"
+
+[tasks."poc:gate:strict"]
+description = "Business gate strict (1 rodada)."
+run = "./scripts/poc/run-business-gate.sh --mode strict --rounds 1"
+
+[tasks."poc:gate:strict3"]
+description = "Business gate strict (3 rodadas)."
+run = "./scripts/poc/run-business-gate.sh --mode strict --rounds 3"
+
+[tasks."poc:gate:strict:pr"]
+description = "Business gate strict com recorte deterministico para PR."
+run = """
+PR_BUSINESS_CHECKS="R01,R02,R03,R04,R05,R06,R07,R08,R09,R10,R11,R13,R14,R15,R16,R19,R21,R23,R24,R25,R26,R27,R28,R29,R30,R31,R33,R34,R35,R36,R37,R38,R39,R40,R41,R42,R43,R44,R45,R46,R47,R48,R49"
+SLO_MIN_TAXA_SUCESSO_PERCENT=90 SCENARIO=feliz ./scripts/poc/run-business-gate.sh --mode strict --rounds 1 --only-check "$PR_BUSINESS_CHECKS"
+"""
+
+[tasks."ci:bootstrap"]
+description = "Task canonica de bootstrap para CI matrix."
+run = "./scripts/bootstrap-dev.sh"
+
+[tasks."ci:bootstrap:windows"]
+description = "Task canonica de bootstrap para CI matrix (Windows)."
+run = "pwsh -NoLogo -NoProfile -File .\\scripts\\bootstrap-dev.ps1"
+
+[tasks."ci:business-gate:pr"]
+description = "Task canonica de business gate para PR."
+depends = ["poc:gate:strict:pr"]
+
+[tasks."ci:business-gate:nightly"]
+description = "Task canonica de business gate nightly."
+depends = ["poc:gate:strict3"]
