@@ -184,6 +184,9 @@ mise run poc:gate:strict
 
 # gate forte para PR/nightly
 mise run poc:gate:strict3
+
+# playbook de demo reproduzivel (cenarios + gate)
+mise run poc:demo
 ```
 
 Meta versionada de SLO logístico no gate:

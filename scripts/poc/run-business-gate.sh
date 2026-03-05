@@ -1468,7 +1468,12 @@ END;")"
     set +e
     (
       cd "$ROOT_DIR"
-      mvn "${CONTRACT_TEST_MVN_ARGS_ARRAY[@]}" -Dtest=ContractsV1Test,ApiContractDriftTest test
+      cmd=(mvn)
+      if [[ "${#CONTRACT_TEST_MVN_ARGS_ARRAY[@]}" -gt 0 ]]; then
+        cmd+=("${CONTRACT_TEST_MVN_ARGS_ARRAY[@]}")
+      fi
+      cmd+=("-Dtest=ContractsV1Test,ApiContractDriftTest" "test")
+      "${cmd[@]}"
     ) > "$check_dir/mvn-contract-tests.log" 2>&1
     r24_exit="$?"
     set -e
