@@ -28,6 +28,11 @@ SKIP_GATE=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --strict-rounds)
+      if [[ $# -lt 2 ]]; then
+        echo "Parametro invalido: --strict-rounds exige valor" >&2
+        usage
+        exit 1
+      fi
       STRICT_ROUNDS="$2"
       shift
       ;;
@@ -87,4 +92,3 @@ else
 fi
 
 log "Playbook finalizado."
-
