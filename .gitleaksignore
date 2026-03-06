@@ -1,0 +1,4 @@
+# False positives in API tests for idempotency-header divergence scenarios.
+# These findings are from historical commit scan (schedule) and are not real secrets.
+199f593f9a341e8dda426fde7731a9f3c0ac6f15:src/test/java/com/aguaviva/api/ApiServerTest.java:generic-api-key:1781
+199f593f9a341e8dda426fde7731a9f3c0ac6f15:src/test/java/com/aguaviva/api/ApiServerTest.java:generic-api-key:1782
