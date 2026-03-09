@@ -3,22 +3,22 @@ version = "temurin-25.0.2+10.0.LTS"
 backend = "core:java"
 
 [[tools.maven]]
-version = "3.9.12"
+version = "3.9.13"
 backend = "aqua:apache/maven"
-"platforms.linux-arm64" = { url = "https://archive.apache.org/dist/maven/maven-3/3.9.12/binaries/apache-maven-3.9.12-bin.tar.gz"}
-"platforms.linux-x64" = { url = "https://archive.apache.org/dist/maven/maven-3/3.9.12/binaries/apache-maven-3.9.12-bin.tar.gz"}
-"platforms.macos-arm64" = { url = "https://archive.apache.org/dist/maven/maven-3/3.9.12/binaries/apache-maven-3.9.12-bin.tar.gz"}
-"platforms.macos-x64" = { url = "https://archive.apache.org/dist/maven/maven-3/3.9.12/binaries/apache-maven-3.9.12-bin.tar.gz"}
-"platforms.windows-x64" = { url = "https://archive.apache.org/dist/maven/maven-3/3.9.12/binaries/apache-maven-3.9.12-bin.tar.gz"}
+"platforms.linux-arm64" = { url = "https://archive.apache.org/dist/maven/maven-3/3.9.13/binaries/apache-maven-3.9.13-bin.tar.gz"}
+"platforms.linux-x64" = { checksum = "blake3:a1fe813ee3bc1aaa9dcc5394bf3eefd517adf76e35556de5f3d1e47c3b414d3d", url = "https://archive.apache.org/dist/maven/maven-3/3.9.13/binaries/apache-maven-3.9.13-bin.tar.gz"}
+"platforms.macos-arm64" = { url = "https://archive.apache.org/dist/maven/maven-3/3.9.13/binaries/apache-maven-3.9.13-bin.tar.gz"}
+"platforms.macos-x64" = { url = "https://archive.apache.org/dist/maven/maven-3/3.9.13/binaries/apache-maven-3.9.13-bin.tar.gz"}
+"platforms.windows-x64" = { url = "https://archive.apache.org/dist/maven/maven-3/3.9.13/binaries/apache-maven-3.9.13-bin.tar.gz"}
 
 [[tools.node]]
-version = "20.20.0"
+version = "20.20.1"
 backend = "core:node"
-"platforms.linux-arm64" = { checksum = "sha256:2b640b7fc19a1d2f12a226d7dfba9baff2de87cc15db5a3e58bcdb15582ac604", url = "https://nodejs.org/dist/v20.20.0/node-v20.20.0-linux-arm64.tar.gz"}
-"platforms.linux-x64" = { checksum = "sha256:92dfd59fb4837230abba5d6dd717b882ca897e22fde2f9268e1aac2c4bde0f5b", url = "https://nodejs.org/dist/v20.20.0/node-v20.20.0-linux-x64.tar.gz"}
-"platforms.macos-arm64" = { checksum = "sha256:69b98aa4662032ab06bd92216f0aebb2727d7ee4e1eb79ea5787bbbb38af4801", url = "https://nodejs.org/dist/v20.20.0/node-v20.20.0-darwin-arm64.tar.gz"}
-"platforms.macos-x64" = { checksum = "sha256:69bf9b294dc04e3b97c3d5e4f16b3c634201b7f5f617fb65d93a9a9ac4bec0f0", url = "https://nodejs.org/dist/v20.20.0/node-v20.20.0-darwin-x64.tar.gz"}
-"platforms.windows-x64" = { checksum = "sha256:32f24e1405b113d4e01ad2585c92024df673b6156ef6f43a5469a75bf52c0a5a", url = "https://nodejs.org/dist/v20.20.0/node-v20.20.0-win-x64.zip"}
+"platforms.linux-arm64" = { checksum = "sha256:d6947e10ddc124284aee92981cc739cd4581a6b4bf89520792f2b582600195fa", url = "https://nodejs.org/dist/v20.20.1/node-v20.20.1-linux-arm64.tar.gz"}
+"platforms.linux-x64" = { checksum = "sha256:6362e50804cdcc110592201f67beda93bcd702fdcbe1c42840a50d590e3af0ce", url = "https://nodejs.org/dist/v20.20.1/node-v20.20.1-linux-x64.tar.gz"}
+"platforms.macos-arm64" = { checksum = "sha256:36c5ef36d955995ea2dea700b16b8e79bedeb1ecb4569e77ddc8fc739aa56bac", url = "https://nodejs.org/dist/v20.20.1/node-v20.20.1-darwin-arm64.tar.gz"}
+"platforms.macos-x64" = { checksum = "sha256:ea8d2cd7280d935232bae5456704843aa50cf452e10b95abd92a721db6496965", url = "https://nodejs.org/dist/v20.20.1/node-v20.20.1-darwin-x64.tar.gz"}
+"platforms.windows-x64" = { checksum = "sha256:499e886ed617abb37d5e3a2b87a3f737e3c673b146361fb5ee70d08d7fdf6d2b", url = "https://nodejs.org/dist/v20.20.1/node-v20.20.1-win-x64.zip"}
 
 [[tools.python]]
 version = "3.12.13"
