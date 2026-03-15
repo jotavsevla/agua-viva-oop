@@ -13,7 +13,7 @@ export const APP_MODULES: AppModuleDefinition[] = [
     hash: "#/atendimento",
     label: "Atendimento",
     description: "Busca de cliente na sessao, criacao segura de pedido e handoff conectado ao despacho.",
-    status: "planned"
+    status: "active"
   },
   {
     id: "despacho",
