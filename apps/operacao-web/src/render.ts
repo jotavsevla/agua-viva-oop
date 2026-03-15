@@ -4,6 +4,7 @@ import { renderCockpit } from "./cockpit/ux-render";
 import { buildCockpitViewModel } from "./cockpit/ux-view-model";
 import { renderDespachoModule } from "./despacho/render";
 import { buildDespachoViewModel } from "./despacho/view-model";
+import { renderEntregadorModule } from "./entregador/render";
 import { formatDateTime } from "./shared/formatters";
 import { escapeHtml } from "./shared/html";
 import { renderPill } from "./shared/ui";
@@ -43,35 +44,17 @@ function renderModuleNavigation(state: AppState): string {
   `;
 }
 
-function renderPlaceholderModule(state: AppState): string {
-  const moduleDefinition = getModuleById(state.activeModule);
-  return `
-    <section class="panel">
-      <div class="panel-header">
-        <div>
-          <h2>${escapeHtml(moduleDefinition.label)}</h2>
-          <p class="section-copy">${escapeHtml(moduleDefinition.description)}</p>
-        </div>
-        ${renderPill("em preparacao", "warn")}
-      </div>
-      <div class="notice notice-warn">
-        <strong>Proxima etapa:</strong> este fluxo ja esta previsto na shell modular e entra nos PRs seguintes.
-      </div>
-    </section>
-  `;
-}
-
 function renderActiveModule(state: AppState): string {
-  if (state.activeModule === "atendimento") {
-    return renderAtendimentoWorkspace(state);
-  }
-
   if (state.activeModule === "despacho") {
     return renderDespachoModule(buildDespachoViewModel(state));
   }
 
-  if (state.activeModule !== "cockpit") {
-    return renderPlaceholderModule(state);
+  if (state.activeModule === "atendimento") {
+    return renderAtendimentoWorkspace(state);
+  }
+
+  if (state.activeModule === "entregador") {
+    return renderEntregadorModule(state, window.location.href);
   }
 
   return renderCockpit(buildCockpitViewModel(state));
