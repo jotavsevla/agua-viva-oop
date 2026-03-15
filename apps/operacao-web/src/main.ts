@@ -10,9 +10,11 @@ import {
   readApiBase,
   readAutoRefresh,
   readAtendimentoState,
+  readEntregadorId,
   writeApiBase,
   writeAtendimentoState,
-  writeAutoRefresh
+  writeAutoRefresh,
+  writeEntregadorId
 } from "./storage";
 import type { AppState } from "./types";
 
@@ -27,7 +29,7 @@ if (!root) {
 
 const appRoot = root;
 const initialApiBase = readApiBase();
-const initialEntregadorId = readEntregadorIdFromUrl() ?? DEFAULT_ENTREGADOR_ID;
+const initialEntregadorId = readEntregadorIdFromUrl() ?? readEntregadorId() ?? DEFAULT_ENTREGADOR_ID;
 
 const initialState: AppState = {
   activeModule: resolveModuleId(window.location.hash),
@@ -85,7 +87,8 @@ controller = createAppController({
   store,
   persistApiBase: writeApiBase,
   persistAutoRefresh: writeAutoRefresh,
-  persistAtendimentoState: writeAtendimentoState
+  persistAtendimentoState: writeAtendimentoState,
+  persistEntregadorId: writeEntregadorId
 });
 
 store.subscribe((state) => {
