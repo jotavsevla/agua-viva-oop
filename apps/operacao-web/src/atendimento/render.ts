@@ -1,4 +1,7 @@
 import type { AppState, AtendimentoCaseRecord, ExtratoItem } from "../types";
+import { formatDateTime } from "../shared/formatters";
+import { escapeHtml } from "../shared/html";
+import { renderPill } from "../shared/ui";
 import {
   buildDraftBlockers,
   buildDraftWarnings,
@@ -11,32 +14,6 @@ import {
   METODOS_PAGAMENTO,
   ORIGENS_CANAL
 } from "./model";
-
-function escapeHtml(value: unknown): string {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function formatDateTime(value: string | null | undefined): string {
-  if (!value) {
-    return "-";
-  }
-
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return value;
-  }
-
-  return parsed.toLocaleString("pt-BR");
-}
-
-function renderPill(label: string, tone: "ok" | "warn" | "danger" | "info" | "muted"): string {
-  return `<span class="pill ${tone}">${escapeHtml(label)}</span>`;
-}
 
 function renderOption(value: string, label: string, selectedValue: string): string {
   return `<option value="${escapeHtml(value)}" ${value === selectedValue ? "selected" : ""}>${escapeHtml(label)}</option>`;

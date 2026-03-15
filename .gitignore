@@ -33,6 +33,10 @@ solver/osrm/data/
 # mise (toolchain)
 .mise/
 
+# Node.js / front-end builds
+node_modules/
+dist/
+
 # Prototipo UI (node/playwright)
 produto-ui/prototipo/node_modules/
 produto-ui/prototipo/test-results/
