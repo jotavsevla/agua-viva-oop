@@ -12,6 +12,8 @@ import type {
   ReadinessStatus
 } from "../types";
 
+const COCKPIT_EVENTS_DISPLAY_LIMIT = 8;
+
 export interface CockpitMetricViewModel {
   label: string;
   value: string;
@@ -471,7 +473,7 @@ function buildQueueLanes(state: AppState): CockpitQueueLaneViewModel[] {
 function buildEvents(state: AppState): CockpitEventViewModel[] {
   const events = state.snapshot?.eventos?.eventos || [];
 
-  return events.slice(0, 8).map((event) => {
+  return events.slice(0, COCKPIT_EVENTS_DISPLAY_LIMIT).map((event) => {
     const tone = toneForEvent(event);
 
     return {
