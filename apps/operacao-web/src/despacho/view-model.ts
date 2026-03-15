@@ -181,13 +181,16 @@ function normalizeLayer(camada: string | null | undefined, statusRota: string | 
 function stopBucket(status: string): "pendentes" | "emExecucao" | "concluidas" {
   const normalized = String(status || "").toUpperCase();
 
-  if (normalized.includes("EXECUCAO")) {
-    return "emExecucao";
+  switch (normalized) {
+    case "EM_EXECUCAO":
+      return "emExecucao";
+    case "ENTREGUE":
+    case "CONCLUIDA":
+    case "CANCELADA":
+      return "concluidas";
+    default:
+      return "pendentes";
   }
-  if (normalized.includes("ENTREGUE") || normalized.includes("CONCLUIDA") || normalized.includes("CANCELADA")) {
-    return "concluidas";
-  }
-  return "pendentes";
 }
 
 function buildRouteContexts(snapshot: OperationalSnapshot | null): RouteContext[] {
