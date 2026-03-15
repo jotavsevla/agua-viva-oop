@@ -5,6 +5,7 @@ import {
   fetchOperationalSnapshot,
   fetchPedidoExecucao,
   fetchPedidoTimeline,
+  iniciarRotaPronta,
   isUnavailableOptionalEndpoint
 } from "../api";
 import {
@@ -285,6 +286,24 @@ export function createAppController(options: AppControllerOptions): AppControlle
     }
   };
 
+  const runDespachoRouteStart = async (entregadorId: number): Promise<void> => {
+    const confirmed = window.confirm(`Iniciar a proxima rota pronta do entregador ${entregadorId}?`);
+
+    if (!confirmed) {
+      return;
+    }
+
+    store.startDespachoRouteStart();
+
+    try {
+      const result = await iniciarRotaPronta(store.getState().connection.apiBase, entregadorId);
+      store.finishDespachoRouteStart(result);
+      await refreshOperationalSnapshot();
+    } catch (error) {
+      store.failDespachoRouteStart(toErrorMessage(error));
+    }
+  };
+
   const handleClick = (event: MouseEvent): void => {
     const target = event.target instanceof HTMLElement ? event.target : null;
     const actionElement = target?.closest<HTMLElement>("[data-action]");
@@ -341,6 +360,18 @@ export function createAppController(options: AppControllerOptions): AppControlle
       }
 
       void syncAtendimentoCase(pedidoId);
+      return;
+    }
+
+    if (action === "start-prepared-route") {
+      const entregadorId = Number(actionElement.dataset.entregadorId);
+
+      if (!Number.isInteger(entregadorId) || entregadorId <= 0) {
+        store.failDespachoRouteStart("Entregador invalido para iniciar a rota.");
+        return;
+      }
+
+      void runDespachoRouteStart(entregadorId);
     }
   };
 
