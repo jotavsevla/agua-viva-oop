@@ -9,6 +9,7 @@ import { readApiBase, readAutoRefresh, writeApiBase, writeAutoRefresh } from "./
 import type { AppState } from "./types";
 
 const AUTO_REFRESH_MS = 15000;
+const DEFAULT_ENTREGADOR_ID = 1;
 
 const root = document.querySelector<HTMLDivElement>("#app");
 
@@ -18,7 +19,7 @@ if (!root) {
 
 const appRoot = root;
 const initialApiBase = readApiBase();
-const initialEntregadorId = readEntregadorIdFromUrl() ?? 1;
+const initialEntregadorId = readEntregadorIdFromUrl() ?? DEFAULT_ENTREGADOR_ID;
 
 const initialState: AppState = {
   activeModule: resolveModuleId(window.location.hash),
@@ -101,9 +102,7 @@ controller = createAppController({
   router,
   store,
   persistApiBase: writeApiBase,
-  persistAutoRefresh: writeAutoRefresh,
-  persistAtendimentoState: () => undefined,
-  persistEntregadorId: () => undefined
+  persistAutoRefresh: writeAutoRefresh
 });
 
 store.subscribe((state) => {

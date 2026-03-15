@@ -23,6 +23,9 @@ interface RequestOptions {
   headers?: Record<string, string>;
 }
 
+const OPERACAO_EVENTOS_LIMITE = 20;
+const DEFAULT_EXTRATO_LIMIT = 8;
+
 export class ApiError extends Error {
   readonly status: number;
   readonly detail: string | null;
@@ -86,7 +89,7 @@ export async function fetchOperationalSnapshot(baseUrl: string): Promise<Operati
   const [healthResult, painelResult, eventosResult, mapaResult] = await Promise.allSettled([
     requestJson<HealthResponse>(baseUrl, "/health"),
     requestJson<OperacaoPainelResponse>(baseUrl, "/api/operacao/painel"),
-    requestJson<OperacaoEventosResponse>(baseUrl, "/api/operacao/eventos?limite=20"),
+    requestJson<OperacaoEventosResponse>(baseUrl, `/api/operacao/eventos?limite=${OPERACAO_EVENTOS_LIMITE}`),
     requestJson<OperacaoMapaResponse>(baseUrl, "/api/operacao/mapa")
   ]);
 
@@ -157,7 +160,7 @@ export async function fetchClienteSaldo(baseUrl: string, clienteId: number): Pro
 export async function fetchClienteExtrato(
   baseUrl: string,
   clienteId: number,
-  limit = 8
+  limit = DEFAULT_EXTRATO_LIMIT
 ): Promise<ExtratoResponse> {
   return requestJson<ExtratoResponse>(baseUrl, `/api/financeiro/clientes/${clienteId}/extrato?limit=${limit}`);
 }

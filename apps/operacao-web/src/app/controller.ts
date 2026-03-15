@@ -1,5 +1,5 @@
 import { fetchOperationalSnapshot } from "../api";
-import type { AtendimentoPersistedState, AppModuleId } from "../types";
+import type { AppModuleId } from "../types";
 import type { AppRouter } from "./router";
 import type { AppStore } from "./store";
 
@@ -9,8 +9,6 @@ interface AppControllerOptions {
   store: AppStore;
   persistApiBase: (value: string) => void;
   persistAutoRefresh: (value: boolean) => void;
-  persistAtendimentoState: (value: AtendimentoPersistedState) => void;
-  persistEntregadorId: (value: number) => void;
 }
 
 export interface AppController {
