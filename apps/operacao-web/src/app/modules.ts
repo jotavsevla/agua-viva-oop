@@ -27,7 +27,7 @@ export const APP_MODULES: AppModuleDefinition[] = [
     hash: "#/entregador",
     label: "Entregador",
     description: "Base reservada para roteiro, progresso de rota, deep link e eventos terminais.",
-    status: "planned"
+    status: "active"
   }
 ];
 
