@@ -225,7 +225,7 @@ export function renderDespachoModule(viewModel: DespachoViewModel): string {
               ${viewModel.notices
                 .map(
                   (notice) => `
-                    <div class="notice notice-${notice.tone === "ok" ? "ok" : notice.tone === "info" ? "info" : notice.tone === "warn" ? "warn" : "danger"}">
+                    <div class="notice notice-${notice.tone}">
                       <strong>${escapeHtml(notice.label)}:</strong> ${escapeHtml(notice.body)}
                     </div>
                   `
