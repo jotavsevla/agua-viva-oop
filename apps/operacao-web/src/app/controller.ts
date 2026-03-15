@@ -1,5 +1,5 @@
 import { fetchOperationalSnapshot } from "../api";
-import type { AppModuleId } from "../types";
+import { isAppModuleId } from "./modules";
 import type { AppRouter } from "./router";
 import type { AppStore } from "./store";
 
@@ -62,9 +62,9 @@ export function createAppController(options: AppControllerOptions): AppControlle
     }
 
     if (action === "navigate") {
-      const moduleId = actionElement.dataset.moduleId as AppModuleId | undefined;
+      const moduleId = actionElement.dataset.moduleId;
 
-      if (!moduleId) {
+      if (!moduleId || !isAppModuleId(moduleId)) {
         return;
       }
 

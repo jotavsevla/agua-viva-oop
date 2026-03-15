@@ -32,7 +32,9 @@ export function createPollingController(options: PollingOptions): PollingControl
         return;
       }
 
-      startTimer();
+      if (timerId === null) {
+        startTimer();
+      }
     },
     stop(): void {
       clearTimer();
