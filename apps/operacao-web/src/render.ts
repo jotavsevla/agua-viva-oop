@@ -2,6 +2,8 @@ import { APP_MODULES, getModuleById } from "./app/modules";
 import { renderAtendimentoWorkspace } from "./atendimento/render";
 import { renderCockpit } from "./cockpit/ux-render";
 import { buildCockpitViewModel } from "./cockpit/ux-view-model";
+import { renderDespachoModule } from "./despacho/render";
+import { buildDespachoViewModel } from "./despacho/view-model";
 import { formatDateTime } from "./shared/formatters";
 import { escapeHtml } from "./shared/html";
 import { renderPill } from "./shared/ui";
@@ -62,6 +64,10 @@ function renderPlaceholderModule(state: AppState): string {
 function renderActiveModule(state: AppState): string {
   if (state.activeModule === "atendimento") {
     return renderAtendimentoWorkspace(state);
+  }
+
+  if (state.activeModule === "despacho") {
+    return renderDespachoModule(buildDespachoViewModel(state));
   }
 
   if (state.activeModule !== "cockpit") {

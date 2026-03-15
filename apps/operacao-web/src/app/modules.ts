@@ -20,7 +20,7 @@ export const APP_MODULES: AppModuleDefinition[] = [
     hash: "#/despacho",
     label: "Despacho",
     description: "Cockpit principal para fila operacional, camadas de frota, risco e acoes de saida.",
-    status: "planned"
+    status: "active"
   },
   {
     id: "entregador",
