@@ -1,12 +1,14 @@
 import { defineConfig } from "vite";
 
+const host = process.env.VITE_HOST ?? "localhost";
+
 export default defineConfig({
   server: {
-    host: "0.0.0.0",
+    host,
     port: 4175
   },
   preview: {
-    host: "0.0.0.0",
+    host,
     port: 4175
   }
 });
