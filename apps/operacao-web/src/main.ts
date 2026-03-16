@@ -1,11 +1,19 @@
 import "./styles.css";
+import { createAtendimentoModuleState } from "./atendimento/model";
 import { createAppController } from "./app/controller";
 import { resolveModuleId } from "./app/modules";
 import { createPollingController } from "./app/polling";
 import { createAppRouter } from "./app/router";
 import { createAppStore } from "./app/store";
 import { renderApp } from "./render";
-import { readApiBase, readAutoRefresh, writeApiBase, writeAutoRefresh } from "./storage";
+import {
+  readApiBase,
+  readAutoRefresh,
+  readAtendimentoState,
+  writeApiBase,
+  writeAtendimentoState,
+  writeAutoRefresh
+} from "./storage";
 import type { AppState } from "./types";
 
 const AUTO_REFRESH_MS = 15000;
@@ -33,33 +41,7 @@ const initialState: AppState = {
     lastError: null
   },
   snapshot: null,
-  atendimento: {
-    draft: {
-      telefone: "",
-      quantidadeGaloes: "1",
-      atendenteId: "1",
-      origemCanal: "MANUAL",
-      sourceEventId: "",
-      manualRequestId: "",
-      externalCallId: "",
-      metodoPagamento: "NAO_INFORMADO",
-      janelaTipo: "ASAP",
-      janelaInicio: "",
-      janelaFim: "",
-      nomeCliente: "",
-      endereco: "",
-      latitude: "",
-      longitude: ""
-    },
-    lookupPhone: "",
-    lookupPedidoId: "",
-    sessionCases: [],
-    activeCaseId: null,
-    submitting: false,
-    syncingCaseId: null,
-    lastError: null,
-    lastSuccess: null
-  },
+  atendimento: createAtendimentoModuleState(readAtendimentoState()),
   despacho: {
     routeStart: {
       status: "idle",
@@ -102,7 +84,8 @@ controller = createAppController({
   router,
   store,
   persistApiBase: writeApiBase,
-  persistAutoRefresh: writeAutoRefresh
+  persistAutoRefresh: writeAutoRefresh,
+  persistAtendimentoState: writeAtendimentoState
 });
 
 store.subscribe((state) => {
