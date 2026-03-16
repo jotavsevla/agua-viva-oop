@@ -16,7 +16,7 @@ class MockSolverClientTest {
     @Test
     void deveGerarRotasDeterministicasDistribuindoPedidosEntreEntregadores() {
         MockSolverClient client = new MockSolverClient();
-        SolverRequest request = new SolverRequest(
+        SolverRequest request = SolverRequest.of(
                 "job-123",
                 1L,
                 new Coordenada(-16.72, -43.86),
@@ -32,12 +32,12 @@ class MockSolverClientTest {
         SolverResponse response = client.solve(request);
 
         assertNotNull(response);
-        assertEquals(2, response.getRotas().size());
-        assertTrue(response.getNaoAtendidos().isEmpty());
+        assertEquals(2, response.rotas().size());
+        assertTrue(response.naoAtendidos().isEmpty());
 
-        Set<Integer> pedidosAtendidos = response.getRotas().stream()
-                .flatMap(rota -> rota.getParadas().stream())
-                .map(Parada::getPedidoId)
+        Set<Integer> pedidosAtendidos = response.rotas().stream()
+                .flatMap(rota -> rota.paradas().stream())
+                .map(Parada::pedidoId)
                 .collect(Collectors.toSet());
         assertEquals(Set.of(101, 102, 103), pedidosAtendidos);
     }
@@ -45,13 +45,13 @@ class MockSolverClientTest {
     @Test
     void deveRetornarVazioQuandoNaoHouverPedidosOuEntregadores() {
         MockSolverClient client = new MockSolverClient();
-        SolverRequest semPedidos = new SolverRequest(
+        SolverRequest semPedidos = SolverRequest.of(
                 "job-0", 1L, new Coordenada(-16.72, -43.86), 5, "08:00", "18:00", List.of(10), List.of());
 
         SolverResponse responseSemPedidos = client.solve(semPedidos);
-        assertTrue(responseSemPedidos.getRotas().isEmpty());
+        assertTrue(responseSemPedidos.rotas().isEmpty());
 
-        SolverRequest semEntregadores = new SolverRequest(
+        SolverRequest semEntregadores = SolverRequest.of(
                 "job-1",
                 1L,
                 new Coordenada(-16.72, -43.86),
@@ -61,6 +61,6 @@ class MockSolverClientTest {
                 List.of(),
                 List.of(new PedidoSolver(201, -16.70, -43.80, 1, "ASAP", null, null, 2)));
         SolverResponse responseSemEntregadores = client.solve(semEntregadores);
-        assertTrue(responseSemEntregadores.getRotas().isEmpty());
+        assertTrue(responseSemEntregadores.rotas().isEmpty());
     }
 }

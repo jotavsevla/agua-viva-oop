@@ -17,8 +17,8 @@ public final class MockSolverClient implements SolverGateway {
     @Override
     public SolverResponse solve(SolverRequest request) {
         Objects.requireNonNull(request, "request nao pode ser nulo");
-        List<Integer> entregadores = request.getEntregadores();
-        List<PedidoSolver> pedidos = request.getPedidos();
+        List<Integer> entregadores = request.entregadores();
+        List<PedidoSolver> pedidos = request.pedidos();
         if (entregadores == null || entregadores.isEmpty() || pedidos == null || pedidos.isEmpty()) {
             return new SolverResponse(List.of(), List.of());
         }
@@ -28,7 +28,7 @@ public final class MockSolverClient implements SolverGateway {
             paradasPorEntregador.put(entregadorId, new ArrayList<>());
         }
 
-        LocalTime horaBase = parseHoraBase(request.getHorarioInicio());
+        LocalTime horaBase = parseHoraBase(request.horarioInicio());
         int cursorEntregador = 0;
         int ordemGlobal = 1;
         for (PedidoSolver pedido : pedidos) {
@@ -36,9 +36,9 @@ public final class MockSolverClient implements SolverGateway {
             LocalTime horaPrevista = horaBase.plusMinutes((long) (ordemGlobal - 1) * DEFAULT_INTERVALO_MINUTOS);
             Parada parada = new Parada(
                     paradasPorEntregador.get(entregadorId).size() + 1,
-                    pedido.getPedidoId(),
-                    pedido.getLat(),
-                    pedido.getLon(),
+                    pedido.pedidoId(),
+                    pedido.lat(),
+                    pedido.lon(),
                     horaPrevista.format(HH_MM));
             paradasPorEntregador.get(entregadorId).add(parada);
             cursorEntregador++;

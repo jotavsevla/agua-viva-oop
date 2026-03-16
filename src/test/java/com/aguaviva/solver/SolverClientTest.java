@@ -33,7 +33,7 @@ class SolverClientTest {
 
     @Test
     void deveSerializarRequestComPedidoAsap() {
-        var req = new SolverRequest(
+        var req = SolverRequest.of(
                 null,
                 null,
                 new Coordenada(-16.7344, -43.8772),
@@ -118,19 +118,19 @@ class SolverClientTest {
 
         SolverResponse resp = gson().fromJson(json, SolverResponse.class);
 
-        assertEquals(1, resp.getRotas().size());
-        assertTrue(resp.getNaoAtendidos().isEmpty());
+        assertEquals(1, resp.rotas().size());
+        assertTrue(resp.naoAtendidos().isEmpty());
 
-        RotaSolver rota = resp.getRotas().get(0);
-        assertEquals(1, rota.getEntregadorId());
-        assertEquals(1, rota.getNumeroNoDia());
-        assertEquals(2, rota.getParadas().size());
+        RotaSolver rota = resp.rotas().get(0);
+        assertEquals(1, rota.entregadorId());
+        assertEquals(1, rota.numeroNoDia());
+        assertEquals(2, rota.paradas().size());
 
-        Parada primeira = rota.getParadas().get(0);
-        assertEquals(1, primeira.getOrdem());
-        assertEquals(42, primeira.getPedidoId());
-        assertEquals(-16.71, primeira.getLat(), 0.0001);
-        assertEquals("09:30", primeira.getHoraPrevista());
+        Parada primeira = rota.paradas().get(0);
+        assertEquals(1, primeira.ordem());
+        assertEquals(42, primeira.pedidoId());
+        assertEquals(-16.71, primeira.lat(), 0.0001);
+        assertEquals("09:30", primeira.horaPrevista());
     }
 
     @Test
@@ -144,8 +144,8 @@ class SolverClientTest {
 
         SolverResponse resp = gson().fromJson(json, SolverResponse.class);
 
-        assertTrue(resp.getRotas().isEmpty());
-        assertEquals(List.of(42, 15, 7), resp.getNaoAtendidos());
+        assertTrue(resp.rotas().isEmpty());
+        assertEquals(List.of(42, 15, 7), resp.naoAtendidos());
     }
 
     @Test
@@ -182,15 +182,15 @@ class SolverClientTest {
 
         SolverResponse resp = gson().fromJson(json, SolverResponse.class);
 
-        assertEquals(3, resp.getRotas().size());
-        assertEquals(List.of(99), resp.getNaoAtendidos());
+        assertEquals(3, resp.rotas().size());
+        assertEquals(List.of(99), resp.naoAtendidos());
 
         // Entregador 1 com 2 viagens
-        assertEquals(1, resp.getRotas().get(0).getNumeroNoDia());
-        assertEquals(2, resp.getRotas().get(1).getNumeroNoDia());
+        assertEquals(1, resp.rotas().get(0).numeroNoDia());
+        assertEquals(2, resp.rotas().get(1).numeroNoDia());
 
         // Entregador 3 com 2 paradas
-        assertEquals(2, resp.getRotas().get(2).getParadas().size());
+        assertEquals(2, resp.rotas().get(2).paradas().size());
     }
 
     // ========================================================================
@@ -199,7 +199,7 @@ class SolverClientTest {
 
     @Test
     void deveSerializarEDeserializarCorretamente() {
-        var req = new SolverRequest(
+        var req = SolverRequest.of(
                 null,
                 null,
                 new Coordenada(-16.7344, -43.8772),
@@ -215,16 +215,16 @@ class SolverClientTest {
         // Deserializa de volta
         SolverRequest back = gson().fromJson(json, SolverRequest.class);
 
-        assertEquals(req.getDeposito().getLat(), back.getDeposito().getLat(), 0.0001);
-        assertEquals(req.getCapacidadeVeiculo(), back.getCapacidadeVeiculo());
-        assertEquals(req.getEntregadores(), back.getEntregadores());
-        assertEquals(1, back.getPedidos().size());
-        assertEquals(1, back.getPedidos().get(0).getPedidoId());
+        assertEquals(req.deposito().lat(), back.deposito().lat(), 0.0001);
+        assertEquals(req.capacidadeVeiculo(), back.capacidadeVeiculo());
+        assertEquals(req.entregadores(), back.entregadores());
+        assertEquals(1, back.pedidos().size());
+        assertEquals(1, back.pedidos().get(0).pedidoId());
     }
 
     @Test
     void deveSerializarMetadadosDeJobAsyncNoRequest() {
-        var req = new SolverRequest(
+        var req = SolverRequest.of(
                 "job-123",
                 7L,
                 new Coordenada(-16.7344, -43.8772),
@@ -256,10 +256,10 @@ class SolverClientTest {
 
         SolverJobResult result = gson().fromJson(json, SolverJobResult.class);
 
-        assertEquals("job-xyz", result.getJobId());
-        assertEquals("CONCLUIDO", result.getStatus());
-        assertNotNull(result.getResponse());
-        assertEquals(List.of(42), result.getResponse().getNaoAtendidos());
+        assertEquals("job-xyz", result.jobId());
+        assertEquals("CONCLUIDO", result.status());
+        assertNotNull(result.response());
+        assertEquals(List.of(42), result.response().naoAtendidos());
     }
 
     // ========================================================================
@@ -316,7 +316,7 @@ class SolverClientTest {
         try {
             int port = server.getAddress().getPort();
             SolverClient client = new SolverClient("http://localhost:" + port);
-            SolverRequest request = new SolverRequest(
+            SolverRequest request = SolverRequest.of(
                     "job-http11",
                     1L,
                     new Coordenada(-16.7344, -43.8772),
@@ -328,8 +328,8 @@ class SolverClientTest {
 
             SolverResponse response = client.solve(request);
             assertNotNull(response);
-            assertTrue(response.getRotas().isEmpty());
-            assertTrue(response.getNaoAtendidos().isEmpty());
+            assertTrue(response.rotas().isEmpty());
+            assertTrue(response.naoAtendidos().isEmpty());
             assertNull(upgradeHeader.get());
             assertFalse(bodyRecebido.get().isBlank());
         } finally {
