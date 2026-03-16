@@ -10,7 +10,8 @@ import org.junit.jupiter.api.extension.ParameterResolver;
 
 public class DbTestExtension implements BeforeEachCallback, AfterEachCallback, ParameterResolver {
 
-    private static final ExtensionContext.Namespace NAMESPACE = ExtensionContext.Namespace.create(DbTestExtension.class);
+    private static final ExtensionContext.Namespace NAMESPACE =
+            ExtensionContext.Namespace.create(DbTestExtension.class);
     private static final String KEY_FACTORY = "factory";
     private static final String KEY_CONNECTION = "connection";
 
