@@ -3,8 +3,12 @@ package com.aguaviva;
 import com.aguaviva.api.ApiServer;
 import com.aguaviva.repository.ConnectionFactory;
 import com.aguaviva.repository.Database;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public class App {
+
+    private static final Logger LOGGER = Logger.getLogger(App.class.getName());
 
     public static void main(String[] args) {
         if (args.length > 0 && "api".equalsIgnoreCase(args[0])) {
@@ -17,21 +21,21 @@ public class App {
                 Thread.currentThread().interrupt();
                 return;
             } catch (Exception e) {
-                System.err.println("Falha ao iniciar API: " + e.getMessage());
+                LOGGER.log(Level.SEVERE, "Falha ao iniciar API: " + e.getMessage(), e);
                 System.exit(1);
                 return;
             }
         }
 
-        System.out.println("=== Agua Viva OOP ===");
-        System.out.println("Health check: conectando ao PostgreSQL...");
+        LOGGER.info("=== Agua Viva OOP ===");
+        LOGGER.info("Health check: conectando ao PostgreSQL...");
 
         ConnectionFactory factory = new ConnectionFactory();
         Database database = new Database(factory);
 
         try {
             if (!database.isHealthy()) {
-                System.err.println("Falha na conexao: banco indisponivel");
+                LOGGER.log(Level.SEVERE, "Falha na conexao: banco indisponivel");
                 System.exit(1);
                 return;
             }
@@ -42,11 +46,11 @@ public class App {
                 }
                 return rs.getString(1);
             });
-            System.out.println("Conectado com sucesso!");
-            System.out.println("PostgreSQL: " + version);
+            LOGGER.info("Conectado com sucesso!");
+            LOGGER.info("PostgreSQL: " + version);
 
         } catch (Exception e) {
-            System.err.println("Falha na conexao: " + e.getMessage());
+            LOGGER.log(Level.SEVERE, "Falha na conexao: " + e.getMessage(), e);
             System.exit(1);
         } finally {
             factory.close();
