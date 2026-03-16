@@ -41,7 +41,7 @@ function renderQueueLane(lane: DespachoQueueLaneViewModel): string {
           <h3>${escapeHtml(lane.title)}</h3>
           <p class="queue-lane-copy">${escapeHtml(lane.summary)}</p>
         </div>
-        ${renderPill(lane.tone, lane.tone)}
+        ${renderPill(String(lane.cards.length), lane.tone)}
       </div>
       <div class="queue-list">
         ${
