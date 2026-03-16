@@ -40,7 +40,15 @@ public record SolverRequest(
             List<Integer> entregadores,
             List<PedidoSolver> pedidos) {
         return new SolverRequest(
-                jobId, planVersion, deposito, capacidadeVeiculo, null, horarioInicio, horarioFim, entregadores, pedidos);
+                jobId,
+                planVersion,
+                deposito,
+                capacidadeVeiculo,
+                null,
+                horarioInicio,
+                horarioFim,
+                entregadores,
+                pedidos);
     }
 
     public static SolverRequest of(
@@ -50,6 +58,7 @@ public record SolverRequest(
             String horarioFim,
             List<Integer> entregadores,
             List<PedidoSolver> pedidos) {
-        return new SolverRequest(null, null, deposito, capacidadeVeiculo, null, horarioInicio, horarioFim, entregadores, pedidos);
+        return new SolverRequest(
+                null, null, deposito, capacidadeVeiculo, null, horarioInicio, horarioFim, entregadores, pedidos);
     }
 }

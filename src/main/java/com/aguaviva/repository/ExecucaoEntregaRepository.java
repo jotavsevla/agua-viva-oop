@@ -148,8 +148,7 @@ public final class ExecucaoEntregaRepository {
         }
     }
 
-    public void atualizarStatusEntrega(Connection conn, int entregaId, String status, boolean setHoraReal)
-            {
+    public void atualizarStatusEntrega(Connection conn, int entregaId, String status, boolean setHoraReal) {
         try {
             String sql = setHoraReal
                     ? "UPDATE entregas SET status = ?, hora_real = CURRENT_TIMESTAMP, atualizado_em = CURRENT_TIMESTAMP WHERE id = ?"

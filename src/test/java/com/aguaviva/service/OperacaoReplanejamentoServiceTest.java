@@ -115,16 +115,14 @@ class OperacaoReplanejamentoServiceTest {
     private static void garantirSchemaReplanejamento() throws Exception {
         try (Connection conn = factory.getConnection();
                 Statement stmt = conn.createStatement()) {
-            stmt.execute(
-                    """
+            stmt.execute("""
                     DO $$ BEGIN
                     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'solver_job_status')
                     THEN CREATE TYPE solver_job_status AS ENUM ('PENDENTE', 'EM_EXECUCAO', 'CONCLUIDO', 'CANCELADO', 'FALHOU');
                     END IF;
                     END $$;
                     """);
-            stmt.execute(
-                    """
+            stmt.execute("""
                     CREATE TABLE IF NOT EXISTS solver_jobs (
                     job_id VARCHAR(64) PRIMARY KEY,
                     plan_version BIGINT NOT NULL,

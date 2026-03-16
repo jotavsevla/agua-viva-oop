@@ -79,16 +79,14 @@ class ExecucaoEntregaServiceTest {
                 Statement stmt = conn.createStatement()) {
             stmt.execute("ALTER TYPE entrega_status ADD VALUE IF NOT EXISTS 'EM_EXECUCAO'");
             stmt.execute("ALTER TYPE entrega_status ADD VALUE IF NOT EXISTS 'CANCELADA'");
-            stmt.execute(
-                    """
+            stmt.execute("""
                     DO $$ BEGIN
                     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'dispatch_event_status')
                     THEN CREATE TYPE dispatch_event_status AS ENUM ('PENDENTE', 'PROCESSADO');
                     END IF;
                     END $$;
                     """);
-            stmt.execute(
-                    """
+            stmt.execute("""
                     CREATE TABLE IF NOT EXISTS dispatch_events (
                     id BIGSERIAL PRIMARY KEY,
                     event_type VARCHAR(64) NOT NULL,
@@ -661,8 +659,7 @@ class ExecucaoEntregaServiceTest {
 
     private void inserirSaldoVale(int clienteId, int quantidade) throws Exception {
         try (Connection conn = factory.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(
-                        """
+                PreparedStatement stmt = conn.prepareStatement("""
                         INSERT INTO saldo_vales (cliente_id, quantidade) VALUES (?, ?)
                         ON CONFLICT (cliente_id) DO UPDATE SET quantidade = EXCLUDED.quantidade, atualizado_em = CURRENT_TIMESTAMP
                         """)) {

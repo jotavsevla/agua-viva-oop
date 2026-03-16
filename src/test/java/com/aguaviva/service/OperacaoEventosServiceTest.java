@@ -99,16 +99,14 @@ class OperacaoEventosServiceTest {
     private static void garantirSchemaDispatch() throws Exception {
         try (Connection conn = factory.getConnection();
                 Statement stmt = conn.createStatement()) {
-            stmt.execute(
-                    """
+            stmt.execute("""
                     DO $$ BEGIN
                     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'dispatch_event_status')
                     THEN CREATE TYPE dispatch_event_status AS ENUM ('PENDENTE', 'PROCESSADO');
                     END IF;
                     END $$;
                     """);
-            stmt.execute(
-                    """
+            stmt.execute("""
                     CREATE TABLE IF NOT EXISTS dispatch_events (
                     id BIGSERIAL PRIMARY KEY,
                     event_type VARCHAR(64) NOT NULL,
