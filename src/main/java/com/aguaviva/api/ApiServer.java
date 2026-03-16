@@ -48,6 +48,7 @@ import java.util.logging.Logger;
 public final class ApiServer {
 
     private static final Logger LOGGER = Logger.getLogger(ApiServer.class.getName());
+
     private static final String CORS_ALLOW_ORIGIN = "*";
     private static final String CORS_ALLOW_HEADERS = "Content-Type,Idempotency-Key,X-Idempotency-Key";
     private static final String CORS_ALLOW_METHODS = "GET,POST,OPTIONS";
@@ -147,7 +148,7 @@ public final class ApiServer {
                 rateLimitService,
                 database,
                 runtimeConfig.startupLogsEnabled());
-         if (runtimeConfig.startupLogsEnabled()) {
+        if (runtimeConfig.startupLogsEnabled()) {
             LOGGER.info("Runtime config: APP_ENV="
                     + runtimeConfig.appEnv()
                     + ", API_CONFIG_FILE="
@@ -158,7 +159,7 @@ public final class ApiServer {
                     + rateLimitEnabled
                     + ", mockSolverEnabled="
                     + mockSolverEnabled);
-         }
+        }
         app.start(port);
     }
 
@@ -176,7 +177,7 @@ public final class ApiServer {
         server.start();
 
         int resolvedPort = server.getAddress().getPort();
-         if (startupLogsEnabled) {
+        if (startupLogsEnabled) {
             LOGGER.info("API online na porta " + resolvedPort);
             LOGGER.info("Endpoints: /health, /api/atendimento/pedidos, /api/eventos, /api/replanejamento/run, "
                     + "/api/pedidos/{pedidoId}/timeline, /api/pedidos/{pedidoId}/execucao, "
@@ -184,7 +185,7 @@ public final class ApiServer {
                     + "/api/operacao/painel, /api/operacao/eventos, /api/operacao/mapa, "
                     + "/api/operacao/replanejamento/jobs, /api/operacao/replanejamento/jobs/{jobId}, "
                     + "/api/operacao/rotas/prontas/iniciar");
-         }
+        }
         return new RunningServer(server, resolvedPort);
     }
 
@@ -304,12 +305,8 @@ public final class ApiServer {
                         req.longitude());
                 writeJson(exchange, 200, resultado);
                 dispararReplanejamentoAssincronoSeNecessario(DispatchEventTypes.PEDIDO_CRIADO, resultado.idempotente());
-            } catch (IllegalArgumentException e) {
-                ErrorResponder.sendError(exchange, 400, e.getMessage());
-            } catch (IllegalStateException e) {
-                ErrorResponder.sendError(exchange, 409, e.getMessage());
             } catch (Exception e) {
-                ErrorResponder.sendInternalError(exchange);
+                ErrorResponder.sendMappedError(exchange, e);
             }
         }
     }
@@ -359,12 +356,8 @@ public final class ApiServer {
                 resultadoProcessamento = resultadoIdempotencia.payload();
                 writeJson(exchange, 200, resultadoProcessamento);
                 dispararReplanejamentoAssincronoSeNecessario(eventType, resultadoProcessamento);
-            } catch (IllegalArgumentException e) {
-                ErrorResponder.sendError(exchange, 400, e.getMessage());
-            } catch (IllegalStateException e) {
-                ErrorResponder.sendError(exchange, 409, e.getMessage());
             } catch (Exception e) {
-                ErrorResponder.sendInternalError(exchange);
+                ErrorResponder.sendMappedError(exchange, e);
             }
         }
     }
@@ -406,12 +399,8 @@ public final class ApiServer {
                 int entregadorId = ApiServerRequestParsers.requireInt(req.entregadorId(), "entregadorId");
                 ExecucaoEntregaResultado resultado = execucaoEntregaService.iniciarProximaRotaPronta(entregadorId);
                 writeJson(exchange, 200, resultado);
-            } catch (IllegalArgumentException e) {
-                ErrorResponder.sendError(exchange, 400, e.getMessage());
-            } catch (IllegalStateException e) {
-                ErrorResponder.sendError(exchange, 409, e.getMessage());
             } catch (Exception e) {
-                ErrorResponder.sendInternalError(exchange);
+                ErrorResponder.sendMappedError(exchange, e);
             }
         }
     }
@@ -449,14 +438,8 @@ public final class ApiServer {
                 }
 
                 ErrorResponder.sendError(exchange, 400, "Path invalido para pedidos");
-            } catch (IllegalArgumentException e) {
-                if (isPedidoNotFound(e)) {
-                    ErrorResponder.sendError(exchange, 404, e.getMessage());
-                } else {
-                    ErrorResponder.sendError(exchange, 400, e.getMessage());
-                }
             } catch (Exception e) {
-                ErrorResponder.sendInternalError(exchange);
+                ErrorResponder.sendMappedError(exchange, e);
             }
         }
     }
@@ -481,10 +464,8 @@ public final class ApiServer {
                 RoteiroEntregadorService.RoteiroEntregadorResultado roteiro =
                         roteiroEntregadorService.consultarRoteiro(entregadorId);
                 writeJson(exchange, 200, roteiro);
-            } catch (IllegalArgumentException e) {
-                ErrorResponder.sendError(exchange, 400, e.getMessage());
             } catch (Exception e) {
-                ErrorResponder.sendInternalError(exchange);
+                ErrorResponder.sendMappedError(exchange, e);
             }
         }
     }
@@ -531,10 +512,8 @@ public final class ApiServer {
                     return;
                 }
                 ErrorResponder.sendError(exchange, 400, "Path invalido para operacao");
-            } catch (IllegalArgumentException e) {
-                ErrorResponder.sendError(exchange, 400, e.getMessage());
             } catch (Exception e) {
-                ErrorResponder.sendInternalError(exchange);
+                ErrorResponder.sendMappedError(exchange, e);
             }
         }
     }
@@ -581,10 +560,6 @@ public final class ApiServer {
         try (OutputStream os = exchange.getResponseBody()) {
             os.write(bytes);
         }
-    }
-
-    private static boolean isPedidoNotFound(IllegalArgumentException e) {
-        return e.getMessage() != null && e.getMessage().startsWith("Pedido nao encontrado com id:");
     }
 
     private boolean enforceRateLimit(HttpExchange exchange) throws IOException {

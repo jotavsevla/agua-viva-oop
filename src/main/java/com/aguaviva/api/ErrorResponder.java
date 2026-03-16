@@ -1,5 +1,9 @@
 package com.aguaviva.api;
 
+import com.aguaviva.domain.exception.BusinessRuleException;
+import com.aguaviva.domain.exception.DatabaseException;
+import com.aguaviva.domain.exception.DuplicateEntityException;
+import com.aguaviva.domain.exception.EntityNotFoundException;
 import com.google.gson.Gson;
 import com.sun.net.httpserver.HttpExchange;
 import java.io.IOException;
@@ -33,6 +37,49 @@ public final class ErrorResponder {
 
     public static void sendInternalError(HttpExchange exchange) throws IOException {
         sendError(exchange, 500, "Erro interno do servidor");
+    }
+
+    public static void sendMappedError(HttpExchange exchange, Exception exception) throws IOException {
+        int statusCode = mapStatusCode(exception);
+        if (statusCode == 500) {
+            sendInternalError(exchange);
+            return;
+        }
+        sendError(exchange, statusCode, resolvePublicMessage(exception));
+    }
+
+    private static int mapStatusCode(Exception exception) {
+        if (exception instanceof DatabaseException) {
+            return 500;
+        }
+        if (exception instanceof EntityNotFoundException) {
+            return 404;
+        }
+        if (exception instanceof DuplicateEntityException) {
+            return 409;
+        }
+        if (exception instanceof BusinessRuleException) {
+            return 400;
+        }
+        if (exception instanceof IllegalStateException) {
+            return 409;
+        }
+        if (exception instanceof IllegalArgumentException) {
+            String message = exception.getMessage();
+            if (message != null && message.startsWith("Pedido nao encontrado com id:")) {
+                return 404;
+            }
+            return 400;
+        }
+        return 500;
+    }
+
+    private static String resolvePublicMessage(Exception exception) {
+        String message = exception.getMessage();
+        if (message == null || message.isBlank()) {
+            return "Erro na requisicao";
+        }
+        return message;
     }
 
     private static void addCorsHeaders(HttpExchange exchange) {
