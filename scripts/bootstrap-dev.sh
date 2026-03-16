@@ -97,6 +97,14 @@ if [[ "$SKIP_NODE" -eq 0 ]]; then
     cd "$ROOT_DIR/produto-ui/prototipo"
     npm ci
   )
+
+  if [[ -f "$ROOT_DIR/apps/operacao-web/package-lock.json" ]]; then
+    log "Instalando dependencias Node (npm ci) em apps/operacao-web..."
+    (
+      cd "$ROOT_DIR/apps/operacao-web"
+      npm ci
+    )
+  fi
 fi
 
 log "Bootstrap concluido."

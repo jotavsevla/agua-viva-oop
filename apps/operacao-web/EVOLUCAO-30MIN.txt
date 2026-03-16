@@ -1,0 +1,22 @@
+Sprint extra de 30 minutos - foco em intuitividade operacional
+
+Objetivo:
+- reduzir carga cognitiva
+- destacar prioridades operacionais
+- aproximar a nova app de um cockpit definitivo
+
+Melhorias aplicadas:
+- bloco "Prioridades agora" com alertas orientados a decisao
+- resumo narrativo da fila, rotas e ocorrencias
+- linguagem mais operacional e menos crua que o contrato
+- reorganizacao do fluxo em 3 etapas:
+  1. Entradas novas
+  2. Preparando rota
+  3. Entrega em curso
+- refatoracao da derivacao de insights em arquivo proprio
+
+Proximo passo recomendado:
+1. suportar foco por papel (atendente, despacho, entregador)
+2. incluir a pagina de entregador dentro desta nova app
+3. gerar tipos/cliente diretamente do OpenAPI
+4. adicionar E2E visual da nova frente no CI

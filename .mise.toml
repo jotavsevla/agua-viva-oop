@@ -29,6 +29,14 @@ run = "./scripts/tests/run-container-tests.sh"
 description = "Suite container-first sem UI (mais rapida)."
 run = "./scripts/tests/run-container-tests.sh --skip-ui"
 
+[tasks."ui:operacao:dev"]
+description = "Sube a nova app de operacao web em modo dev."
+run = "npm --prefix apps/operacao-web run dev"
+
+[tasks."ui:operacao:build"]
+description = "Gera o build da nova app de operacao web."
+run = "npm --prefix apps/operacao-web run build"
+
 [tasks."contracts:test"]
 description = "Contract tests obrigatorios de API publica."
 run = "mvn -Dtest=ContractsV1Test,ApiContractDriftTest test"

@@ -1,0 +1,177 @@
+PLANO DE PRS - OPERACAO WEB
+
+Resumo executivo
+- Separar, sim.
+- Separar por agente, nao.
+- Estrategia recomendada: PRs empilhados por tema.
+
+Motivo
+- Houve sobreposicao relevante nos arquivos de integracao:
+  - apps/operacao-web/src/render.ts
+  - apps/operacao-web/src/app/controller.ts
+  - apps/operacao-web/src/app/store.ts
+  - apps/operacao-web/src/types.ts
+  - apps/operacao-web/src/styles.css
+- Se abrirmos "1 PR por agente", a revisao fica confusa e a ordem de merge vira risco.
+
+Achados de coordenacao antes dos PRs
+1. O modulo entregador esta funcional no shell, mas ainda aparece como planejado em apps/operacao-web/src/app/modules.ts.
+2. Existem arquivos duplicados do cockpit:
+  - apps/operacao-web/src/cockpit/render.ts
+  - apps/operacao-web/src/cockpit/view-model.ts
+  - apps/operacao-web/src/cockpit/ux-render.ts
+  - apps/operacao-web/src/cockpit/ux-view-model.ts
+  Hoje o shell usa os arquivos ux-*.
+
+Decisao de coordenacao
+- Juntar Frente 1 + Frente 2 em um unico PR base.
+- Subir Atendimento, Despacho e Entregador depois, em stack.
+
+PR 1
+Nome sugerido
+- feat(operacao-web): fundacao modular e cockpit inicial
+
+Branch sugerida
+- codex/pr1-operacao-web-shell-cockpit
+
+Escopo
+- scaffold da app
+- shell modular
+- store/controller/router/polling
+- tipos compartilhados
+- api/storage/shared
+- cockpit final escolhido
+- limpeza de duplicidade do cockpit
+- acertos de navegacao/status dos modulos
+- tooling minimo para build local
+
+Arquivos esperados
+- apps/operacao-web/index.html
+- apps/operacao-web/package.json
+- apps/operacao-web/package-lock.json
+- apps/operacao-web/tsconfig.json
+- apps/operacao-web/vite.config.ts
+- apps/operacao-web/src/main.ts
+- apps/operacao-web/src/api.ts
+- apps/operacao-web/src/storage.ts
+- apps/operacao-web/src/types.ts
+- apps/operacao-web/src/render.ts
+- apps/operacao-web/src/styles.css
+- apps/operacao-web/src/insights.ts
+- apps/operacao-web/src/shared/*
+- apps/operacao-web/src/app/*
+- apps/operacao-web/src/cockpit/*
+- .gitignore
+- .mise.toml
+- scripts/bootstrap-dev.sh
+
+Notas
+- Este PR define a base oficial.
+- Qualquer arquivo duplicado do cockpit deve ser removido ou consolidado aqui.
+
+PR 2
+Nome sugerido
+- feat(operacao-web): jornada de atendimento e handoff
+
+Branch sugerida
+- codex/pr2-operacao-web-atendimento
+
+Base
+- em cima do PR 1
+
+Escopo
+- modulo atendimento
+- contexto da sessao
+- criacao de pedido
+- timeline/execucao
+- saldo/extrato quando disponivel
+- handoff para despacho
+
+Arquivos esperados
+- apps/operacao-web/src/atendimento/*
+- apps/operacao-web/src/app/controller.ts
+- apps/operacao-web/src/app/store.ts
+- apps/operacao-web/src/render.ts
+- apps/operacao-web/src/styles.css
+- apps/operacao-web/src/types.ts
+- apps/operacao-web/src/storage.ts
+
+Notas
+- Tocar shell apenas no minimo necessario para integrar a experiencia.
+
+PR 3
+Nome sugerido
+- feat(operacao-web): cockpit de despacho e inicio de rota pronta
+
+Branch sugerida
+- codex/pr3-operacao-web-despacho
+
+Base
+- em cima do PR 2
+
+Escopo
+- modulo despacho
+- fila operacional
+- feed de ocorrencias
+- camadas de frota
+- resumo por risco
+- acao real de iniciar rota pronta
+
+Arquivos esperados
+- apps/operacao-web/src/despacho/*
+- apps/operacao-web/src/app/controller.ts
+- apps/operacao-web/src/app/store.ts
+- apps/operacao-web/src/render.ts
+- apps/operacao-web/src/styles.css
+- apps/operacao-web/src/types.ts
+- apps/operacao-web/src/insights.ts
+
+Notas
+- Este PR deve ser revisado como modulo de decisao operacional.
+
+PR 4
+Nome sugerido
+- feat(operacao-web): roteiro e eventos do entregador
+
+Branch sugerida
+- codex/pr4-operacao-web-entregador
+
+Base
+- em cima do PR 3
+
+Escopo
+- deep link por entregador
+- carregar roteiro real
+- iniciar rota pelo contexto do entregador
+- eventos terminais
+- feedback operacional simples
+
+Arquivos esperados
+- apps/operacao-web/src/entregador/*
+- apps/operacao-web/src/app/controller.ts
+- apps/operacao-web/src/app/store.ts
+- apps/operacao-web/src/app/modules.ts
+- apps/operacao-web/src/render.ts
+- apps/operacao-web/src/styles.css
+- apps/operacao-web/src/types.ts
+- apps/operacao-web/src/storage.ts
+
+Notas
+- Este PR deve incluir o ajuste do modulo entregador para status ativo.
+
+O que nao entra nesta pilha por enquanto
+- contracts/v1/openapi.yaml
+- produto-ui/prototipo/*
+- mudancas maiores de CI ou ambiente alem do minimo de build
+
+Critero de merge
+1. PR 1
+2. PR 2
+3. PR 3
+4. PR 4
+
+Checklist por PR
+- build local passa
+- sem tocar superficies congeladas
+- escopo coerente com o tema do PR
+- descricao do PR lista arquivos tocados e riscos

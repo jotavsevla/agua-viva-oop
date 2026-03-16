@@ -41,6 +41,7 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.Executors;
 
 public final class ApiServer {
 
@@ -168,7 +169,7 @@ public final class ApiServer {
         server.createContext("/api/entregadores", new EntregadorRoteiroHandler());
         server.createContext("/api/operacao", new OperacaoReadOnlyHandler());
         server.createContext("/api/operacao/rotas/prontas/iniciar", new IniciarRotaProntaHandler());
-        server.setExecutor(null);
+        server.setExecutor(Executors.newVirtualThreadPerTaskExecutor());
         server.start();
 
         int resolvedPort = server.getAddress().getPort();

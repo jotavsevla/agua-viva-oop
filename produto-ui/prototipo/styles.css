@@ -286,6 +286,38 @@ body {
   align-items: center;
 }
 
+.api-readiness {
+  margin-top: var(--space-8);
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-4);
+}
+
+.api-readiness-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+  background: rgba(22, 35, 44, 0.72);
+  padding: 0.35rem 0.55rem;
+  font-size: 0.76rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.api-readiness-chip strong {
+  color: var(--text);
+  font-size: 0.72rem;
+  letter-spacing: 0.05em;
+}
+
+.api-readiness-chip .dot {
+  width: 8px;
+  height: 8px;
+}
+
 .api-label {
   font-size: 0.82rem;
   color: var(--text-dim);

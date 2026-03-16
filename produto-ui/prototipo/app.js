@@ -145,7 +145,14 @@ function createFallbackAppState(apiBaseUrl) {
       baseUrl: apiBaseUrl,
       connected: false,
       lastError: null,
-      lastSyncAt: null
+      lastSyncAt: null,
+      readiness: {
+        health: "unknown",
+        painel: "unknown",
+        eventos: "unknown",
+        mapa: "unknown",
+        frota: "unknown"
+      }
     },
     painel: null,
     eventosOperacionais: [],
@@ -217,6 +224,7 @@ const apiInput = document.getElementById("api-base");
 const apiConnectButton = document.getElementById("api-connect");
 const apiResetButton = document.getElementById("api-reset");
 const apiStatus = document.getElementById("api-status");
+const apiReadinessRoot = document.getElementById("api-readiness");
 const sidebarPhoneSearchRoot = document.getElementById("sidebar-phone-search");
 
 const OPEN_PEDIDO_STATUSES = new Set(["PENDENTE", "CONFIRMADO", "EM_ROTA"]);
@@ -980,26 +988,132 @@ function bindSidebarEvents() {
   });
 }
 
+function createDefaultApiReadiness() {
+  return {
+    health: "unknown",
+    painel: "unknown",
+    eventos: "unknown",
+    mapa: "unknown",
+    frota: "unknown"
+  };
+}
+
+function ensureApiReadiness() {
+  const defaults = createDefaultApiReadiness();
+  if (!appState.api || typeof appState.api !== "object") {
+    appState.api = {
+      baseUrl: DEFAULT_API_BASE,
+      connected: false,
+      lastError: null,
+      lastSyncAt: null,
+      readiness: defaults
+    };
+    return appState.api.readiness;
+  }
+
+  if (!appState.api.readiness || typeof appState.api.readiness !== "object") {
+    appState.api.readiness = defaults;
+    return appState.api.readiness;
+  }
+
+  for (const key of Object.keys(defaults)) {
+    if (!Object.prototype.hasOwnProperty.call(appState.api.readiness, key)) {
+      appState.api.readiness[key] = defaults[key];
+    }
+  }
+  return appState.api.readiness;
+}
+
+function readinessTone(status) {
+  if (status === "ok") {
+    return "ok";
+  }
+  if (status === "partial") {
+    return "warn";
+  }
+  if (status === "error") {
+    return "danger";
+  }
+  return "info";
+}
+
+function readinessLabel(status) {
+  if (status === "ok") {
+    return "ok";
+  }
+  if (status === "partial") {
+    return "parcial";
+  }
+  if (status === "error") {
+    return "erro";
+  }
+  return "pendente";
+}
+
+function renderApiReadiness() {
+  if (!apiReadinessRoot) {
+    return;
+  }
+
+  const readiness = ensureApiReadiness();
+  const chips = [
+    { key: "health", label: "health" },
+    { key: "painel", label: "painel" },
+    { key: "eventos", label: "eventos" },
+    { key: "mapa", label: "mapa" },
+    { key: "frota", label: "roteiros" }
+  ];
+
+  const lastSync = appState.api?.lastSyncAt
+    ? new Date(appState.api.lastSyncAt).toLocaleTimeString("pt-BR")
+    : "--:--:--";
+
+  apiReadinessRoot.innerHTML = `
+    ${chips
+      .map((chip) => {
+        const status = String(readiness[chip.key] || "unknown");
+        const tone = readinessTone(status);
+        const text = readinessLabel(status);
+        return `
+          <span class="api-readiness-chip">
+            <span class="dot ${tone}" aria-hidden="true"></span>
+            <strong>${escapeHtml(chip.label)}</strong>
+            <span>${escapeHtml(text)}</span>
+          </span>
+        `;
+      })
+      .join("")}
+    <span class="api-readiness-chip">
+      <strong>sync</strong>
+      <span class="mono">${escapeHtml(lastSync)}</span>
+    </span>
+  `;
+}
+
 function updateApiStatus() {
   if (appState.api.connected) {
     if (appState.api.lastError) {
       apiStatus.className = "pill warn";
       apiStatus.textContent = `API: conectada (parcial) · auto ${Math.round(OPERATIONAL_AUTO_REFRESH_MS / 1000)}s`;
+      renderApiReadiness();
       return;
     }
     apiStatus.className = "pill ok";
     apiStatus.textContent = `API: conectada · auto ${Math.round(OPERATIONAL_AUTO_REFRESH_MS / 1000)}s`;
+    renderApiReadiness();
     return;
   }
 
   if (appState.api.lastError) {
     apiStatus.className = "pill danger";
     apiStatus.textContent = "API: offline";
+    renderApiReadiness();
     return;
   }
 
   apiStatus.className = "pill warn";
   apiStatus.textContent = "API: pendente";
+  renderApiReadiness();
 }
 
 function applyApiBaseFromInput() {
@@ -1062,6 +1176,8 @@ async function requestApi(path, options = {}) {
 
 async function checkHealth() {
   applyApiBaseFromInput();
+  const readiness = ensureApiReadiness();
+  readiness.health = "unknown";
   const preferredBase = appState.api.baseUrl;
   const candidateBases = [preferredBase];
   if (preferredBase !== DEFAULT_API_BASE) {
@@ -1075,10 +1191,12 @@ async function checkHealth() {
       apiInput.value = base;
       try {
         await requestApi("/health");
+        readiness.health = "ok";
         await refreshOperationalReadModels();
         persistApiBase(base);
         return;
       } catch (error) {
+        readiness.health = "error";
         attempts.push(`${base}: ${error?.message || "falha desconhecida"}`);
       }
     }
@@ -1146,6 +1264,7 @@ async function fetchFrotaRoteiros(entregadorIds) {
 }
 
 async function refreshOperationalReadModels() {
+  const readiness = ensureApiReadiness();
   const [painelResult, eventosResult, mapaResult] = await Promise.allSettled([
     requestApi("/api/operacao/painel"),
     requestApi("/api/operacao/eventos?limite=50"),
@@ -1157,8 +1276,10 @@ async function refreshOperationalReadModels() {
 
   if (painelResult.status === "fulfilled") {
     appState.painel = painelResult.value.payload;
+    readiness.painel = "ok";
     loadedReadModels += 1;
   } else {
+    readiness.painel = "error";
     partialErrors.push(`painel: ${painelResult.reason?.message || "falha"}`);
   }
 
@@ -1166,24 +1287,39 @@ async function refreshOperationalReadModels() {
     appState.eventosOperacionais = Array.isArray(eventosResult.value.payload?.eventos)
       ? eventosResult.value.payload.eventos
       : [];
+    readiness.eventos = "ok";
     loadedReadModels += 1;
   } else {
+    readiness.eventos = "error";
     partialErrors.push(`eventos: ${eventosResult.reason?.message || "falha"}`);
   }
 
   if (mapaResult.status === "fulfilled") {
     appState.mapaOperacional = mapaResult.value.payload || null;
+    readiness.mapa = "ok";
     loadedReadModels += 1;
   } else {
+    readiness.mapa = "error";
     partialErrors.push(`mapa: ${mapaResult.reason?.message || "falha"}`);
   }
 
   if (loadedReadModels === 0) {
+    readiness.frota = "error";
     throw new Error(`Falha ao sincronizar read models (${partialErrors.join(" | ")})`);
   }
 
   const entregadorIds = collectEntregadorIdsFromReadModels(appState.painel, appState.mapaOperacional);
   appState.frotaRoteiros = await fetchFrotaRoteiros(entregadorIds);
+  const roteirosComErro = appState.frotaRoteiros.filter((item) => Boolean(item?.erro)).length;
+  if (entregadorIds.length === 0) {
+    readiness.frota = "ok";
+  } else if (roteirosComErro === 0) {
+    readiness.frota = "ok";
+  } else if (roteirosComErro < entregadorIds.length) {
+    readiness.frota = "partial";
+  } else {
+    readiness.frota = "error";
+  }
   appState.api.connected = true;
   appState.api.lastError = partialErrors.length > 0
     ? `Read models parciais (${partialErrors.join(" | ")})`
@@ -1200,6 +1336,11 @@ async function refreshOperationalReadModelsSafe() {
   try {
     await refreshOperationalReadModels();
   } catch (error) {
+    const readiness = ensureApiReadiness();
+    readiness.painel = "error";
+    readiness.eventos = "error";
+    readiness.mapa = "error";
+    readiness.frota = "error";
     appState.api.connected = false;
     appState.api.lastError = error?.message || "Falha ao sincronizar read models operacionais";
     appState.api.lastSyncAt = new Date().toISOString();
@@ -3498,6 +3639,7 @@ function bindViewEvents() {
 function render() {
   destroyCityMaps();
   renderMetrics();
+  renderApiReadiness();
   renderSidebarTools();
   viewRoot.innerHTML = getViewContent();
   setActiveNav(appState.view);

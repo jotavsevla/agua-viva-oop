@@ -7,7 +7,14 @@
         baseUrl: String(apiBaseUrl || "http://localhost:8082"),
         connected: false,
         lastError: null,
-        lastSyncAt: null
+        lastSyncAt: null,
+        readiness: {
+          health: "unknown",
+          painel: "unknown",
+          eventos: "unknown",
+          mapa: "unknown",
+          frota: "unknown"
+        }
       },
       painel: null,
       eventosOperacionais: [],

@@ -1,14 +1,17 @@
 package com.aguaviva.service;
 
+import com.aguaviva.repository.AtendimentoTelefonicoRepository;
+import com.aguaviva.repository.AtendimentoTelefonicoRepository.AtendimentoIdempotenteExistente;
+import com.aguaviva.repository.AtendimentoTelefonicoRepository.ClienteCadastro;
+import com.aguaviva.repository.AtendimentoTelefonicoRepository.CoberturaBbox;
+import com.aguaviva.repository.AtendimentoTelefonicoRepository.InsertPedidoResult;
+import com.aguaviva.repository.AtendimentoTelefonicoRepository.PedidoExistente;
 import com.aguaviva.repository.ConnectionFactory;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.sql.Types;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -16,10 +19,10 @@ public class AtendimentoTelefonicoService {
 
     private static final String ENDERECO_PENDENTE = "Endereco pendente";
     private static final String METODO_PAGAMENTO_VALE = "VALE";
-    private static final String COBERTURA_BBOX_PADRAO = "-43.9600,-16.8200,-43.7800,-16.6200";
 
     private final ConnectionFactory connectionFactory;
     private final DispatchEventService dispatchEventService;
+    private final AtendimentoTelefonicoRepository repository;
 
     public AtendimentoTelefonicoService(ConnectionFactory connectionFactory) {
         this(connectionFactory, new DispatchEventService());
@@ -29,6 +32,7 @@ public class AtendimentoTelefonicoService {
         this.connectionFactory = Objects.requireNonNull(connectionFactory, "ConnectionFactory nao pode ser nulo");
         this.dispatchEventService =
                 Objects.requireNonNull(dispatchEventService, "DispatchEventService nao pode ser nulo");
+        this.repository = new AtendimentoTelefonicoRepository(connectionFactory);
     }
 
     public AtendimentoTelefonicoResultado registrarPedido(
@@ -159,17 +163,24 @@ public class AtendimentoTelefonicoService {
             conn.setAutoCommit(false);
             boolean transacaoFinalizada = false;
             try {
-                lockPorTelefone(conn, telefoneNormalizado);
-                assertAtendenteExiste(conn, atendenteId);
+                repository.lockPorTelefone(conn, telefoneNormalizado);
+                repository.assertAtendenteExiste(conn, atendenteId);
 
                 if (dedupeKey != null) {
-                    assertAtendimentoIdempotenciaSchema(conn);
-                    lockPorIdempotenciaAtendimento(conn, origemCanalNormalizado, dedupeKey);
+                    repository.assertAtendimentoIdempotenciaSchema(conn);
+                    repository.lockPorIdempotenciaAtendimento(conn, origemCanalNormalizado, dedupeKey);
                     Optional<AtendimentoIdempotenteExistente> idempotenteExistente =
-                            buscarAtendimentoIdempotente(conn, origemCanalNormalizado, dedupeKey);
+                            repository.buscarAtendimentoIdempotente(conn, origemCanalNormalizado, dedupeKey);
                     if (idempotenteExistente.isPresent()) {
                         AtendimentoIdempotenteExistente replay = idempotenteExistente.get();
-                        validarHashIdempotenciaCompativel(replay.requestHash(), atendimentoRequestHash);
+                        repository.registrarAtendimentoIdempotenteSeNecessario(
+                                conn,
+                                origemCanalNormalizado,
+                                dedupeKey,
+                                replay.pedidoId(),
+                                replay.clienteId(),
+                                replay.telefoneNormalizado(),
+                                atendimentoRequestHash);
                         conn.commit();
                         return new AtendimentoTelefonicoResultado(
                                 replay.pedidoId(), replay.clienteId(), replay.telefoneNormalizado(), false, true);
@@ -181,10 +192,10 @@ public class AtendimentoTelefonicoService {
                 int clienteId = clienteResolucao.clienteId();
 
                 if (AtendimentoRequestNormalizer.ORIGEM_CANAL_MANUAL.equals(origemCanalNormalizado)) {
-                    Optional<PedidoExistente> pedidoAtivo = buscarPedidoAbertoPorClienteId(conn, clienteId);
+                    Optional<PedidoExistente> pedidoAtivo = repository.buscarPedidoAbertoPorClienteId(conn, clienteId);
                     if (pedidoAtivo.isPresent()) {
                         PedidoExistente existente = pedidoAtivo.get();
-                        registrarAtendimentoIdempotenteSeNecessario(
+                        repository.registrarAtendimentoIdempotenteSeNecessario(
                                 conn,
                                 origemCanalNormalizado,
                                 dedupeKey,
@@ -215,18 +226,29 @@ public class AtendimentoTelefonicoService {
 
                 InsertPedidoResult insert;
                 if (externalCallIdLegacy != null) {
-                    assertIdempotencySchema(conn);
-                    insert = inserirPedidoPendenteIdempotente(
+                    repository.assertIdempotencySchema(conn);
+                    AtendimentoTelefonicoRepository.JanelaPedidoInput repoJanela =
+                            new AtendimentoTelefonicoRepository.JanelaPedidoInput(
+                                    janelaPedido.tipo(), janelaPedido.inicio(), janelaPedido.fim());
+                    insert = repository.inserirPedidoPendenteIdempotente(
                             conn,
                             clienteId,
                             quantidadeGaloes,
                             atendenteId,
                             externalCallIdLegacy,
                             metodoPagamentoNormalizado,
-                            janelaPedido);
+                            repoJanela);
                 } else {
-                    insert = inserirPedidoPendente(
-                            conn, clienteId, quantidadeGaloes, atendenteId, metodoPagamentoNormalizado, janelaPedido);
+                    AtendimentoTelefonicoRepository.JanelaPedidoInput repoJanela =
+                            new AtendimentoTelefonicoRepository.JanelaPedidoInput(
+                                    janelaPedido.tipo(), janelaPedido.inicio(), janelaPedido.fim());
+                    insert = repository.inserirPedidoPendente(
+                            conn,
+                            clienteId,
+                            quantidadeGaloes,
+                            atendenteId,
+                            metodoPagamentoNormalizado,
+                            repoJanela);
                 }
 
                 if (!insert.idempotente()) {
@@ -238,7 +260,7 @@ public class AtendimentoTelefonicoService {
                             new PedidoCriadoPayload(insert.pedidoId(), clienteId, externalCallIdLegacy));
                 }
 
-                registrarAtendimentoIdempotenteSeNecessario(
+                repository.registrarAtendimentoIdempotenteSeNecessario(
                         conn,
                         origemCanalNormalizado,
                         dedupeKey,
@@ -276,97 +298,6 @@ public class AtendimentoTelefonicoService {
             return manualRequestId;
         }
         return null;
-    }
-
-    private void registrarAtendimentoIdempotenteSeNecessario(
-            Connection conn,
-            String origemCanal,
-            String dedupeKey,
-            int pedidoId,
-            int clienteId,
-            String telefoneNormalizado,
-            String requestHash)
-            throws SQLException {
-        if (dedupeKey == null) {
-            return;
-        }
-
-        String sql = "INSERT INTO atendimentos_idempotencia "
-                + "(origem_canal, source_event_id, pedido_id, cliente_id, telefone_normalizado, request_hash) "
-                + "VALUES (?, ?, ?, ?, ?, ?) "
-                + "ON CONFLICT (origem_canal, source_event_id) DO NOTHING";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, origemCanal);
-            stmt.setString(2, dedupeKey);
-            stmt.setInt(3, pedidoId);
-            stmt.setInt(4, clienteId);
-            stmt.setString(5, telefoneNormalizado);
-            stmt.setString(6, requestHash);
-            int inseridos = stmt.executeUpdate();
-            if (inseridos > 0) {
-                return;
-            }
-        }
-
-        AtendimentoIdempotenteExistente existente = buscarAtendimentoIdempotente(conn, origemCanal, dedupeKey)
-                .orElseThrow(
-                        () -> new SQLException("Registro idempotente de atendimento nao encontrado apos conflito"));
-        validarHashIdempotenciaCompativel(existente.requestHash(), requestHash);
-        if (existente.pedidoId() != pedidoId || existente.clienteId() != clienteId) {
-            throw new IllegalStateException(
-                    "source_event_id/manual_request_id reutilizado com pedido diferente para o mesmo canal");
-        }
-    }
-
-    private Optional<AtendimentoIdempotenteExistente> buscarAtendimentoIdempotente(
-            Connection conn, String origemCanal, String dedupeKey) throws SQLException {
-        String sql = "SELECT pedido_id, cliente_id, telefone_normalizado, request_hash "
-                + "FROM atendimentos_idempotencia "
-                + "WHERE origem_canal = ? AND source_event_id = ?";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, origemCanal);
-            stmt.setString(2, dedupeKey);
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    return Optional.of(new AtendimentoIdempotenteExistente(
-                            rs.getInt("pedido_id"),
-                            rs.getInt("cliente_id"),
-                            rs.getString("telefone_normalizado"),
-                            rs.getString("request_hash")));
-                }
-                return Optional.empty();
-            }
-        }
-    }
-
-    private void lockPorIdempotenciaAtendimento(Connection conn, String origemCanal, String dedupeKey)
-            throws SQLException {
-        String sql = "SELECT pg_advisory_xact_lock(hashtext(?))";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, origemCanal + "|" + dedupeKey);
-            stmt.executeQuery();
-        }
-    }
-
-    private void assertAtendimentoIdempotenciaSchema(Connection conn) throws SQLException {
-        if (!hasTable(conn, "atendimentos_idempotencia")) {
-            throw new IllegalStateException("Schema desatualizado: tabela atendimentos_idempotencia ausente");
-        }
-        if (!hasColumn(conn, "atendimentos_idempotencia", "origem_canal")) {
-            throw new IllegalStateException(
-                    "Schema desatualizado: coluna atendimentos_idempotencia.origem_canal ausente");
-        }
-        if (!hasColumn(conn, "atendimentos_idempotencia", "source_event_id")) {
-            throw new IllegalStateException(
-                    "Schema desatualizado: coluna atendimentos_idempotencia.source_event_id ausente");
-        }
-        if (!hasColumn(conn, "atendimentos_idempotencia", "pedido_id")) {
-            throw new IllegalStateException("Schema desatualizado: coluna atendimentos_idempotencia.pedido_id ausente");
-        }
-        if (!hasColumn(conn, "atendimentos_idempotencia", "request_hash")) {
-            throw new IllegalStateException(
-                    "Schema desatualizado: coluna atendimentos_idempotencia.request_hash ausente");
-        }
     }
 
     private String buildAtendimentoRequestHash(
@@ -412,16 +343,6 @@ public class AtendimentoTelefonicoService {
         canonical.append('|');
     }
 
-    private void validarHashIdempotenciaCompativel(String requestHashPersistido, String requestHashAtual) {
-        if (requestHashAtual == null || requestHashPersistido == null || requestHashPersistido.isBlank()) {
-            return;
-        }
-        if (!requestHashPersistido.equals(requestHashAtual)) {
-            throw new IllegalStateException(
-                    "source_event_id/manual_request_id reutilizado com payload divergente para o mesmo canal");
-        }
-    }
-
     private String resolveExternalCallIdLegacy(String origemCanal, String sourceEventId) {
         if (sourceEventId == null) {
             return null;
@@ -458,108 +379,21 @@ public class AtendimentoTelefonicoService {
             String telefoneNormalizado,
             AtendimentoRequestNormalizer.CadastroClienteInput cadastroClienteInput)
             throws SQLException {
-        Optional<ClienteCadastro> clienteExistente = buscarClientePorTelefoneNormalizado(conn, telefoneNormalizado);
+        Optional<ClienteCadastro> clienteExistente = repository.buscarClientePorTelefoneNormalizado(conn, telefoneNormalizado);
+        AtendimentoTelefonicoRepository.CadastroClienteInput repoCadastro =
+                new AtendimentoTelefonicoRepository.CadastroClienteInput(
+                        cadastroClienteInput.nomeCliente(),
+                        cadastroClienteInput.endereco(),
+                        cadastroClienteInput.latitude(),
+                        cadastroClienteInput.longitude());
         if (clienteExistente.isPresent()) {
             ClienteCadastro atualizado =
-                    atualizarCadastroClienteSeInformado(conn, clienteExistente.get(), cadastroClienteInput);
+                    repository.atualizarCadastroClienteSeInformado(conn, clienteExistente.get(), repoCadastro);
             return new ClienteResolucao(atualizado.clienteId(), false, atualizado);
         }
 
-        ClienteCadastro criado = criarClienteInicial(conn, telefoneNormalizado, cadastroClienteInput);
+        ClienteCadastro criado = repository.criarClienteInicial(conn, telefoneNormalizado, repoCadastro);
         return new ClienteResolucao(criado.clienteId(), true, criado);
-    }
-
-    private ClienteCadastro criarClienteInicial(
-            Connection conn,
-            String telefoneNormalizado,
-            AtendimentoRequestNormalizer.CadastroClienteInput cadastroClienteInput)
-            throws SQLException {
-        String nome = cadastroClienteInput.nomeCliente();
-        if (nome == null) {
-            String sufixo = telefoneNormalizado.length() <= 4
-                    ? telefoneNormalizado
-                    : telefoneNormalizado.substring(telefoneNormalizado.length() - 4);
-            nome = "Cliente " + sufixo;
-        }
-        String endereco = cadastroClienteInput.endereco();
-        if (endereco == null) {
-            endereco = ENDERECO_PENDENTE;
-        }
-
-        String sql = "INSERT INTO clientes (nome, telefone, tipo, endereco, latitude, longitude, notas) "
-                + "VALUES (?, ?, ?, ?, ?, ?, ?) "
-                + "RETURNING id, nome, endereco, latitude, longitude";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, nome);
-            stmt.setString(2, telefoneNormalizado);
-            stmt.setObject(3, "PF", Types.OTHER);
-            stmt.setString(4, endereco);
-            if (cadastroClienteInput.latitude() == null) {
-                stmt.setNull(5, Types.DOUBLE);
-            } else {
-                stmt.setDouble(5, cadastroClienteInput.latitude());
-            }
-            if (cadastroClienteInput.longitude() == null) {
-                stmt.setNull(6, Types.DOUBLE);
-            } else {
-                stmt.setDouble(6, cadastroClienteInput.longitude());
-            }
-            stmt.setNull(7, Types.VARCHAR);
-
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    return new ClienteCadastro(
-                            rs.getInt("id"),
-                            rs.getString("nome"),
-                            rs.getString("endereco"),
-                            toNullableDouble(rs, "latitude"),
-                            toNullableDouble(rs, "longitude"));
-                }
-            }
-        }
-        throw new SQLException("Falha ao criar cadastro inicial do cliente para atendimento omnichannel");
-    }
-
-    private ClienteCadastro atualizarCadastroClienteSeInformado(
-            Connection conn,
-            ClienteCadastro clienteAtual,
-            AtendimentoRequestNormalizer.CadastroClienteInput cadastroClienteInput)
-            throws SQLException {
-        boolean temNome = cadastroClienteInput.nomeCliente() != null;
-        boolean temEndereco = cadastroClienteInput.endereco() != null;
-        boolean temLatitude = cadastroClienteInput.latitude() != null;
-        boolean temLongitude = cadastroClienteInput.longitude() != null;
-
-        if (!temNome && !temEndereco && !temLatitude && !temLongitude) {
-            return clienteAtual;
-        }
-
-        String novoNome = temNome ? cadastroClienteInput.nomeCliente() : clienteAtual.nome();
-        String novoEndereco = temEndereco ? cadastroClienteInput.endereco() : clienteAtual.endereco();
-        Double novaLatitude = temLatitude ? cadastroClienteInput.latitude() : clienteAtual.latitude();
-        Double novaLongitude = temLongitude ? cadastroClienteInput.longitude() : clienteAtual.longitude();
-
-        String sql = "UPDATE clientes "
-                + "SET nome = ?, endereco = ?, latitude = ?, longitude = ?, atualizado_em = CURRENT_TIMESTAMP "
-                + "WHERE id = ?";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, novoNome);
-            stmt.setString(2, novoEndereco);
-            if (novaLatitude == null) {
-                stmt.setNull(3, Types.DOUBLE);
-            } else {
-                stmt.setDouble(3, novaLatitude);
-            }
-            if (novaLongitude == null) {
-                stmt.setNull(4, Types.DOUBLE);
-            } else {
-                stmt.setDouble(4, novaLongitude);
-            }
-            stmt.setInt(5, clienteAtual.clienteId());
-            stmt.executeUpdate();
-        }
-
-        return new ClienteCadastro(clienteAtual.clienteId(), novoNome, novoEndereco, novaLatitude, novaLongitude);
     }
 
     private void validarCoberturaMoc(Connection conn, ClienteCadastro cliente) throws SQLException {
@@ -567,140 +401,12 @@ public class AtendimentoTelefonicoService {
             throw new IllegalArgumentException(
                     "Cliente sem geolocalizacao valida. Atualize cadastro antes de criar pedido");
         }
-        CoberturaBbox bbox = carregarCoberturaBbox(conn);
+        CoberturaBbox bbox = repository.carregarCoberturaBbox(conn);
         if (cliente.latitude() < bbox.minLat()
                 || cliente.latitude() > bbox.maxLat()
                 || cliente.longitude() < bbox.minLon()
                 || cliente.longitude() > bbox.maxLon()) {
             throw new IllegalArgumentException("Cliente fora da cobertura operacional de MOC");
-        }
-    }
-
-    private CoberturaBbox carregarCoberturaBbox(Connection conn) throws SQLException {
-        String valor = null;
-        String sql = "SELECT valor FROM configuracoes WHERE chave = 'cobertura_bbox' LIMIT 1";
-        try (PreparedStatement stmt = conn.prepareStatement(sql);
-                ResultSet rs = stmt.executeQuery()) {
-            if (rs.next()) {
-                valor = rs.getString("valor");
-            }
-        }
-        if (valor == null || valor.isBlank()) {
-            valor = COBERTURA_BBOX_PADRAO;
-        }
-        return parseBbox(valor);
-    }
-
-    private CoberturaBbox parseBbox(String raw) {
-        String[] parts = raw.split(",");
-        if (parts.length != 4) {
-            throw new IllegalStateException(
-                    "Configuracao cobertura_bbox invalida. Esperado min_lon,min_lat,max_lon,max_lat");
-        }
-        try {
-            double minLon = Double.parseDouble(parts[0].trim());
-            double minLat = Double.parseDouble(parts[1].trim());
-            double maxLon = Double.parseDouble(parts[2].trim());
-            double maxLat = Double.parseDouble(parts[3].trim());
-            if (minLon >= maxLon || minLat >= maxLat) {
-                throw new IllegalStateException(
-                        "Configuracao cobertura_bbox invalida. min/max devem respeitar ordem crescente");
-            }
-            return new CoberturaBbox(minLon, minLat, maxLon, maxLat);
-        } catch (NumberFormatException e) {
-            throw new IllegalStateException("Configuracao cobertura_bbox invalida. Valores devem ser numericos", e);
-        }
-    }
-
-    private void assertIdempotencySchema(Connection conn) throws SQLException {
-        if (!hasColumn(conn, "pedidos", "external_call_id")) {
-            throw new IllegalStateException("Schema desatualizado: coluna pedidos.external_call_id ausente");
-        }
-        if (!hasUniqueConstraint(conn, "uk_pedidos_external_call_id")) {
-            throw new IllegalStateException(
-                    "Schema desatualizado: constraint unica uk_pedidos_external_call_id ausente");
-        }
-    }
-
-    private boolean hasTable(Connection conn, String tableName) throws SQLException {
-        String sql = "SELECT 1 FROM information_schema.tables WHERE table_name = ?";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, tableName);
-            try (ResultSet rs = stmt.executeQuery()) {
-                return rs.next();
-            }
-        }
-    }
-
-    private boolean hasColumn(Connection conn, String tableName, String columnName) throws SQLException {
-        String sql = "SELECT 1 FROM information_schema.columns WHERE table_name = ? AND column_name = ?";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, tableName);
-            stmt.setString(2, columnName);
-            try (ResultSet rs = stmt.executeQuery()) {
-                return rs.next();
-            }
-        }
-    }
-
-    private boolean hasUniqueConstraint(Connection conn, String constraintName) throws SQLException {
-        String sql = "SELECT 1 FROM pg_constraint WHERE conname = ? AND contype = 'u'";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, constraintName);
-            try (ResultSet rs = stmt.executeQuery()) {
-                return rs.next();
-            }
-        }
-    }
-
-    private Optional<PedidoExistente> buscarPedidoPorExternalCallId(Connection conn, String externalCallId)
-            throws SQLException {
-        String sql = "SELECT id, cliente_id FROM pedidos WHERE external_call_id = ?";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, externalCallId);
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    return Optional.of(new PedidoExistente(rs.getInt("id"), rs.getInt("cliente_id")));
-                }
-                return Optional.empty();
-            }
-        }
-    }
-
-    private void lockPorTelefone(Connection conn, String telefoneNormalizado) throws SQLException {
-        String sql = "SELECT pg_advisory_xact_lock(hashtext(?))";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, telefoneNormalizado);
-            stmt.executeQuery();
-        }
-    }
-
-    private Optional<ClienteCadastro> buscarClientePorTelefoneNormalizado(Connection conn, String telefoneNormalizado)
-            throws SQLException {
-        String sql = "SELECT id, nome, endereco, latitude, longitude "
-                + "FROM clientes "
-                + "WHERE regexp_replace(telefone, '[^0-9]', '', 'g') = ? "
-                + "ORDER BY CASE "
-                + "    WHEN btrim(COALESCE(endereco, '')) <> '' "
-                + "         AND lower(btrim(COALESCE(endereco, ''))) <> 'endereco pendente' "
-                + "         AND latitude IS NOT NULL "
-                + "         AND longitude IS NOT NULL "
-                + "    THEN 0 ELSE 1 END, "
-                + "id DESC "
-                + "LIMIT 1";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, telefoneNormalizado);
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    return Optional.of(new ClienteCadastro(
-                            rs.getInt("id"),
-                            rs.getString("nome"),
-                            rs.getString("endereco"),
-                            toNullableDouble(rs, "latitude"),
-                            toNullableDouble(rs, "longitude")));
-                }
-                return Optional.empty();
-            }
         }
     }
 
@@ -716,144 +422,16 @@ public class AtendimentoTelefonicoService {
         }
     }
 
-    private Optional<PedidoExistente> buscarPedidoAbertoPorClienteId(Connection conn, int clienteId)
-            throws SQLException {
-        String sql = "SELECT id, cliente_id FROM pedidos "
-                + "WHERE cliente_id = ? "
-                + "AND status::text IN ('PENDENTE', 'CONFIRMADO', 'EM_ROTA') "
-                + "ORDER BY id DESC LIMIT 1";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setInt(1, clienteId);
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    return Optional.of(new PedidoExistente(rs.getInt("id"), rs.getInt("cliente_id")));
-                }
-                return Optional.empty();
-            }
-        }
-    }
-
     private void validarElegibilidadeVale(Connection conn, int clienteId, int quantidadeGaloes, String metodoPagamento)
             throws SQLException {
         if (!METODO_PAGAMENTO_VALE.equals(metodoPagamento)) {
             return;
         }
 
-        int saldoDisponivel = buscarSaldoValeComLock(conn, clienteId);
+        int saldoDisponivel = repository.buscarSaldoValeComLock(conn, clienteId);
         if (saldoDisponivel < quantidadeGaloes) {
             throw new IllegalArgumentException("cliente nao possui vale suficiente para checkout");
         }
-    }
-
-    private int buscarSaldoValeComLock(Connection conn, int clienteId) throws SQLException {
-        String sql = "SELECT quantidade FROM saldo_vales WHERE cliente_id = ? FOR UPDATE";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setInt(1, clienteId);
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (!rs.next()) {
-                    return 0;
-                }
-                return rs.getInt("quantidade");
-            }
-        }
-    }
-
-    private void assertAtendenteExiste(Connection conn, int atendenteId) throws SQLException {
-        String sql = "SELECT 1 FROM users WHERE id = ? LIMIT 1";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setInt(1, atendenteId);
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (!rs.next()) {
-                    throw new IllegalArgumentException("Atendente informado nao existe");
-                }
-            }
-        }
-    }
-
-    private InsertPedidoResult inserirPedidoPendenteIdempotente(
-            Connection conn,
-            int clienteId,
-            int quantidadeGaloes,
-            int atendenteId,
-            String externalCallId,
-            String metodoPagamento,
-            AtendimentoRequestNormalizer.JanelaPedidoInput janelaPedido)
-            throws SQLException {
-        String sql = "INSERT INTO pedidos "
-                + "(cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por, external_call_id, metodo_pagamento) "
-                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) "
-                + "ON CONFLICT (external_call_id) DO NOTHING "
-                + "RETURNING id, cliente_id";
-
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setInt(1, clienteId);
-            stmt.setInt(2, quantidadeGaloes);
-            stmt.setObject(3, janelaPedido.tipo(), Types.OTHER);
-            if (janelaPedido.inicio() == null) {
-                stmt.setNull(4, Types.TIME);
-            } else {
-                stmt.setObject(4, janelaPedido.inicio(), Types.TIME);
-            }
-            if (janelaPedido.fim() == null) {
-                stmt.setNull(5, Types.TIME);
-            } else {
-                stmt.setObject(5, janelaPedido.fim(), Types.TIME);
-            }
-            stmt.setObject(6, "PENDENTE", Types.OTHER);
-            stmt.setInt(7, atendenteId);
-            stmt.setString(8, externalCallId);
-            stmt.setObject(9, metodoPagamento, Types.OTHER);
-
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    return new InsertPedidoResult(rs.getInt("id"), rs.getInt("cliente_id"), false);
-                }
-            }
-        }
-
-        PedidoExistente existente = buscarPedidoPorExternalCallId(conn, externalCallId)
-                .orElseThrow(() -> new SQLException("Pedido idempotente nao encontrado para external_call_id"));
-        return new InsertPedidoResult(existente.pedidoId(), existente.clienteId(), true);
-    }
-
-    private InsertPedidoResult inserirPedidoPendente(
-            Connection conn,
-            int clienteId,
-            int quantidadeGaloes,
-            int atendenteId,
-            String metodoPagamento,
-            AtendimentoRequestNormalizer.JanelaPedidoInput janelaPedido)
-            throws SQLException {
-        String sql = "INSERT INTO pedidos "
-                + "(cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por, metodo_pagamento) "
-                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
-                + "RETURNING id, cliente_id";
-
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
-            stmt.setInt(1, clienteId);
-            stmt.setInt(2, quantidadeGaloes);
-            stmt.setObject(3, janelaPedido.tipo(), Types.OTHER);
-            if (janelaPedido.inicio() == null) {
-                stmt.setNull(4, Types.TIME);
-            } else {
-                stmt.setObject(4, janelaPedido.inicio(), Types.TIME);
-            }
-            if (janelaPedido.fim() == null) {
-                stmt.setNull(5, Types.TIME);
-            } else {
-                stmt.setObject(5, janelaPedido.fim(), Types.TIME);
-            }
-            stmt.setObject(6, "PENDENTE", Types.OTHER);
-            stmt.setInt(7, atendenteId);
-            stmt.setObject(8, metodoPagamento, Types.OTHER);
-
-            try (ResultSet rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    return new InsertPedidoResult(rs.getInt("id"), rs.getInt("cliente_id"), false);
-                }
-            }
-        }
-        throw new SQLException("Falha ao criar pedido pendente em atendimento");
     }
 
     private RuntimeException mapearSqlException(SQLException e, String mensagemPadrao) {
@@ -863,26 +441,7 @@ public class AtendimentoTelefonicoService {
         return new IllegalStateException(mensagemPadrao, e);
     }
 
-    private record PedidoExistente(int pedidoId, int clienteId) {}
-
-    private static Double toNullableDouble(ResultSet rs, String column) throws SQLException {
-        Object value = rs.getObject(column);
-        if (value == null) {
-            return null;
-        }
-        return rs.getDouble(column);
-    }
-
-    private record ClienteCadastro(int clienteId, String nome, String endereco, Double latitude, Double longitude) {}
-
     private record ClienteResolucao(int clienteId, boolean clienteCriado, ClienteCadastro cadastro) {}
 
-    private record AtendimentoIdempotenteExistente(
-            int pedidoId, int clienteId, String telefoneNormalizado, String requestHash) {}
-
-    private record InsertPedidoResult(int pedidoId, int clienteId, boolean idempotente) {}
-
     private record PedidoCriadoPayload(int pedidoId, int clienteId, String externalCallId) {}
-
-    private record CoberturaBbox(double minLon, double minLat, double maxLon, double maxLat) {}
 }

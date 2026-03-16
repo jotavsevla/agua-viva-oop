@@ -37,6 +37,8 @@ solver/osrm/data/
 produto-ui/prototipo/node_modules/
 produto-ui/prototipo/test-results/
 produto-ui/prototipo/playwright-report/
+apps/operacao-web/node_modules/
+apps/operacao-web/dist/
 
 # Markdown de documentacao local (publico no GitHub: apenas README da raiz)
 **/*.md

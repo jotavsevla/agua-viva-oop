@@ -95,8 +95,7 @@ public final class Cliente {
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        Cliente cliente = (Cliente) o;
+        if (!(o instanceof Cliente cliente)) return false;
         if (this.id == 0 || cliente.id == 0) return false;
         return this.id == cliente.id;
     }

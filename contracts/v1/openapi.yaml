@@ -14,6 +14,7 @@ paths:
   /health:
     get:
       summary: Health check da API
+      operationId: healthCheck
       tags: [infra]
       responses:
         '200':
@@ -48,6 +49,7 @@ paths:
   /api/atendimento/pedidos:
     post:
       summary: Registrar pedido de atendimento telefonico
+      operationId: registrarPedidoAtendimento
       tags: [atendimento]
       parameters:
         - name: Idempotency-Key
@@ -96,6 +98,7 @@ paths:
   /api/eventos:
     post:
       summary: Registrar evento operacional
+      operationId: registrarEventoOperacional
       tags: [operacao]
       requestBody:
         required: true
@@ -120,6 +123,7 @@ paths:
   /api/replanejamento/run:
     post:
       summary: Endpoint de replanejamento manual (desativado operacionalmente)
+      operationId: executarReplanejamentoManual
       tags: [operacao]
       responses:
         '409':
@@ -132,6 +136,7 @@ paths:
   /api/operacao/rotas/prontas/iniciar:
     post:
       summary: Iniciar proxima rota pronta de um entregador (one-click operacional)
+      operationId: iniciarRotaProntaOperacional
       tags: [operacao]
       requestBody:
         required: true
@@ -139,6 +144,11 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/IniciarRotaProntaRequest'
+            examples:
+              entregadorDisponivel:
+                summary: Entregador com rota secundaria pronta
+                value:
+                  entregadorId: 44
       responses:
         '200':
           description: Rota pronta iniciada com sucesso
@@ -146,6 +156,15 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/EventoResponse'
+              examples:
+                rotaIniciada:
+                  summary: Evento operacional aplicado com sucesso
+                  value:
+                    evento: ROTA_INICIADA
+                    rotaId: 903
+                    entregaId: 55671
+                    pedidoId: 8421
+                    idempotente: false
         '400':
           $ref: '#/components/responses/BadRequest'
         '409':
@@ -156,6 +175,7 @@ paths:
   /api/pedidos/{pedidoId}/timeline:
     get:
       summary: Timeline de transicoes do pedido
+      operationId: consultarTimelinePedido
       tags: [timeline]
       x-handoff-status: ready-handoff
       x-dependency: A2
@@ -172,12 +192,32 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/TimelineResponse'
+              examples:
+                pedidoEntregue:
+                  summary: Pedido concluido no fluxo operacional
+                  value:
+                    pedidoId: 128
+                    statusAtual: ENTREGUE
+                    eventos:
+                      - timestamp: '2026-02-13T08:10:00'
+                        deStatus: NOVO
+                        paraStatus: PENDENTE
+                        origem: Atendimento
+                      - timestamp: '2026-02-13T09:02:00'
+                        deStatus: CONFIRMADO
+                        paraStatus: EM_ROTA
+                        origem: Despacho
+                      - timestamp: '2026-02-13T10:14:00'
+                        deStatus: EM_ROTA
+                        paraStatus: ENTREGUE
+                        origem: Evento operacional
         '404':
-          description: Pedido nao encontrado
+          $ref: '#/components/responses/NotFound'
 
   /api/pedidos/{pedidoId}/execucao:
     get:
       summary: Estado de execucao atual do pedido
+      operationId: consultarExecucaoPedido
       tags: [operacao]
       parameters:
         - name: pedidoId
@@ -192,8 +232,19 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/PedidoExecucaoResponse'
+              examples:
+                pedidoEmRota:
+                  summary: Pedido em execucao na rota primaria
+                  value:
+                    pedidoId: 101
+                    rotaPrimariaId: 12
+                    entregaAtivaId: 55
+                    statusPedido: EM_ROTA
+                    camada: PRIMARIA_EM_EXECUCAO
+                    rotaId: 12
+                    entregaId: 55
         '404':
-          description: Pedido nao encontrado
+          $ref: '#/components/responses/NotFound'
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':
@@ -202,6 +253,7 @@ paths:
   /api/entregadores/{entregadorId}/roteiro:
     get:
       summary: Roteiro operacional do entregador
+      operationId: consultarRoteiroEntregador
       tags: [operacao]
       parameters:
         - name: entregadorId
@@ -224,6 +276,7 @@ paths:
   /api/operacao/painel:
     get:
       summary: Painel consolidado do centro operacional
+      operationId: consultarPainelOperacional
       tags: [operacao]
       responses:
         '200':
@@ -232,6 +285,47 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OperacaoPainelResponse'
+              examples:
+                painelConsolidado:
+                  summary: Foto operacional para tomada de decisao
+                  value:
+                    atualizadoEm: '2026-02-17T10:00:00'
+                    ambiente: test
+                    pedidosPorStatus:
+                      pendente: 1
+                      confirmado: 2
+                      emRota: 1
+                      entregue: 10
+                      cancelado: 3
+                    indicadoresEntrega:
+                      totalFinalizadas: 13
+                      entregasConcluidas: 10
+                      entregasCanceladas: 3
+                      taxaSucessoPercentual: 76.92
+                    rotas:
+                      emAndamento:
+                        - rotaId: 12
+                          entregadorId: 7
+                          pendentes: 1
+                          emExecucao: 1
+                      planejadas:
+                        - rotaId: 13
+                          entregadorId: 8
+                          pendentes: 2
+                    filas:
+                      pendentesElegiveis:
+                        - pedidoId: 999
+                          criadoEm: '2026-02-17T09:55:00'
+                          quantidadeGaloes: 1
+                          janelaTipo: ASAP
+                      confirmadosSecundaria: []
+                      emRotaPrimaria:
+                        - pedidoId: 101
+                          rotaId: 12
+                          entregaId: 55
+                          entregadorId: 7
+                          quantidadeGaloes: 2
+                          statusEntrega: EM_EXECUCAO
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':
@@ -240,6 +334,7 @@ paths:
   /api/operacao/eventos:
     get:
       summary: Feed operacional de eventos de dispatch
+      operationId: listarEventosOperacionais
       tags: [operacao]
       parameters:
         - name: limite
@@ -256,6 +351,24 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OperacaoEventosResponse'
+              examples:
+                eventosRecentes:
+                  summary: Ultimos eventos processados no dispatch
+                  value:
+                    eventos:
+                      - id: 1001
+                        eventType: PEDIDO_CANCELADO
+                        status: PROCESSADO
+                        aggregateType: PEDIDO
+                        aggregateId: 101
+                        payload:
+                          rotaId: 12
+                          entregaId: 55
+                          pedidoId: 101
+                          statusEntrega: CANCELADA
+                          motivo: cliente ausente
+                        createdEm: '2026-02-17T10:01:00'
+                        processedEm: '2026-02-17T10:01:05'
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':
@@ -264,6 +377,7 @@ paths:
   /api/operacao/mapa:
     get:
       summary: Leitura geografica operacional de rotas/paradas
+      operationId: consultarMapaOperacional
       tags: [operacao]
       responses:
         '200':
@@ -272,6 +386,41 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OperacaoMapaResponse'
+              examples:
+                mapaComRotaAtiva:
+                  summary: Rota primaria em andamento com trajeto
+                  value:
+                    atualizadoEm: '2026-02-17T10:02:00'
+                    ambiente: test
+                    deposito:
+                      lat: -16.731
+                      lon: -43.871
+                    rotas:
+                      - rotaId: 12
+                        entregadorId: 7
+                        statusRota: EM_ANDAMENTO
+                        camada: PRIMARIA
+                        paradas:
+                          - pedidoId: 101
+                            entregaId: 55
+                            ordemNaRota: 1
+                            statusEntrega: EM_EXECUCAO
+                            quantidadeGaloes: 2
+                            lat: -16.732
+                            lon: -43.872
+                        trajeto:
+                          - tipo: DEPOSITO
+                            lat: -16.731
+                            lon: -43.871
+                          - tipo: PARADA
+                            pedidoId: 101
+                            entregaId: 55
+                            ordemNaRota: 1
+                            lat: -16.732
+                            lon: -43.872
+                          - tipo: DEPOSITO
+                            lat: -16.731
+                            lon: -43.871
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':
@@ -280,6 +429,7 @@ paths:
   /api/operacao/replanejamento/jobs:
     get:
       summary: Feed operacional de jobs de replanejamento do solver
+      operationId: listarJobsReplanejamento
       tags: [operacao]
       parameters:
         - name: limite
@@ -296,6 +446,24 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OperacaoReplanejamentoResponse'
+              examples:
+                feedDeJobs:
+                  summary: Jobs mais recentes com status operacional
+                  value:
+                    atualizadoEm: '2026-02-18T19:05:00'
+                    ambiente: test
+                    habilitado: true
+                    jobs:
+                      - jobId: job-plan-12-abc123
+                        planVersion: 12
+                        status: EM_EXECUCAO
+                        cancelRequested: false
+                        solicitadoEm: '2026-02-18T19:04:58'
+                        iniciadoEm: '2026-02-18T19:04:58'
+                        finalizadoEm: null
+                        erro: null
+                        hasRequestPayload: true
+                        hasResponsePayload: false
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':
@@ -304,6 +472,7 @@ paths:
   /api/operacao/replanejamento/jobs/{jobId}:
     get:
       summary: Detalhe de impacto operacional de um job de replanejamento
+      operationId: detalharJobReplanejamento
       tags: [operacao]
       parameters:
         - name: jobId
@@ -318,6 +487,36 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/OperacaoReplanejamentoJobDetalheResponse'
+              examples:
+                detalheDeJob:
+                  summary: Impacto de rotas e pedidos no job finalizado
+                  value:
+                    atualizadoEm: '2026-02-18T19:30:00'
+                    ambiente: test
+                    habilitado: true
+                    job:
+                      jobId: job-plan-12-abc123
+                      planVersion: 12
+                      status: CONCLUIDO
+                      cancelRequested: false
+                      solicitadoEm: '2026-02-18T19:04:58'
+                      iniciadoEm: '2026-02-18T19:04:58'
+                      finalizadoEm: '2026-02-18T19:04:59'
+                      erro: null
+                      hasRequestPayload: true
+                      hasResponsePayload: true
+                      rotasImpactadas:
+                        - rotaId: 101
+                          entregadorId: 7
+                          statusRota: PLANEJADA
+                          camada: SECUNDARIA
+                          totalEntregas: 2
+                      pedidosImpactados:
+                        - pedidoId: 502
+                          entregaId: 880
+                          rotaId: 101
+                          statusPedido: CONFIRMADO
+                          statusEntrega: PENDENTE
         '400':
           $ref: '#/components/responses/BadRequest'
         '500':
@@ -1192,6 +1391,17 @@ components:
         application/json:
           schema:
             $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Recurso nao encontrado
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          examples:
+            pedidoInexistente:
+              summary: Pedido nao encontrado
+              value:
+                erro: 'Pedido nao encontrado com id: 99999'
     Conflict:
       description: Conflito de estado ou regra de negocio
       content:

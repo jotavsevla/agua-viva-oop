@@ -1,0 +1,298 @@
+PLANO MULTIAGENTE - OPERACAO WEB
+
+Papel de coordenacao
+- Coordenador tecnico / gerente de projeto de implementacao
+- Responsavel por:
+  - congelar escopo por rodada
+  - proteger superficies compartilhadas
+  - distribuir frentes
+  - revisar integracao entre frentes
+  - validar criterios de aceite
+  - decidir ordem de merge
+
+Ponto de atencao antes de multiplicar agentes
+- Ja existe volume relevante de mudancas no workspace.
+- Ha mistura de:
+  - mudancas pre-existentes do prototipo e contrato
+  - mudancas novas da frente operacao-web
+- Portanto, NAO devemos deixar varios agentes alterarem tudo livremente.
+
+Superficies que devem ficar congeladas nesta rodada
+- contracts/v1/openapi.yaml
+- produto-ui/prototipo/app.js
+- produto-ui/prototipo/index.html
+- produto-ui/prototipo/lib/front/store.js
+- produto-ui/prototipo/styles.css
+- .mise.toml
+- scripts/bootstrap-dev.sh
+- .gitignore
+
+Regra de seguranca para esta fase
+- As frentes paralelas trabalham prioritariamente dentro de apps/operacao-web.
+- So o coordenador mexe em arquivos compartilhados fora de apps/operacao-web.
+- Qualquer necessidade de mudar contrato, scripts globais ou prototipo precisa voltar para o coordenador.
+
+Definicao de baseline desta rodada
+- Base oficial de evolucao: branch codex/operacao-web-sprint
+- Frente nova: apps/operacao-web
+- Estado atual da frente nova:
+  - app inicial funcionando
+  - leitura de health, painel, eventos e mapa
+  - bloco de prioridades e resumo operacional
+
+Objetivo desta onda multiagente
+- Caminhar do estado "fundacao de produto" para "operacao assistida"
+- Foco absoluto:
+  - intuitividade
+  - fluxo por papel
+  - robustez operacional
+  - arquitetura sustentavel
+
+FRENTE 1 - FUNDACAO FRONT-END
+Objetivo
+- Consolidar a arquitetura definitiva da nova app
+
+Escopo
+- organizar estrutura de pastas
+- criar client de API mais solido
+- preparar roteamento
+- centralizar estado e polling
+- normalizar componentes e utilitarios
+
+Entregaveis
+- estrutura clara em apps/operacao-web/src
+- base de rotas ou navegacao por modulos
+- camada de dados reutilizavel
+- eliminacao de logica espalhada em renderizacao quando possivel
+
+Fora de escopo
+- auth
+- mexer em contrato
+- mexer no prototipo legado
+
+Arquivos preferenciais
+- apps/operacao-web/src/main.ts
+- apps/operacao-web/src/api.ts
+- apps/operacao-web/src/types.ts
+- apps/operacao-web/src/*
+
+Criterios de aceite
+- build passando
+- menos acoplamento entre fetch, derivacao e UI
+- base pronta para suportar modulos por papel
+
+FRONTEIRA DE SEGURANCA
+- nao alterar contracts/v1/openapi.yaml
+- nao alterar produto-ui/prototipo/*
+
+Prompt sugerido
+"Voce esta na frente 1 - Fundacao Front-End. Trabalhe apenas em apps/operacao-web. Seu objetivo e deixar a base da nova app pronta para evolucao definitiva, com foco em arquitetura, separacao de responsabilidades, organizacao modular e estado previsivel. Nao mexa no prototipo legado, nem em contratos, nem em scripts globais. Entregue codigo buildavel."
+
+FRENTE 2 - UX DE COCKPIT
+Objetivo
+- Transformar a UI em um cockpit operacional realmente intuitivo
+
+Escopo
+- hierarquia visual
+- resumo executivo da operacao
+- priorizacao de alertas
+- reducao de carga cognitiva
+- linguagem de interface focada em decisao
+
+Entregaveis
+- shell de cockpit mais madura
+- cards e secoes mais operacionais
+- estados visuais mais claros
+- melhor leitura de excecoes e prioridades
+
+Fora de escopo
+- regras de negocio novas
+- auth
+- mudanca de contrato
+
+Arquivos preferenciais
+- apps/operacao-web/src/render.ts
+- apps/operacao-web/src/styles.css
+- apps/operacao-web/src/insights.ts
+
+Criterios de aceite
+- operacao entendivel "de bater o olho"
+- prioridades mais visiveis que dados secundarios
+- linguagem menos tecnica e mais orientada a acao
+
+FRONTEIRA DE SEGURANCA
+- nao alterar api.ts sem necessidade forte
+- nao alterar prototipo legado
+
+Prompt sugerido
+"Voce esta na frente 2 - UX de Cockpit. Trabalhe somente em apps/operacao-web. Seu foco e tornar a interface mais intuitiva, operacional e madura, priorizando clareza, hierarquia, alertas e orientacao de acao. Nao crie novos fluxos de backend. Nao mexa no prototipo legado."
+
+FRENTE 3 - ATENDIMENTO
+Objetivo
+- Levar a jornada da atendente para a nova app
+
+Escopo
+- busca e contexto do cliente
+- criacao de pedido
+- bloqueios de regra
+- feedback de atendimento
+- handoff para despacho
+
+Entregaveis
+- modulo/tela de atendimento dentro de apps/operacao-web
+- formulario mais maduro e orientado a operacao
+- mensagens de bloqueio compreensiveis
+
+Dependencias
+- usar a fundacao front-end pronta
+
+Fora de escopo
+- mudar backend
+- alterar contrato
+
+Arquivos preferenciais
+- apps/operacao-web/src/atendimento/*
+- apps/operacao-web/src/api.ts
+- apps/operacao-web/src/types.ts
+
+Criterios de aceite
+- fluxo ponta a ponta com API real
+- handoff claro para despacho
+- sem cara de formulario de demo
+
+FRONTEIRA DE SEGURANCA
+- nao alterar produto-ui/prototipo/*
+- nao alterar contracts/v1/openapi.yaml
+
+Prompt sugerido
+"Voce esta na frente 3 - Atendimento. Implemente a jornada de atendimento dentro de apps/operacao-web, usando a API real existente. O foco e contexto do cliente, criacao segura de pedido, bloqueios de regra e handoff para despacho. Nao mexa no prototipo legado nem no contrato."
+
+FRENTE 4 - DESPACHO
+Objetivo
+- Levar o cockpit de despacho para a nova app como frente principal
+
+Escopo
+- fila operacional
+- mapa
+- ocorrencias
+- leitura por camada de frota
+- acoes operacionais com contexto
+
+Entregaveis
+- modulo/tela de despacho
+- organizacao por prioridade e risco
+- visao clara da fila e das rotas
+
+Dependencias
+- usar a fundacao front-end pronta
+
+Fora de escopo
+- auth
+- alterar contrato
+
+Arquivos preferenciais
+- apps/operacao-web/src/despacho/*
+- apps/operacao-web/src/insights.ts
+- apps/operacao-web/src/api.ts
+
+Criterios de aceite
+- despacho orientado a decisao
+- feed de ocorrencias legivel
+- camadas de frota compreensiveis
+
+FRONTEIRA DE SEGURANCA
+- nao alterar produto-ui/prototipo/*
+- nao alterar scripts globais
+
+Prompt sugerido
+"Voce esta na frente 4 - Despacho. Construa o cockpit de despacho dentro de apps/operacao-web usando os endpoints operacionais reais. O foco e dar clareza sobre fila, rotas, ocorrencias e acoes operacionais. Nao mexa no prototipo legado, nem em contrato, nem em scripts globais."
+
+FRENTE 5 - ENTREGADOR
+Objetivo
+- Levar a experiencia do entregador para a nova app
+
+Escopo
+- roteiro do entregador
+- inicio de rota
+- eventos terminais
+- estado de progresso
+- feedback operacional simples
+
+Entregaveis
+- modulo/tela de entregador
+- foco em uso simples e robusto
+- deep link por entregador
+
+Dependencias
+- usar a fundacao front-end pronta
+
+Fora de escopo
+- auth
+- alterar backend
+
+Arquivos preferenciais
+- apps/operacao-web/src/entregador/*
+- apps/operacao-web/src/api.ts
+- apps/operacao-web/src/types.ts
+
+Criterios de aceite
+- roteiro consumindo API real
+- eventos claros e seguros
+- interface enxuta e util para rua/operacao
+
+FRONTEIRA DE SEGURANCA
+- nao alterar produto-ui/prototipo/entregador.*
+- nao alterar contrato
+
+Prompt sugerido
+"Voce esta na frente 5 - Entregador. Implemente a experiencia do entregador dentro de apps/operacao-web usando os endpoints reais ja existentes. O foco e simplicidade, confianca e clareza operacional. Nao mexa no prototipo legado e nao altere contrato."
+
+FRONTE 6 - OBSERVABILIDADE E AMBIENTE
+Objetivo
+- Aproximar a frente nova de um ambiente operacional serio
+
+Escopo
+- configuracao por ambiente para a nova UI
+- health UX
+- estrategia de seed/demo
+- preparo para CI da nova frente
+
+Entregaveis
+- plano de integracao no CI
+- estrategia de configuracao
+- melhorias de feedback de disponibilidade
+
+Fora de escopo
+- auth
+- alteracoes profundas no backend
+
+Arquivos preferenciais
+- apps/operacao-web/*
+- .mise.toml
+- scripts/*
+
+Observacao
+- Esta frente deve ser coordenada com cuidado porque toca mais superfices compartilhadas.
+
+Prompt sugerido
+"Voce esta na frente 6 - Observabilidade e Ambiente. Trabalhe com cuidado, porque pode tocar superfices compartilhadas. Seu foco e preparar a nova UI para ambiente serio: configuracao, health UX, seed/demo e caminho de CI. Antes de alterar scripts globais ou tasking, proponha o menor delta possivel."
+
+Sequencia recomendada
+1. Frente 1 e Frente 2 primeiro
+2. Frente 3, 4 e 5 em paralelo
+3. Frente 6 com mais controle do coordenador
+
+Ritual de coordenacao
+- cada frente entrega:
+  - resumo do que mudou
+  - lista de arquivos tocados
+  - riscos
+  - dependencias abertas
+  - validacao executada
+- nenhuma frente mexe em area congelada sem aprovacao do coordenador
+
+Criterio de merge
+- mergear primeiro fundacao
+- depois UX shell
+- depois atendimento, despacho e entregador
+- por ultimo ambiente/CI

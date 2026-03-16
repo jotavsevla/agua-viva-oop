@@ -94,8 +94,7 @@ public final class Pedido {
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        Pedido pedido = (Pedido) o;
+        if (!(o instanceof Pedido pedido)) return false;
         if (this.id == 0 || pedido.id == 0) return false;
         return this.id == pedido.id;
     }

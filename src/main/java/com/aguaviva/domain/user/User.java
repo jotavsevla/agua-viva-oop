@@ -82,8 +82,7 @@ public final class User {
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
-        if (o == null || getClass() != o.getClass()) return false;
-        User user = (User) o;
+        if (!(o instanceof User user)) return false;
         if (this.id == 0 || user.id == 0) return false;
         return this.id == user.id;
     }
