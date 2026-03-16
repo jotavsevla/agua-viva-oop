@@ -1,5 +1,6 @@
 import "./styles.css";
 import { createAtendimentoModuleState } from "./atendimento/model";
+import { createEntregadorState } from "./entregador/model";
 import { createAppController } from "./app/controller";
 import { resolveModuleId } from "./app/modules";
 import { createPollingController } from "./app/polling";
@@ -10,9 +11,11 @@ import {
   readApiBase,
   readAutoRefresh,
   readAtendimentoState,
+  readEntregadorId,
   writeApiBase,
   writeAtendimentoState,
-  writeAutoRefresh
+  writeAutoRefresh,
+  writeEntregadorId
 } from "./storage";
 import type { AppState } from "./types";
 
@@ -27,7 +30,7 @@ if (!root) {
 
 const appRoot = root;
 const initialApiBase = readApiBase();
-const initialEntregadorId = readEntregadorIdFromUrl() ?? DEFAULT_ENTREGADOR_ID;
+const initialEntregadorId = readEntregadorIdFromUrl() ?? readEntregadorId() ?? DEFAULT_ENTREGADOR_ID;
 
 const initialState: AppState = {
   activeModule: resolveModuleId(window.location.hash),
@@ -49,20 +52,7 @@ const initialState: AppState = {
     },
     lastRouteStart: null
   },
-  entregador: {
-    entregadorId: initialEntregadorId,
-    roteiro: null,
-    fetchedAt: null,
-    sync: {
-      status: "idle",
-      lastError: null
-    },
-    action: {
-      status: "idle",
-      lastError: null
-    },
-    lastAction: null
-  }
+  entregador: createEntregadorState(initialEntregadorId)
 };
 
 const store = createAppStore(initialState);
@@ -85,7 +75,8 @@ controller = createAppController({
   store,
   persistApiBase: writeApiBase,
   persistAutoRefresh: writeAutoRefresh,
-  persistAtendimentoState: writeAtendimentoState
+  persistAtendimentoState: writeAtendimentoState,
+  persistEntregadorId: writeEntregadorId
 });
 
 store.subscribe((state) => {
