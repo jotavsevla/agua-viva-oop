@@ -110,8 +110,7 @@ class ApiServerTest {
             stmt.execute("ALTER TABLE pedidos DROP CONSTRAINT IF EXISTS uk_pedidos_external_call_id");
             stmt.execute("DROP INDEX IF EXISTS uk_pedidos_external_call_id");
             stmt.execute("ALTER TABLE pedidos ADD CONSTRAINT uk_pedidos_external_call_id UNIQUE (external_call_id)");
-            stmt.execute(
-                    """
+            stmt.execute("""
                     CREATE TABLE IF NOT EXISTS atendimentos_idempotencia (
                     origem_canal VARCHAR(32) NOT NULL,
                     source_event_id VARCHAR(128) NOT NULL,
@@ -122,23 +121,20 @@ class ApiServerTest {
                     PRIMARY KEY (origem_canal, source_event_id))
                     """);
             stmt.execute("ALTER TABLE atendimentos_idempotencia ADD COLUMN IF NOT EXISTS request_hash VARCHAR(64)");
-            stmt.execute(
-                    """
+            stmt.execute("""
                     INSERT INTO configuracoes (chave, valor, descricao) VALUES (
                     'cobertura_bbox', '-43.9600,-16.8200,-43.7800,-16.6200',
                     'Cobertura operacional de atendimento em bbox')
                     ON CONFLICT (chave) DO NOTHING
                     """);
-            stmt.execute(
-                    """
+            stmt.execute("""
                     DO $$ BEGIN
                     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'dispatch_event_status')
                     THEN CREATE TYPE dispatch_event_status AS ENUM ('PENDENTE', 'PROCESSADO');
                     END IF;
                     END $$;
                     """);
-            stmt.execute(
-                    """
+            stmt.execute("""
                     CREATE TABLE IF NOT EXISTS dispatch_events (
                     id BIGSERIAL PRIMARY KEY,
                     event_type VARCHAR(64) NOT NULL,
@@ -150,8 +146,7 @@ class ApiServerTest {
                     available_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
                     processed_em TIMESTAMP)
                     """);
-            stmt.execute(
-                    """
+            stmt.execute("""
                     CREATE TABLE IF NOT EXISTS eventos_operacionais_idempotencia (
                     external_event_id VARCHAR(128) PRIMARY KEY,
                     request_hash VARCHAR(64) NOT NULL,
@@ -162,16 +157,14 @@ class ApiServerTest {
                     status_code INTEGER NOT NULL,
                     created_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)
                     """);
-            stmt.execute(
-                    """
+            stmt.execute("""
                     DO $$ BEGIN
                     IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'solver_job_status')
                     THEN CREATE TYPE solver_job_status AS ENUM ('PENDENTE', 'EM_EXECUCAO', 'CONCLUIDO', 'CANCELADO', 'FALHOU');
                     END IF;
                     END $$;
                     """);
-            stmt.execute(
-                    """
+            stmt.execute("""
                     CREATE TABLE IF NOT EXISTS solver_jobs (
                     job_id VARCHAR(64) PRIMARY KEY,
                     plan_version BIGINT NOT NULL,
@@ -3145,8 +3138,7 @@ class ApiServerTest {
     @Test
     void deveRetornarFeedOperacionalOrdenadoELimitadoViaHttp() throws Exception {
         try (Connection conn = factory.getConnection()) {
-            try (PreparedStatement stmt = conn.prepareStatement(
-                    """
+            try (PreparedStatement stmt = conn.prepareStatement("""
                     INSERT INTO dispatch_events (event_type, aggregate_type, aggregate_id, payload, status, created_em, available_em)
                     VALUES (?, 'PEDIDO', 1, '{}'::jsonb, ?, ?, ?)
                     """)) {
@@ -4310,8 +4302,7 @@ class ApiServerTest {
     private int criarPedidoDireto(int clienteId, int atendenteId, String status, int quantidadeGaloes)
             throws Exception {
         try (Connection conn = factory.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(
-                        """
+                PreparedStatement stmt = conn.prepareStatement("""
                         INSERT INTO pedidos (cliente_id, quantidade_galoes, janela_tipo, status, criado_por)
                         VALUES (?, ?, 'ASAP', ?, ?) RETURNING id
                         """)) {

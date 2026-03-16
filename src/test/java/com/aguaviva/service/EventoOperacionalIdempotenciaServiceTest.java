@@ -25,8 +25,7 @@ class EventoOperacionalIdempotenciaServiceTest {
                 IllegalArgumentException.class,
                 () -> service.processar("evt", null, "PEDIDO_ENTREGUE", "PEDIDO", 1L, () -> null));
         assertThrows(
-                IllegalArgumentException.class,
-                () -> service.processar("evt", "hash", null, "PEDIDO", 1L, () -> null));
+                IllegalArgumentException.class, () -> service.processar("evt", "hash", null, "PEDIDO", 1L, () -> null));
         assertThrows(
                 IllegalArgumentException.class,
                 () -> service.processar("evt", "hash", "PEDIDO_ENTREGUE", null, 1L, () -> null));

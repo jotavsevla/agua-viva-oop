@@ -66,8 +66,7 @@ public final class AtendimentoTelefonicoRepository {
         }
     }
 
-    public void lockPorIdempotenciaAtendimento(Connection conn, String origemCanal, String dedupeKey)
-            {
+    public void lockPorIdempotenciaAtendimento(Connection conn, String origemCanal, String dedupeKey) {
         try {
             String sql = "SELECT pg_advisory_xact_lock(hashtext(?))";
             try (var stmt = conn.prepareStatement(sql)) {
@@ -113,8 +112,7 @@ public final class AtendimentoTelefonicoRepository {
             int pedidoId,
             int clienteId,
             String telefoneNormalizado,
-            String requestHash)
-            {
+            String requestHash) {
         try {
             if (dedupeKey == null) {
                 return;
@@ -187,8 +185,7 @@ public final class AtendimentoTelefonicoRepository {
     }
 
     public ClienteCadastro criarClienteInicial(
-            Connection conn, String telefoneNormalizado, CadastroClienteInput cadastroClienteInput)
-            {
+            Connection conn, String telefoneNormalizado, CadastroClienteInput cadastroClienteInput) {
         try {
             String nome = cadastroClienteInput.nomeCliente();
             if (nome == null) {
@@ -242,8 +239,7 @@ public final class AtendimentoTelefonicoRepository {
     }
 
     public ClienteCadastro atualizarCadastroClienteSeInformado(
-            Connection conn, ClienteCadastro clienteAtual, CadastroClienteInput cadastroClienteInput)
-            {
+            Connection conn, ClienteCadastro clienteAtual, CadastroClienteInput cadastroClienteInput) {
         try {
             boolean temNome = cadastroClienteInput.nomeCliente() != null;
             boolean temEndereco = cadastroClienteInput.endereco() != null;
@@ -333,8 +329,7 @@ public final class AtendimentoTelefonicoRepository {
             int atendenteId,
             String externalCallId,
             String metodoPagamento,
-            JanelaPedidoInput janelaPedido)
-            {
+            JanelaPedidoInput janelaPedido) {
         try {
             String sql = """
                     INSERT INTO pedidos
@@ -384,8 +379,7 @@ public final class AtendimentoTelefonicoRepository {
             int quantidadeGaloes,
             int atendenteId,
             String metodoPagamento,
-            JanelaPedidoInput janelaPedido)
-            {
+            JanelaPedidoInput janelaPedido) {
         try {
             String sql = """
                     INSERT INTO pedidos

@@ -34,7 +34,8 @@ public final class TestDataFactory {
 
     public static User aUser() {
         int n = SEQ.incrementAndGet();
-        return new User("Usuario " + n, "user" + n + "@aguaviva.test", Password.fromPlainText("senha123"), UserPapel.ATENDENTE);
+        return new User(
+                "Usuario " + n, "user" + n + "@aguaviva.test", Password.fromPlainText("senha123"), UserPapel.ATENDENTE);
     }
 
     public static Pedido aPedido(int clienteId, int userId) {
@@ -53,7 +54,8 @@ public final class TestDataFactory {
         return repository.save(aPedido(clienteId, userId));
     }
 
-    public static Pedido insertPedido(PedidoRepository repository, ClienteRepository clienteRepository, UserRepository userRepository) {
+    public static Pedido insertPedido(
+            PedidoRepository repository, ClienteRepository clienteRepository, UserRepository userRepository) {
         Cliente cliente = insertCliente(clienteRepository);
         User user = insertUser(userRepository);
         return insertPedido(repository, cliente.getId(), user.getId());

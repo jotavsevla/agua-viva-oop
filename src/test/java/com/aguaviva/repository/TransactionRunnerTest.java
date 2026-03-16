@@ -40,9 +40,11 @@ class TransactionRunnerTest {
         TrackingConnection tracking = TrackingConnection.create();
         TransactionRunner runner = new TransactionRunner(() -> tracking.connection());
 
-        RuntimeException ex = assertThrows(RuntimeException.class, () -> runner.inTransaction(conn -> {
-            throw new RuntimeException("falhou");
-        }));
+        RuntimeException ex = assertThrows(
+                RuntimeException.class,
+                () -> runner.inTransaction(conn -> {
+                    throw new RuntimeException("falhou");
+                }));
 
         assertEquals("falhou", ex.getMessage());
         assertFalse(tracking.commitCalled);
@@ -103,9 +105,11 @@ class TransactionRunnerTest {
         TrackingConnection tracking = TrackingConnection.create();
         TransactionRunner runner = new TransactionRunner(() -> tracking.connection());
 
-        assertThrows(RuntimeException.class, () -> runner.inTransaction(conn -> {
-            throw new RuntimeException("rollback");
-        }));
+        assertThrows(
+                RuntimeException.class,
+                () -> runner.inTransaction(conn -> {
+                    throw new RuntimeException("rollback");
+                }));
 
         assertEquals(List.of(false, true), tracking.autoCommitValues);
         assertTrue(tracking.rollbackCalled);

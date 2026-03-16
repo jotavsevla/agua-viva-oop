@@ -191,8 +191,7 @@ public final class RotaRepository {
             long planVersion,
             boolean planVersionEnabled,
             String jobId,
-            boolean jobIdEnabled)
-            {
+            boolean jobIdEnabled) {
         try {
             String sql;
             if (planVersionEnabled && jobIdEnabled) {
@@ -279,8 +278,7 @@ public final class RotaRepository {
             long planVersion,
             boolean planVersionEnabled,
             String jobId,
-            boolean jobIdEnabled)
-            {
+            boolean jobIdEnabled) {
         try {
             String sql;
             if (planVersionEnabled && jobIdEnabled) {
@@ -319,8 +317,10 @@ public final class RotaRepository {
     }
 
     public List<Integer> calcularCapacidadesPorPolitica(
-            Connection conn, List<Integer> entregadoresAtivos, int capacidadePadrao, CapacidadePolicy capacidadePolicy)
-            {
+            Connection conn,
+            List<Integer> entregadoresAtivos,
+            int capacidadePadrao,
+            CapacidadePolicy capacidadePolicy) {
         try {
             if (capacidadePolicy == CapacidadePolicy.CHEIA) {
                 List<Integer> capacidades = new ArrayList<>(entregadoresAtivos.size());

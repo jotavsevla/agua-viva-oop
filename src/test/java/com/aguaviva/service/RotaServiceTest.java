@@ -729,8 +729,7 @@ class RotaServiceTest {
         assertEquals("PENDENTE", statusDoPedido(pedido3.getId()));
 
         try (Connection conn = factory.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(
-                        """
+                PreparedStatement stmt = conn.prepareStatement("""
                         SELECT r.entregador_id, COUNT(*)
                         FROM rotas r
                         JOIN entregas e ON e.rota_id = r.id
@@ -1923,8 +1922,7 @@ class RotaServiceTest {
 
     private void atualizarConfiguracao(String chave, String valor) throws Exception {
         try (Connection conn = factory.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(
-                        """
+                PreparedStatement stmt = conn.prepareStatement("""
                         INSERT INTO configuracoes (chave, valor, descricao) VALUES (?, ?, ?)
                         ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor, atualizado_em = CURRENT_TIMESTAMP
                         """)) {

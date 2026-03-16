@@ -14,8 +14,8 @@ class RotaSolverJobSupportTest {
     void finalizarSolverJobNaoDevePropagarFalhaDeBanco() {
         ConnectionFactory factory = new ConnectionFactory("localhost", "1", "db_inexistente", "x", "y");
         try {
-            assertDoesNotThrow(
-                    () -> RotaSolverJobSupport.finalizarSolverJob(factory, new Gson(), "job-1", "FALHOU", "erro", null));
+            assertDoesNotThrow(() ->
+                    RotaSolverJobSupport.finalizarSolverJob(factory, new Gson(), "job-1", "FALHOU", "erro", null));
         } finally {
             factory.close();
         }

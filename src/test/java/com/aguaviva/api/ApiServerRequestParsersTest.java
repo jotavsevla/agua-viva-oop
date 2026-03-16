@@ -42,7 +42,9 @@ class ApiServerRequestParsersTest {
 
     @Test
     void parseJobIdReplanejamentoDeveExtrairJobId() {
-        assertEquals("job-123", ApiServerRequestParsers.parseJobIdReplanejamento("/api/operacao/replanejamento/jobs/job-123"));
+        assertEquals(
+                "job-123",
+                ApiServerRequestParsers.parseJobIdReplanejamento("/api/operacao/replanejamento/jobs/job-123"));
     }
 
     @Test

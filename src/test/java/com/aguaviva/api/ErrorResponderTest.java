@@ -25,12 +25,11 @@ class ErrorResponderTest {
     @BeforeAll
     static void setUp() throws Exception {
         server = HttpServer.create(new InetSocketAddress(0), 0);
-        server.createContext("/send", exchange ->
-                ErrorResponder.send(exchange, 418, "{\"erro\":\"teapot\",\"detalhe\":\"custom\"}"));
-        server.createContext("/send-error", exchange ->
-                ErrorResponder.sendError(exchange, 404, "Nao encontrado"));
-        server.createContext("/send-internal", exchange ->
-                ErrorResponder.sendInternalError(exchange));
+        server.createContext(
+                "/send",
+                exchange -> ErrorResponder.send(exchange, 418, "{\"erro\":\"teapot\",\"detalhe\":\"custom\"}"));
+        server.createContext("/send-error", exchange -> ErrorResponder.sendError(exchange, 404, "Nao encontrado"));
+        server.createContext("/send-internal", exchange -> ErrorResponder.sendInternalError(exchange));
         server.start();
 
         int port = server.getAddress().getPort();
@@ -57,18 +56,24 @@ class ErrorResponderTest {
     void sendDeveIncluirHeadersCors() throws Exception {
         HttpResponse<String> response = request("/send");
 
-        assertEquals("*", response.headers().firstValue("Access-Control-Allow-Origin").orElseThrow());
+        assertEquals(
+                "*",
+                response.headers().firstValue("Access-Control-Allow-Origin").orElseThrow());
         assertEquals(
                 "Content-Type,Idempotency-Key,X-Idempotency-Key",
                 response.headers().firstValue("Access-Control-Allow-Headers").orElseThrow());
-        assertEquals("GET,POST,OPTIONS", response.headers().firstValue("Access-Control-Allow-Methods").orElseThrow());
+        assertEquals(
+                "GET,POST,OPTIONS",
+                response.headers().firstValue("Access-Control-Allow-Methods").orElseThrow());
     }
 
     @Test
     void sendDeveIncluirContentTypeJsonUtf8() throws Exception {
         HttpResponse<String> response = request("/send");
 
-        assertEquals("application/json; charset=utf-8", response.headers().firstValue("Content-Type").orElseThrow());
+        assertEquals(
+                "application/json; charset=utf-8",
+                response.headers().firstValue("Content-Type").orElseThrow());
     }
 
     @Test
@@ -97,10 +102,8 @@ class ErrorResponderTest {
     }
 
     private static HttpResponse<String> request(String path) throws Exception {
-        HttpRequest httpRequest = HttpRequest.newBuilder()
-                .uri(URI.create(baseUrl + path))
-                .GET()
-                .build();
+        HttpRequest httpRequest =
+                HttpRequest.newBuilder().uri(URI.create(baseUrl + path)).GET().build();
 
         return client.send(httpRequest, HttpResponse.BodyHandlers.ofString());
     }
