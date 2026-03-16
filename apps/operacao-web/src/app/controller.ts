@@ -286,6 +286,10 @@ export function createAppController(options: AppControllerOptions): AppControlle
   };
 
   const runDespachoRouteStart = async (entregadorId: number): Promise<void> => {
+    if (store.getState().despacho.routeStart.status === "loading") {
+      return;
+    }
+
     const confirmed = window.confirm(`Iniciar a proxima rota pronta do entregador ${entregadorId}?`);
 
     if (!confirmed) {
@@ -372,7 +376,12 @@ export function createAppController(options: AppControllerOptions): AppControlle
         return;
       }
 
+      if (store.getState().despacho.routeStart.status === "loading") {
+        return;
+      }
+
       void runDespachoRouteStart(entregadorId);
+      return;
     }
   };
 

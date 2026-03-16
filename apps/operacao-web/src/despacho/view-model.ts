@@ -372,6 +372,7 @@ export function buildDespachoViewModel(state: AppState): DespachoViewModel {
   const hardPendings = painel?.filas.pendentesElegiveis.filter((item) => String(item.janelaTipo).toUpperCase() === "HARD").length ?? 0;
   const secondaryRoutes = routes.filter((route) => route.camada === "SECUNDARIA");
   const candidateRoute = secondaryRoutes[0] ?? null;
+  const isRouteStartRunning = state.despacho.routeStart.status === "loading";
   const actionBlockers: string[] = [];
 
   if (!painel) {
@@ -390,7 +391,7 @@ export function buildDespachoViewModel(state: AppState): DespachoViewModel {
     actionBlockers.push("Mais de uma secundaria apareceu na mesma leitura.");
   }
 
-  const actionEnabled = actionBlockers.length === 0 && candidateRoute !== null;
+  const actionEnabled = actionBlockers.length === 0 && candidateRoute !== null && !isRouteStartRunning;
 
   return {
     headline: !painel
@@ -569,8 +570,8 @@ export function buildDespachoViewModel(state: AppState): DespachoViewModel {
       : null,
     action: {
       title: actionEnabled ? "Acao recomendada agora" : "Acao operacional protegida",
-      tone: state.despacho.routeStart.status === "loading" ? "warn" : actionEnabled ? "info" : "warn",
-      badgeLabel: state.despacho.routeStart.status === "loading" ? "executando" : actionEnabled ? "liberado" : "bloqueado",
+      tone: isRouteStartRunning ? "warn" : actionEnabled ? "info" : "warn",
+      badgeLabel: isRouteStartRunning ? "executando" : actionEnabled ? "liberado" : "bloqueado",
       detail: actionEnabled && candidateRoute
         ? `Iniciar R${candidateRoute.routeId} do entregador ${candidateRoute.entregadorId} para transformar a secundaria em frota ativa.`
         : candidateRoute
@@ -579,14 +580,14 @@ export function buildDespachoViewModel(state: AppState): DespachoViewModel {
       supportingText: actionEnabled
         ? "O gatilho usa o endpoint operacional real de inicio de rota pronta."
         : "A saida manual fica bloqueada quando a leitura esta parcial ou quando as camadas nao estao consistentes.",
-      buttonLabel: state.despacho.routeStart.status === "loading"
+      buttonLabel: isRouteStartRunning
         ? "Iniciando rota..."
         : actionEnabled && candidateRoute
           ? `Iniciar R${candidateRoute.routeId}`
           : "Aguardando contexto seguro",
       enabled: actionEnabled,
       entregadorId: candidateRoute?.entregadorId ?? null,
-      blocker: actionEnabled ? null : actionBlockers[0] ?? null
+      blocker: actionEnabled ? null : isRouteStartRunning ? "Ja existe uma saida em andamento para esta leitura." : actionBlockers[0] ?? null
     },
     notices: [
       ...(snapshot?.partialErrors.length

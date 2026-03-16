@@ -12,7 +12,7 @@ import type {
 
 function renderMetric(metric: DespachoViewModel["metrics"][number]): string {
   return `
-    <article class="metric-card">
+    <article class="metric-card tone-${metric.tone}">
       <p class="metric-label">${escapeHtml(metric.label)}</p>
       <p class="metric-value">${escapeHtml(metric.value)}</p>
       <p class="metric-detail">${escapeHtml(metric.detail)}</p>
@@ -35,7 +35,7 @@ function renderPriority(card: DespachoPriorityCardViewModel): string {
 
 function renderQueueLane(lane: DespachoQueueLaneViewModel): string {
   return `
-    <section class="queue-lane">
+    <section class="queue-lane tone-${lane.tone}">
       <div class="queue-lane-header">
         <div>
           <h3>${escapeHtml(lane.title)}</h3>
@@ -69,7 +69,7 @@ function renderQueueLane(lane: DespachoQueueLaneViewModel): string {
 
 function renderLayerCard(card: DespachoLayerCardViewModel): string {
   return `
-    <article class="route-group">
+    <article class="route-group tone-${card.tone}">
       <div class="route-group-header">
         <div>
           <h3>${escapeHtml(card.title)}</h3>
@@ -99,7 +99,7 @@ function renderLayerCard(card: DespachoLayerCardViewModel): string {
 
 function renderEventBucket(bucket: DespachoEventBucketViewModel): string {
   return `
-    <section class="event-bucket">
+    <section class="event-bucket tone-${bucket.tone}">
       <div class="panel-header">
         <div>
           <h3>${escapeHtml(bucket.title)}</h3>
