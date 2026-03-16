@@ -1,5 +1,6 @@
 package com.aguaviva.repository;
 
+import com.aguaviva.domain.exception.DatabaseException;
 import com.aguaviva.domain.user.Password;
 import com.aguaviva.domain.user.User;
 import com.aguaviva.domain.user.UserPapel;
@@ -24,7 +25,7 @@ public class UserRepository {
     // Escrita
     // ========================================================================
 
-    public User save(User user) throws SQLException {
+    public User save(User user) {
         String sql = "INSERT INTO users (nome, email, senha_hash, papel, telefone, ativo) VALUES (?, ?, ?, ?, ?, ?)";
 
         try (var conn = connectionFactory.getConnection();
@@ -56,11 +57,11 @@ public class UserRepository {
             if ("23505".equals(e.getSQLState())) {
                 throw new IllegalArgumentException("Email ja cadastrado: " + user.getEmail());
             }
-            throw e;
+            throw new DatabaseException("Falha ao salvar usuario", e);
         }
     }
 
-    public void update(User user) throws SQLException {
+    public void update(User user) {
         String sql =
                 "UPDATE users SET nome = ?, email = ?, senha_hash = ?, papel = ?, telefone = ?, ativo = ?, atualizado_em = CURRENT_TIMESTAMP WHERE id = ?";
 
@@ -82,17 +83,21 @@ public class UserRepository {
             if ("23505".equals(e.getSQLState())) {
                 throw new IllegalArgumentException("Email ja cadastrado: " + user.getEmail());
             }
-            throw e;
+            throw new DatabaseException("Falha ao atualizar usuario", e);
         }
     }
 
-    public boolean desativar(int id) throws SQLException {
+    public boolean desativar(int id) {
         String sql = "UPDATE users SET ativo = false, atualizado_em = CURRENT_TIMESTAMP WHERE id = ? AND ativo = true";
 
-        try (var conn = connectionFactory.getConnection();
-                var stmt = conn.prepareStatement(sql)) {
-            stmt.setInt(1, id);
-            return stmt.executeUpdate() > 0;
+        try {
+            try (var conn = connectionFactory.getConnection();
+                    var stmt = conn.prepareStatement(sql)) {
+                stmt.setInt(1, id);
+                return stmt.executeUpdate() > 0;
+            }
+        } catch (SQLException e) {
+            throw new DatabaseException("Falha ao desativar usuario", e);
         }
     }
 
@@ -100,48 +105,60 @@ public class UserRepository {
     // Leitura
     // ========================================================================
 
-    public Optional<User> findById(int id) throws SQLException {
+    public Optional<User> findById(int id) {
         String sql = "SELECT id, nome, email, senha_hash, papel, telefone, ativo FROM users WHERE id = ?";
 
-        try (var conn = connectionFactory.getConnection();
-                var stmt = conn.prepareStatement(sql)) {
-            stmt.setInt(1, id);
+        try {
+            try (var conn = connectionFactory.getConnection();
+                    var stmt = conn.prepareStatement(sql)) {
+                stmt.setInt(1, id);
 
-            try (var rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    return Optional.of(toUser(rs));
+                try (var rs = stmt.executeQuery()) {
+                    if (rs.next()) {
+                        return Optional.of(toUser(rs));
+                    }
+                    return Optional.empty();
                 }
-                return Optional.empty();
             }
+        } catch (SQLException e) {
+            throw new DatabaseException("Falha ao buscar usuario por id", e);
         }
     }
 
-    public Optional<User> findByEmail(String email) throws SQLException {
+    public Optional<User> findByEmail(String email) {
         String sql = "SELECT id, nome, email, senha_hash, papel, telefone, ativo FROM users WHERE email = ?";
 
-        try (var conn = connectionFactory.getConnection();
-                var stmt = conn.prepareStatement(sql)) {
-            stmt.setString(1, email.trim().toLowerCase());
+        try {
+            try (var conn = connectionFactory.getConnection();
+                    var stmt = conn.prepareStatement(sql)) {
+                stmt.setString(1, email.trim().toLowerCase());
 
-            try (var rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    return Optional.of(toUser(rs));
+                try (var rs = stmt.executeQuery()) {
+                    if (rs.next()) {
+                        return Optional.of(toUser(rs));
+                    }
+                    return Optional.empty();
                 }
-                return Optional.empty();
             }
+        } catch (SQLException e) {
+            throw new DatabaseException("Falha ao buscar usuario por email", e);
         }
     }
 
-    public List<User> findAll() throws SQLException {
+    public List<User> findAll() {
         String sql = "SELECT id, nome, email, senha_hash, papel, telefone, ativo FROM users ORDER BY id";
         List<User> users = new ArrayList<>();
 
-        try (var conn = connectionFactory.getConnection();
-                var stmt = conn.prepareStatement(sql);
-                var rs = stmt.executeQuery()) {
-            while (rs.next()) {
-                users.add(toUser(rs));
+        try {
+            try (var conn = connectionFactory.getConnection();
+                    var stmt = conn.prepareStatement(sql);
+                    var rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    users.add(toUser(rs));
+                }
             }
+        } catch (SQLException e) {
+            throw new DatabaseException("Falha ao listar usuarios", e);
         }
         return users;
     }

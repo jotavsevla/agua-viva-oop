@@ -1,5 +1,6 @@
 package com.aguaviva.repository;
 
+import com.aguaviva.domain.exception.DatabaseException;
 import com.aguaviva.service.CapacidadePolicy;
 import com.aguaviva.solver.Parada;
 import com.aguaviva.solver.PedidoSolver;
@@ -28,139 +29,158 @@ public final class RotaRepository {
         Objects.requireNonNull(connectionFactory, "ConnectionFactory nao pode ser nulo");
     }
 
-    public ConfiguracaoRoteirizacao carregarConfiguracao(Connection conn) throws SQLException {
-        String sql = """
-                SELECT chave, valor FROM configuracoes WHERE chave IN
-                ('capacidade_veiculo', 'horario_inicio_expediente', 'horario_fim_expediente',
-                'deposito_latitude', 'deposito_longitude', 'frota_perfil_ativo',
-                'capacidade_frota_moto', 'capacidade_frota_carro')
-                """;
+    public ConfiguracaoRoteirizacao carregarConfiguracao(Connection conn) {
+        try {
+            String sql = """
+                    SELECT chave, valor FROM configuracoes WHERE chave IN
+                    ('capacidade_veiculo', 'horario_inicio_expediente', 'horario_fim_expediente',
+                    'deposito_latitude', 'deposito_longitude', 'frota_perfil_ativo',
+                    'capacidade_frota_moto', 'capacidade_frota_carro')
+                    """;
 
-        Map<String, String> configs = new HashMap<>();
+            Map<String, String> configs = new HashMap<>();
 
-        try (Statement stmt = conn.createStatement();
-                var rs = stmt.executeQuery(sql)) {
-            while (rs.next()) {
-                configs.put(rs.getString("chave"), rs.getString("valor"));
-            }
-        }
-
-        int capacidadeResolvida = resolverCapacidadeVeiculo(configs);
-        return new ConfiguracaoRoteirizacao(
-                capacidadeResolvida,
-                getObrigatorio(configs, "horario_inicio_expediente"),
-                getObrigatorio(configs, "horario_fim_expediente"),
-                Double.parseDouble(getObrigatorio(configs, "deposito_latitude")),
-                Double.parseDouble(getObrigatorio(configs, "deposito_longitude")));
-    }
-
-    public List<Integer> buscarEntregadoresAtivos(Connection conn) throws SQLException {
-        String sql = "SELECT id FROM users WHERE papel = 'entregador' AND ativo = true ORDER BY id";
-        List<Integer> ids = new ArrayList<>();
-
-        try (var stmt = conn.prepareStatement(sql);
-                var rs = stmt.executeQuery()) {
-            while (rs.next()) {
-                ids.add(rs.getInt("id"));
-            }
-        }
-
-        return ids;
-    }
-
-    public List<PedidoPlanejavel> buscarPedidosParaSolver(Connection conn, int capacidadeLivreTotal)
-            throws SQLException {
-        String sql = """
-                SELECT
-                p.id AS pedido_id,
-                p.status::text AS pedido_status,
-                p.quantidade_galoes,
-                p.janela_tipo::text AS janela_tipo,
-                p.janela_inicio,
-                p.janela_fim,
-                c.latitude,
-                c.longitude,
-                CASE WHEN p.janela_tipo::text = 'HARD' THEN 1 ELSE 2 END AS prioridade
-                FROM pedidos p
-                JOIN clientes c ON c.id = p.cliente_id
-                LEFT JOIN saldo_vales sv ON sv.cliente_id = c.id
-                WHERE p.status::text IN ('PENDENTE', 'CONFIRMADO')
-                AND (p.metodo_pagamento::text <> 'VALE' OR COALESCE(sv.quantidade, 0) >= p.quantidade_galoes)
-                AND NOT EXISTS (
-                    SELECT 1 FROM entregas e2
-                    WHERE e2.pedido_id = p.id
-                    AND e2.status::text IN ('PENDENTE', 'EM_EXECUCAO')
-                )
-                ORDER BY p.criado_em, p.id
-                """;
-
-        List<PedidoPlanejavel> elegiveis = new ArrayList<>();
-
-        try (var stmt = conn.prepareStatement(sql);
-                var rs = stmt.executeQuery()) {
-            while (rs.next()) {
-                Double lat = toNullableDouble(rs, "latitude");
-                Double lon = toNullableDouble(rs, "longitude");
-
-                if (lat == null || lon == null) {
-                    continue;
+            try (Statement stmt = conn.createStatement();
+                    var rs = stmt.executeQuery(sql)) {
+                while (rs.next()) {
+                    configs.put(rs.getString("chave"), rs.getString("valor"));
                 }
-
-                LocalTime janelaInicio = rs.getObject("janela_inicio", LocalTime.class);
-                LocalTime janelaFim = rs.getObject("janela_fim", LocalTime.class);
-
-                PedidoSolver pedidoSolver = new PedidoSolver(
-                        rs.getInt("pedido_id"),
-                        lat,
-                        lon,
-                        rs.getInt("quantidade_galoes"),
-                        rs.getString("janela_tipo"),
-                        formatTime(janelaInicio),
-                        formatTime(janelaFim),
-                        rs.getInt("prioridade"));
-                elegiveis.add(new PedidoPlanejavel(pedidoSolver, rs.getString("pedido_status")));
             }
-        }
 
-        return aplicarPromocaoConfirmadosPorFifo(elegiveis, capacidadeLivreTotal);
-    }
-
-    public boolean existePedidoSemEntregaAbertaParaPlanejar(Connection conn) throws SQLException {
-        String sql = """
-                SELECT 1
-                FROM pedidos p
-                JOIN clientes c ON c.id = p.cliente_id
-                LEFT JOIN saldo_vales sv ON sv.cliente_id = c.id
-                WHERE p.status::text IN ('PENDENTE', 'CONFIRMADO')
-                AND (p.metodo_pagamento::text <> 'VALE' OR COALESCE(sv.quantidade, 0) >= p.quantidade_galoes)
-                AND NOT EXISTS (
-                    SELECT 1 FROM entregas e2
-                    WHERE e2.pedido_id = p.id
-                    AND e2.status::text IN ('PENDENTE', 'EM_EXECUCAO')
-                )
-                LIMIT 1
-                """;
-        try (var stmt = conn.prepareStatement(sql);
-                var rs = stmt.executeQuery()) {
-            return rs.next();
+            int capacidadeResolvida = resolverCapacidadeVeiculo(configs);
+            return new ConfiguracaoRoteirizacao(
+                    capacidadeResolvida,
+                    getObrigatorio(configs, "horario_inicio_expediente"),
+                    getObrigatorio(configs, "horario_fim_expediente"),
+                    Double.parseDouble(getObrigatorio(configs, "deposito_latitude")),
+                    Double.parseDouble(getObrigatorio(configs, "deposito_longitude")));
+        } catch (SQLException e) {
+            throw new DatabaseException("Falha ao carregar configuracao de roteirizacao", e);
         }
     }
 
-    public void limparCamadaSecundariaPlanejada(Connection conn) throws SQLException {
-        String deleteEntregas = """
-                DELETE FROM entregas e
-                USING rotas r
-                WHERE e.rota_id = r.id
-                AND r.data = CURRENT_DATE
-                AND r.status::text = 'PLANEJADA'
-                """;
-        try (var stmt = conn.prepareStatement(deleteEntregas)) {
-            stmt.executeUpdate();
-        }
+    public List<Integer> buscarEntregadoresAtivos(Connection conn) {
+        try {
+            String sql = "SELECT id FROM users WHERE papel = 'entregador' AND ativo = true ORDER BY id";
+            List<Integer> ids = new ArrayList<>();
 
-        String deleteRotas = "DELETE FROM rotas WHERE data = CURRENT_DATE AND status::text = 'PLANEJADA'";
-        try (var stmt = conn.prepareStatement(deleteRotas)) {
-            stmt.executeUpdate();
+            try (var stmt = conn.prepareStatement(sql);
+                    var rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    ids.add(rs.getInt("id"));
+                }
+            }
+
+            return ids;
+        } catch (SQLException e) {
+            throw new DatabaseException("Falha ao buscar entregadores ativos", e);
+        }
+    }
+
+    public List<PedidoPlanejavel> buscarPedidosParaSolver(Connection conn, int capacidadeLivreTotal) {
+        try {
+            String sql = """
+                    SELECT
+                    p.id AS pedido_id,
+                    p.status::text AS pedido_status,
+                    p.quantidade_galoes,
+                    p.janela_tipo::text AS janela_tipo,
+                    p.janela_inicio,
+                    p.janela_fim,
+                    c.latitude,
+                    c.longitude,
+                    CASE WHEN p.janela_tipo::text = 'HARD' THEN 1 ELSE 2 END AS prioridade
+                    FROM pedidos p
+                    JOIN clientes c ON c.id = p.cliente_id
+                    LEFT JOIN saldo_vales sv ON sv.cliente_id = c.id
+                    WHERE p.status::text IN ('PENDENTE', 'CONFIRMADO')
+                    AND (p.metodo_pagamento::text <> 'VALE' OR COALESCE(sv.quantidade, 0) >= p.quantidade_galoes)
+                    AND NOT EXISTS (
+                        SELECT 1 FROM entregas e2
+                        WHERE e2.pedido_id = p.id
+                        AND e2.status::text IN ('PENDENTE', 'EM_EXECUCAO')
+                    )
+                    ORDER BY p.criado_em, p.id
+                    """;
+
+            List<PedidoPlanejavel> elegiveis = new ArrayList<>();
+
+            try (var stmt = conn.prepareStatement(sql);
+                    var rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    Double lat = toNullableDouble(rs, "latitude");
+                    Double lon = toNullableDouble(rs, "longitude");
+
+                    if (lat == null || lon == null) {
+                        continue;
+                    }
+
+                    LocalTime janelaInicio = rs.getObject("janela_inicio", LocalTime.class);
+                    LocalTime janelaFim = rs.getObject("janela_fim", LocalTime.class);
+
+                    PedidoSolver pedidoSolver = new PedidoSolver(
+                            rs.getInt("pedido_id"),
+                            lat,
+                            lon,
+                            rs.getInt("quantidade_galoes"),
+                            rs.getString("janela_tipo"),
+                            formatTime(janelaInicio),
+                            formatTime(janelaFim),
+                            rs.getInt("prioridade"));
+                    elegiveis.add(new PedidoPlanejavel(pedidoSolver, rs.getString("pedido_status")));
+                }
+            }
+
+            return aplicarPromocaoConfirmadosPorFifo(elegiveis, capacidadeLivreTotal);
+        } catch (SQLException e) {
+            throw new DatabaseException("Falha ao buscar pedidos para solver", e);
+        }
+    }
+
+    public boolean existePedidoSemEntregaAbertaParaPlanejar(Connection conn) {
+        try {
+            String sql = """
+                    SELECT 1
+                    FROM pedidos p
+                    JOIN clientes c ON c.id = p.cliente_id
+                    LEFT JOIN saldo_vales sv ON sv.cliente_id = c.id
+                    WHERE p.status::text IN ('PENDENTE', 'CONFIRMADO')
+                    AND (p.metodo_pagamento::text <> 'VALE' OR COALESCE(sv.quantidade, 0) >= p.quantidade_galoes)
+                    AND NOT EXISTS (
+                        SELECT 1 FROM entregas e2
+                        WHERE e2.pedido_id = p.id
+                        AND e2.status::text IN ('PENDENTE', 'EM_EXECUCAO')
+                    )
+                    LIMIT 1
+                    """;
+            try (var stmt = conn.prepareStatement(sql);
+                    var rs = stmt.executeQuery()) {
+                return rs.next();
+            }
+        } catch (SQLException e) {
+            throw new DatabaseException("Falha ao verificar pedidos para planejamento", e);
+        }
+    }
+
+    public void limparCamadaSecundariaPlanejada(Connection conn) {
+        try {
+            String deleteEntregas = """
+                    DELETE FROM entregas e
+                    USING rotas r
+                    WHERE e.rota_id = r.id
+                    AND r.data = CURRENT_DATE
+                    AND r.status::text = 'PLANEJADA'
+                    """;
+            try (var stmt = conn.prepareStatement(deleteEntregas)) {
+                stmt.executeUpdate();
+            }
+
+            String deleteRotas = "DELETE FROM rotas WHERE data = CURRENT_DATE AND status::text = 'PLANEJADA'";
+            try (var stmt = conn.prepareStatement(deleteRotas)) {
+                stmt.executeUpdate();
+            }
+        } catch (SQLException e) {
+            throw new DatabaseException("Falha ao limpar camada secundaria planejada", e);
         }
     }
 
@@ -172,52 +192,56 @@ public final class RotaRepository {
             boolean planVersionEnabled,
             String jobId,
             boolean jobIdEnabled)
-            throws SQLException {
-        String sql;
-        if (planVersionEnabled && jobIdEnabled) {
-            sql =
-                    "INSERT INTO rotas (entregador_id, data, numero_no_dia, status, plan_version, job_id) VALUES (?, CURRENT_DATE, ?, ?, ?, ?)";
-        } else if (planVersionEnabled) {
-            sql =
-                    "INSERT INTO rotas (entregador_id, data, numero_no_dia, status, plan_version) VALUES (?, CURRENT_DATE, ?, ?, ?)";
-        } else if (jobIdEnabled) {
-            sql =
-                    "INSERT INTO rotas (entregador_id, data, numero_no_dia, status, job_id) VALUES (?, CURRENT_DATE, ?, ?, ?)";
-        } else {
-            sql = "INSERT INTO rotas (entregador_id, data, numero_no_dia, status) VALUES (?, CURRENT_DATE, ?, ?)";
-        }
-
-        for (int tentativa = 1; tentativa <= 5; tentativa++) {
-            int numeroNoDia = reservarNumeroNoDia(conn, entregadorId, numeroNoDiaSugerido);
-
-            try (var stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-                stmt.setInt(1, entregadorId);
-                stmt.setInt(2, numeroNoDia);
-                stmt.setObject(3, "PLANEJADA", Types.OTHER);
-                if (planVersionEnabled && jobIdEnabled) {
-                    stmt.setLong(4, planVersion);
-                    stmt.setString(5, jobId);
-                } else if (planVersionEnabled) {
-                    stmt.setLong(4, planVersion);
-                } else if (jobIdEnabled) {
-                    stmt.setString(4, jobId);
-                }
-                stmt.executeUpdate();
-
-                try (var rs = stmt.getGeneratedKeys()) {
-                    if (rs.next()) {
-                        return rs.getInt(1);
-                    }
-                }
-            } catch (SQLException e) {
-                if ("23505".equals(e.getSQLState()) && tentativa < 5) {
-                    continue;
-                }
-                throw e;
+            {
+        try {
+            String sql;
+            if (planVersionEnabled && jobIdEnabled) {
+                sql =
+                        "INSERT INTO rotas (entregador_id, data, numero_no_dia, status, plan_version, job_id) VALUES (?, CURRENT_DATE, ?, ?, ?, ?)";
+            } else if (planVersionEnabled) {
+                sql =
+                        "INSERT INTO rotas (entregador_id, data, numero_no_dia, status, plan_version) VALUES (?, CURRENT_DATE, ?, ?, ?)";
+            } else if (jobIdEnabled) {
+                sql =
+                        "INSERT INTO rotas (entregador_id, data, numero_no_dia, status, job_id) VALUES (?, CURRENT_DATE, ?, ?, ?)";
+            } else {
+                sql = "INSERT INTO rotas (entregador_id, data, numero_no_dia, status) VALUES (?, CURRENT_DATE, ?, ?)";
             }
-        }
 
-        throw new SQLException("Falha ao inserir rota apos tentativas");
+            for (int tentativa = 1; tentativa <= 5; tentativa++) {
+                int numeroNoDia = reservarNumeroNoDia(conn, entregadorId, numeroNoDiaSugerido);
+
+                try (var stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+                    stmt.setInt(1, entregadorId);
+                    stmt.setInt(2, numeroNoDia);
+                    stmt.setObject(3, "PLANEJADA", Types.OTHER);
+                    if (planVersionEnabled && jobIdEnabled) {
+                        stmt.setLong(4, planVersion);
+                        stmt.setString(5, jobId);
+                    } else if (planVersionEnabled) {
+                        stmt.setLong(4, planVersion);
+                    } else if (jobIdEnabled) {
+                        stmt.setString(4, jobId);
+                    }
+                    stmt.executeUpdate();
+
+                    try (var rs = stmt.getGeneratedKeys()) {
+                        if (rs.next()) {
+                            return rs.getInt(1);
+                        }
+                    }
+                } catch (SQLException e) {
+                    if ("23505".equals(e.getSQLState()) && tentativa < 5) {
+                        continue;
+                    }
+                    throw e;
+                }
+            }
+
+            throw new SQLException("Falha ao inserir rota apos tentativas");
+        } catch (SQLException e) {
+            throw new DatabaseException("Falha ao inserir rota", e);
+        }
     }
 
     private int reservarNumeroNoDia(Connection conn, int entregadorId, int numeroNoDiaSugerido) throws SQLException {
@@ -256,52 +280,60 @@ public final class RotaRepository {
             boolean planVersionEnabled,
             String jobId,
             boolean jobIdEnabled)
-            throws SQLException {
-        String sql;
-        if (planVersionEnabled && jobIdEnabled) {
-            sql =
-                    "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, hora_prevista, status, plan_version, job_id) VALUES (?, ?, ?, ?, ?, ?, ?)";
-        } else if (planVersionEnabled) {
-            sql =
-                    "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, hora_prevista, status, plan_version) VALUES (?, ?, ?, ?, ?, ?)";
-        } else if (jobIdEnabled) {
-            sql =
-                    "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, hora_prevista, status, job_id) VALUES (?, ?, ?, ?, ?, ?)";
-        } else {
-            sql =
-                    "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, hora_prevista, status) VALUES (?, ?, ?, ?, ?)";
-        }
-
-        try (var stmt = conn.prepareStatement(sql)) {
-            stmt.setInt(1, parada.pedidoId());
-            stmt.setInt(2, rotaId);
-            stmt.setInt(3, parada.ordem());
-            stmt.setObject(4, toLocalDateTime(parada.horaPrevista()));
-            stmt.setObject(5, "PENDENTE", Types.OTHER);
+            {
+        try {
+            String sql;
             if (planVersionEnabled && jobIdEnabled) {
-                stmt.setLong(6, planVersion);
-                stmt.setString(7, jobId);
+                sql =
+                        "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, hora_prevista, status, plan_version, job_id) VALUES (?, ?, ?, ?, ?, ?, ?)";
             } else if (planVersionEnabled) {
-                stmt.setLong(6, planVersion);
+                sql =
+                        "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, hora_prevista, status, plan_version) VALUES (?, ?, ?, ?, ?, ?)";
             } else if (jobIdEnabled) {
-                stmt.setString(6, jobId);
+                sql =
+                        "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, hora_prevista, status, job_id) VALUES (?, ?, ?, ?, ?, ?)";
+            } else {
+                sql =
+                        "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, hora_prevista, status) VALUES (?, ?, ?, ?, ?)";
             }
-            stmt.executeUpdate();
+
+            try (var stmt = conn.prepareStatement(sql)) {
+                stmt.setInt(1, parada.pedidoId());
+                stmt.setInt(2, rotaId);
+                stmt.setInt(3, parada.ordem());
+                stmt.setObject(4, toLocalDateTime(parada.horaPrevista()));
+                stmt.setObject(5, "PENDENTE", Types.OTHER);
+                if (planVersionEnabled && jobIdEnabled) {
+                    stmt.setLong(6, planVersion);
+                    stmt.setString(7, jobId);
+                } else if (planVersionEnabled) {
+                    stmt.setLong(6, planVersion);
+                } else if (jobIdEnabled) {
+                    stmt.setString(6, jobId);
+                }
+                stmt.executeUpdate();
+            }
+        } catch (SQLException e) {
+            throw new DatabaseException("Falha ao inserir entrega", e);
         }
     }
 
     public List<Integer> calcularCapacidadesPorPolitica(
             Connection conn, List<Integer> entregadoresAtivos, int capacidadePadrao, CapacidadePolicy capacidadePolicy)
-            throws SQLException {
-        if (capacidadePolicy == CapacidadePolicy.CHEIA) {
-            List<Integer> capacidades = new ArrayList<>(entregadoresAtivos.size());
-            for (int i = 0; i < entregadoresAtivos.size(); i++) {
-                capacidades.add(Math.max(0, capacidadePadrao));
+            {
+        try {
+            if (capacidadePolicy == CapacidadePolicy.CHEIA) {
+                List<Integer> capacidades = new ArrayList<>(entregadoresAtivos.size());
+                for (int i = 0; i < entregadoresAtivos.size(); i++) {
+                    capacidades.add(Math.max(0, capacidadePadrao));
+                }
+                return capacidades;
             }
-            return capacidades;
-        }
 
-        return calcularCapacidadesRemanescentesPorEntregador(conn, entregadoresAtivos, capacidadePadrao);
+            return calcularCapacidadesRemanescentesPorEntregador(conn, entregadoresAtivos, capacidadePadrao);
+        } catch (SQLException e) {
+            throw new DatabaseException("Falha ao calcular capacidades por politica", e);
+        }
     }
 
     private List<Integer> calcularCapacidadesRemanescentesPorEntregador(
@@ -333,15 +365,19 @@ public final class RotaRepository {
         return capacidades;
     }
 
-    public boolean tentarAdquirirLockPlanejamento(Connection conn) throws SQLException {
-        try (var stmt = conn.prepareStatement("SELECT pg_try_advisory_xact_lock(?)")) {
-            stmt.setLong(1, PLANEJAMENTO_LOCK_KEY);
-            try (var rs = stmt.executeQuery()) {
-                if (!rs.next()) {
-                    return false;
+    public boolean tentarAdquirirLockPlanejamento(Connection conn) {
+        try {
+            try (var stmt = conn.prepareStatement("SELECT pg_try_advisory_xact_lock(?)")) {
+                stmt.setLong(1, PLANEJAMENTO_LOCK_KEY);
+                try (var rs = stmt.executeQuery()) {
+                    if (!rs.next()) {
+                        return false;
+                    }
+                    return rs.getBoolean(1);
                 }
-                return rs.getBoolean(1);
             }
+        } catch (SQLException e) {
+            throw new DatabaseException("Falha ao adquirir lock de planejamento", e);
         }
     }
 

@@ -1,5 +1,6 @@
 package com.aguaviva.repository;
 
+import com.aguaviva.domain.exception.DatabaseException;
 import com.aguaviva.domain.pedido.JanelaTipo;
 import com.aguaviva.domain.pedido.Pedido;
 import com.aguaviva.domain.pedido.PedidoStatus;
@@ -25,7 +26,7 @@ public class PedidoRepository {
     // Escrita
     // ========================================================================
 
-    public Pedido save(Pedido pedido) throws SQLException {
+    public Pedido save(Pedido pedido) {
         String sql = """
                 INSERT INTO pedidos (cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por)
                 VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -62,11 +63,11 @@ public class PedidoRepository {
             if ("23503".equals(e.getSQLState())) {
                 throw new IllegalArgumentException("Cliente ou usuario criador nao encontrado");
             }
-            throw e;
+            throw new DatabaseException("Falha ao salvar pedido", e);
         }
     }
 
-    public void update(Pedido pedido) throws SQLException {
+    public void update(Pedido pedido) {
         String sql = """
                 UPDATE pedidos
                 SET cliente_id = ?, quantidade_galoes = ?, janela_tipo = ?, janela_inicio = ?, janela_fim = ?, status = ?, criado_por = ?,
@@ -93,7 +94,7 @@ public class PedidoRepository {
             if ("23503".equals(e.getSQLState())) {
                 throw new IllegalArgumentException("Cliente ou usuario criador nao encontrado");
             }
-            throw e;
+            throw new DatabaseException("Falha ao atualizar pedido", e);
         }
     }
 
@@ -101,58 +102,70 @@ public class PedidoRepository {
     // Leitura
     // ========================================================================
 
-    public Optional<Pedido> findById(int id) throws SQLException {
+    public Optional<Pedido> findById(int id) {
         String sql = """
                 SELECT id, cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por
                 FROM pedidos WHERE id = ?
                 """;
 
-        try (var conn = connectionFactory.getConnection();
-                var stmt = conn.prepareStatement(sql)) {
-            stmt.setInt(1, id);
+        try {
+            try (var conn = connectionFactory.getConnection();
+                    var stmt = conn.prepareStatement(sql)) {
+                stmt.setInt(1, id);
 
-            try (var rs = stmt.executeQuery()) {
-                if (rs.next()) {
-                    return Optional.of(toPedido(rs));
+                try (var rs = stmt.executeQuery()) {
+                    if (rs.next()) {
+                        return Optional.of(toPedido(rs));
+                    }
+                    return Optional.empty();
                 }
-                return Optional.empty();
             }
+        } catch (SQLException e) {
+            throw new DatabaseException("Falha ao buscar pedido por id", e);
         }
     }
 
-    public List<Pedido> findByCliente(int clienteId) throws SQLException {
+    public List<Pedido> findByCliente(int clienteId) {
         String sql = """
                 SELECT id, cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por
                 FROM pedidos WHERE cliente_id = ? ORDER BY criado_em DESC, id DESC
                 """;
         List<Pedido> pedidos = new ArrayList<>();
 
-        try (var conn = connectionFactory.getConnection();
-                var stmt = conn.prepareStatement(sql)) {
-            stmt.setInt(1, clienteId);
+        try {
+            try (var conn = connectionFactory.getConnection();
+                    var stmt = conn.prepareStatement(sql)) {
+                stmt.setInt(1, clienteId);
 
-            try (var rs = stmt.executeQuery()) {
-                while (rs.next()) {
-                    pedidos.add(toPedido(rs));
+                try (var rs = stmt.executeQuery()) {
+                    while (rs.next()) {
+                        pedidos.add(toPedido(rs));
+                    }
                 }
             }
+        } catch (SQLException e) {
+            throw new DatabaseException("Falha ao buscar pedidos por cliente", e);
         }
         return pedidos;
     }
 
-    public List<Pedido> findPendentes() throws SQLException {
+    public List<Pedido> findPendentes() {
         String sql = """
                 SELECT id, cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por
                 FROM pedidos WHERE status = 'PENDENTE' ORDER BY criado_em, id
                 """;
         List<Pedido> pedidos = new ArrayList<>();
 
-        try (var conn = connectionFactory.getConnection();
-                var stmt = conn.prepareStatement(sql);
-                var rs = stmt.executeQuery()) {
-            while (rs.next()) {
-                pedidos.add(toPedido(rs));
+        try {
+            try (var conn = connectionFactory.getConnection();
+                    var stmt = conn.prepareStatement(sql);
+                    var rs = stmt.executeQuery()) {
+                while (rs.next()) {
+                    pedidos.add(toPedido(rs));
+                }
             }
+        } catch (SQLException e) {
+            throw new DatabaseException("Falha ao listar pedidos pendentes", e);
         }
         return pedidos;
     }
