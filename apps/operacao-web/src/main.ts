@@ -1,5 +1,6 @@
 import "./styles.css";
 import { createAtendimentoModuleState } from "./atendimento/model";
+import { createEntregadorState } from "./entregador/model";
 import { createAppController } from "./app/controller";
 import { resolveModuleId } from "./app/modules";
 import { createPollingController } from "./app/polling";
@@ -51,20 +52,7 @@ const initialState: AppState = {
     },
     lastRouteStart: null
   },
-  entregador: {
-    entregadorId: initialEntregadorId,
-    roteiro: null,
-    fetchedAt: null,
-    sync: {
-      status: "idle",
-      lastError: null
-    },
-    action: {
-      status: "idle",
-      lastError: null
-    },
-    lastAction: null
-  }
+  entregador: createEntregadorState(initialEntregadorId)
 };
 
 const store = createAppStore(initialState);
