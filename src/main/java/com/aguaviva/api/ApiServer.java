@@ -7,6 +7,7 @@ import com.aguaviva.api.mapper.OperacaoPainelMapper;
 import com.aguaviva.config.ApiRuntimeConfig;
 import com.aguaviva.repository.ConnectionFactory;
 import com.aguaviva.repository.Database;
+import com.aguaviva.repository.HashUtils;
 import com.aguaviva.service.AtendimentoTelefonicoResultado;
 import com.aguaviva.service.AtendimentoTelefonicoService;
 import com.aguaviva.service.DispatchEventTypes;
@@ -36,8 +37,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
 import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
@@ -195,7 +194,7 @@ public final class ApiServer {
                 return;
             }
             if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-                writeJson(exchange, 405, Map.of("erro", "Metodo nao permitido"));
+                ErrorResponder.sendError(exchange, 405, "Metodo nao permitido");
                 return;
             }
             if (database.isHealthy()) {
@@ -216,7 +215,7 @@ public final class ApiServer {
                 return;
             }
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-                writeJson(exchange, 405, Map.of("erro", "Metodo nao permitido"));
+                ErrorResponder.sendError(exchange, 405, "Metodo nao permitido");
                 return;
             }
 
@@ -302,11 +301,11 @@ public final class ApiServer {
                 writeJson(exchange, 200, resultado);
                 dispararReplanejamentoAssincronoSeNecessario(DispatchEventTypes.PEDIDO_CRIADO, resultado.idempotente());
             } catch (IllegalArgumentException e) {
-                writeJson(exchange, 400, Map.of("erro", e.getMessage()));
+                ErrorResponder.sendError(exchange, 400, e.getMessage());
             } catch (IllegalStateException e) {
-                writeJson(exchange, 409, Map.of("erro", e.getMessage()));
+                ErrorResponder.sendError(exchange, 409, e.getMessage());
             } catch (Exception e) {
-                writeJson(exchange, 500, Map.of("erro", "Falha no atendimento telefonico", "detalhe", e.getMessage()));
+                ErrorResponder.sendInternalError(exchange);
             }
         }
     }
@@ -321,7 +320,7 @@ public final class ApiServer {
                 return;
             }
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-                writeJson(exchange, 405, Map.of("erro", "Metodo nao permitido"));
+                ErrorResponder.sendError(exchange, 405, "Metodo nao permitido");
                 return;
             }
 
@@ -349,7 +348,7 @@ public final class ApiServer {
                                 scopeRef.scopeId(),
                                 () -> processarEventoOperacional(eventType, req));
                 if (resultadoIdempotencia.conflito()) {
-                    writeJson(exchange, 409, Map.of("erro", resultadoIdempotencia.erroConflito()));
+                    ErrorResponder.sendError(exchange, 409, resultadoIdempotencia.erroConflito());
                     return;
                 }
 
@@ -357,14 +356,11 @@ public final class ApiServer {
                 writeJson(exchange, 200, resultadoProcessamento);
                 dispararReplanejamentoAssincronoSeNecessario(eventType, resultadoProcessamento);
             } catch (IllegalArgumentException e) {
-                writeJson(exchange, 400, Map.of("erro", e.getMessage()));
+                ErrorResponder.sendError(exchange, 400, e.getMessage());
             } catch (IllegalStateException e) {
-                writeJson(exchange, 409, Map.of("erro", e.getMessage()));
+                ErrorResponder.sendError(exchange, 409, e.getMessage());
             } catch (Exception e) {
-                writeJson(
-                        exchange,
-                        500,
-                        Map.of("erro", "Falha ao processar evento operacional", "detalhe", e.getMessage()));
+                ErrorResponder.sendInternalError(exchange);
             }
         }
     }
@@ -379,16 +375,14 @@ public final class ApiServer {
                 return;
             }
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-                writeJson(exchange, 405, Map.of("erro", "Metodo nao permitido"));
+                ErrorResponder.sendError(exchange, 405, "Metodo nao permitido");
                 return;
             }
 
-            writeJson(
+            ErrorResponder.sendError(
                     exchange,
                     409,
-                    Map.of(
-                            "erro",
-                            "Endpoint desativado: replanejamento manual nao e permitido. Use o fluxo orientado a eventos."));
+                    "Endpoint desativado: replanejamento manual nao e permitido. Use o fluxo orientado a eventos.");
         }
     }
 
@@ -399,7 +393,7 @@ public final class ApiServer {
                 return;
             }
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
-                writeJson(exchange, 405, Map.of("erro", "Metodo nao permitido"));
+                ErrorResponder.sendError(exchange, 405, "Metodo nao permitido");
                 return;
             }
 
@@ -409,11 +403,11 @@ public final class ApiServer {
                 ExecucaoEntregaResultado resultado = execucaoEntregaService.iniciarProximaRotaPronta(entregadorId);
                 writeJson(exchange, 200, resultado);
             } catch (IllegalArgumentException e) {
-                writeJson(exchange, 400, Map.of("erro", e.getMessage()));
+                ErrorResponder.sendError(exchange, 400, e.getMessage());
             } catch (IllegalStateException e) {
-                writeJson(exchange, 409, Map.of("erro", e.getMessage()));
+                ErrorResponder.sendError(exchange, 409, e.getMessage());
             } catch (Exception e) {
-                writeJson(exchange, 500, Map.of("erro", "Falha ao iniciar rota pronta", "detalhe", e.getMessage()));
+                ErrorResponder.sendInternalError(exchange);
             }
         }
     }
@@ -428,7 +422,7 @@ public final class ApiServer {
                 return;
             }
             if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-                writeJson(exchange, 405, Map.of("erro", "Metodo nao permitido"));
+                ErrorResponder.sendError(exchange, 405, "Metodo nao permitido");
                 return;
             }
 
@@ -450,16 +444,15 @@ public final class ApiServer {
                     return;
                 }
 
-                writeJson(exchange, 400, Map.of("erro", "Path invalido para pedidos"));
+                ErrorResponder.sendError(exchange, 400, "Path invalido para pedidos");
             } catch (IllegalArgumentException e) {
                 if (isPedidoNotFound(e)) {
-                    writeJson(exchange, 404, Map.of("erro", e.getMessage()));
+                    ErrorResponder.sendError(exchange, 404, e.getMessage());
                 } else {
-                    writeJson(exchange, 400, Map.of("erro", e.getMessage()));
+                    ErrorResponder.sendError(exchange, 400, e.getMessage());
                 }
             } catch (Exception e) {
-                writeJson(
-                        exchange, 500, Map.of("erro", "Falha ao consultar dados do pedido", "detalhe", e.getMessage()));
+                ErrorResponder.sendInternalError(exchange);
             }
         }
     }
@@ -474,7 +467,7 @@ public final class ApiServer {
                 return;
             }
             if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-                writeJson(exchange, 405, Map.of("erro", "Metodo nao permitido"));
+                ErrorResponder.sendError(exchange, 405, "Metodo nao permitido");
                 return;
             }
 
@@ -485,12 +478,9 @@ public final class ApiServer {
                         roteiroEntregadorService.consultarRoteiro(entregadorId);
                 writeJson(exchange, 200, roteiro);
             } catch (IllegalArgumentException e) {
-                writeJson(exchange, 400, Map.of("erro", e.getMessage()));
+                ErrorResponder.sendError(exchange, 400, e.getMessage());
             } catch (Exception e) {
-                writeJson(
-                        exchange,
-                        500,
-                        Map.of("erro", "Falha ao consultar roteiro operacional", "detalhe", e.getMessage()));
+                ErrorResponder.sendInternalError(exchange);
             }
         }
     }
@@ -505,7 +495,7 @@ public final class ApiServer {
                 return;
             }
             if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-                writeJson(exchange, 405, Map.of("erro", "Metodo nao permitido"));
+                ErrorResponder.sendError(exchange, 405, "Metodo nao permitido");
                 return;
             }
 
@@ -536,14 +526,11 @@ public final class ApiServer {
                     writeJson(exchange, 200, operacaoReplanejamentoService.detalharJob(jobId));
                     return;
                 }
-                writeJson(exchange, 400, Map.of("erro", "Path invalido para operacao"));
+                ErrorResponder.sendError(exchange, 400, "Path invalido para operacao");
             } catch (IllegalArgumentException e) {
-                writeJson(exchange, 400, Map.of("erro", e.getMessage()));
+                ErrorResponder.sendError(exchange, 400, e.getMessage());
             } catch (Exception e) {
-                writeJson(
-                        exchange,
-                        500,
-                        Map.of("erro", "Falha ao consultar dados operacionais", "detalhe", e.getMessage()));
+                ErrorResponder.sendInternalError(exchange);
             }
         }
     }
@@ -749,22 +736,7 @@ public final class ApiServer {
         canonical.put("motivo", ApiServerRequestParsers.normalizeOptionalText(req.motivo()));
         canonical.put("cobrancaCancelamentoCentavos", req.cobrancaCancelamentoCentavos());
         String payload = gson.toJson(canonical);
-        return sha256(payload);
-    }
-
-    private static String sha256(String value) {
-        try {
-            MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            byte[] hash = digest.digest(value.getBytes(StandardCharsets.UTF_8));
-            StringBuilder sb = new StringBuilder(hash.length * 2);
-            for (byte b : hash) {
-                sb.append(Character.forDigit((b >>> 4) & 0x0F, 16));
-                sb.append(Character.forDigit(b & 0x0F, 16));
-            }
-            return sb.toString();
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 indisponivel no runtime", e);
-        }
+        return HashUtils.sha256(payload);
     }
 
     private record ScopeRef(String scopeType, int scopeId) {}
