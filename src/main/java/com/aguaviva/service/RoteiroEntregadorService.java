@@ -32,17 +32,19 @@ public class RoteiroEntregadorService {
             List<ParadaResumo> paradasConcluidas = new ArrayList<>();
             int cargaRemanescente = 0;
 
-            String sqlParadas = "SELECT e.id AS entrega_id, "
-                    + "e.pedido_id, "
-                    + "e.ordem_na_rota, "
-                    + "e.status::text AS entrega_status, "
-                    + "p.quantidade_galoes, "
-                    + "COALESCE(c.nome, '') AS cliente_nome "
-                    + "FROM entregas e "
-                    + "JOIN pedidos p ON p.id = e.pedido_id "
-                    + "LEFT JOIN clientes c ON c.id = p.cliente_id "
-                    + "WHERE e.rota_id = ? "
-                    + "ORDER BY e.ordem_na_rota, e.id";
+            String sqlParadas = """
+                    SELECT e.id AS entrega_id,
+                    e.pedido_id,
+                    e.ordem_na_rota,
+                    e.status::text AS entrega_status,
+                    p.quantidade_galoes,
+                    COALESCE(c.nome, '') AS cliente_nome
+                    FROM entregas e
+                    JOIN pedidos p ON p.id = e.pedido_id
+                    LEFT JOIN clientes c ON c.id = p.cliente_id
+                    WHERE e.rota_id = ?
+                    ORDER BY e.ordem_na_rota, e.id
+                    """;
             try (PreparedStatement stmt = conn.prepareStatement(sqlParadas)) {
                 stmt.setInt(1, rota.rotaId());
                 try (ResultSet rs = stmt.executeQuery()) {
@@ -77,13 +79,15 @@ public class RoteiroEntregadorService {
     }
 
     private RotaResumo buscarRotaAtivaOuPlanejada(Connection conn, int entregadorId) throws SQLException {
-        String sql = "SELECT id, status::text "
-                + "FROM rotas "
-                + "WHERE entregador_id = ? "
-                + "AND data = CURRENT_DATE "
-                + "AND status::text IN ('EM_ANDAMENTO', 'PLANEJADA') "
-                + "ORDER BY CASE WHEN status::text = 'EM_ANDAMENTO' THEN 0 ELSE 1 END, numero_no_dia, id "
-                + "LIMIT 1";
+        String sql = """
+                SELECT id, status::text
+                FROM rotas
+                WHERE entregador_id = ?
+                AND data = CURRENT_DATE
+                AND status::text IN ('EM_ANDAMENTO', 'PLANEJADA')
+                ORDER BY CASE WHEN status::text = 'EM_ANDAMENTO' THEN 0 ELSE 1 END, numero_no_dia, id
+                LIMIT 1
+                """;
 
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, entregadorId);

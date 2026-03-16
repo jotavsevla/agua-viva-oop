@@ -110,59 +110,80 @@ class ApiServerTest {
             stmt.execute("ALTER TABLE pedidos DROP CONSTRAINT IF EXISTS uk_pedidos_external_call_id");
             stmt.execute("DROP INDEX IF EXISTS uk_pedidos_external_call_id");
             stmt.execute("ALTER TABLE pedidos ADD CONSTRAINT uk_pedidos_external_call_id UNIQUE (external_call_id)");
-            stmt.execute("CREATE TABLE IF NOT EXISTS atendimentos_idempotencia ("
-                    + "origem_canal VARCHAR(32) NOT NULL, "
-                    + "source_event_id VARCHAR(128) NOT NULL, "
-                    + "pedido_id INTEGER NOT NULL, "
-                    + "cliente_id INTEGER NOT NULL, "
-                    + "telefone_normalizado VARCHAR(15) NOT NULL, "
-                    + "criado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, "
-                    + "PRIMARY KEY (origem_canal, source_event_id))");
+            stmt.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS atendimentos_idempotencia (
+                    origem_canal VARCHAR(32) NOT NULL,
+                    source_event_id VARCHAR(128) NOT NULL,
+                    pedido_id INTEGER NOT NULL,
+                    cliente_id INTEGER NOT NULL,
+                    telefone_normalizado VARCHAR(15) NOT NULL,
+                    criado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (origem_canal, source_event_id))
+                    """);
             stmt.execute("ALTER TABLE atendimentos_idempotencia ADD COLUMN IF NOT EXISTS request_hash VARCHAR(64)");
-            stmt.execute("INSERT INTO configuracoes (chave, valor, descricao) VALUES ("
-                    + "'cobertura_bbox', '-43.9600,-16.8200,-43.7800,-16.6200', "
-                    + "'Cobertura operacional de atendimento em bbox') "
-                    + "ON CONFLICT (chave) DO NOTHING");
-            stmt.execute("DO $$ BEGIN "
-                    + "IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'dispatch_event_status') "
-                    + "THEN CREATE TYPE dispatch_event_status AS ENUM ('PENDENTE', 'PROCESSADO'); "
-                    + "END IF; "
-                    + "END $$;");
-            stmt.execute("CREATE TABLE IF NOT EXISTS dispatch_events ("
-                    + "id BIGSERIAL PRIMARY KEY, "
-                    + "event_type VARCHAR(64) NOT NULL, "
-                    + "aggregate_type VARCHAR(32) NOT NULL, "
-                    + "aggregate_id BIGINT, "
-                    + "payload JSONB NOT NULL DEFAULT '{}'::jsonb, "
-                    + "status dispatch_event_status NOT NULL DEFAULT 'PENDENTE', "
-                    + "created_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, "
-                    + "available_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, "
-                    + "processed_em TIMESTAMP)");
-            stmt.execute("CREATE TABLE IF NOT EXISTS eventos_operacionais_idempotencia ("
-                    + "external_event_id VARCHAR(128) PRIMARY KEY, "
-                    + "request_hash VARCHAR(64) NOT NULL, "
-                    + "event_type VARCHAR(64) NOT NULL, "
-                    + "scope_type VARCHAR(16) NOT NULL, "
-                    + "scope_id BIGINT NOT NULL, "
-                    + "response_json JSONB NOT NULL, "
-                    + "status_code INTEGER NOT NULL, "
-                    + "created_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)");
-            stmt.execute("DO $$ BEGIN "
-                    + "IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'solver_job_status') "
-                    + "THEN CREATE TYPE solver_job_status AS ENUM ('PENDENTE', 'EM_EXECUCAO', 'CONCLUIDO', 'CANCELADO', 'FALHOU'); "
-                    + "END IF; "
-                    + "END $$;");
-            stmt.execute("CREATE TABLE IF NOT EXISTS solver_jobs ("
-                    + "job_id VARCHAR(64) PRIMARY KEY, "
-                    + "plan_version BIGINT NOT NULL, "
-                    + "status solver_job_status NOT NULL DEFAULT 'PENDENTE', "
-                    + "cancel_requested BOOLEAN NOT NULL DEFAULT FALSE, "
-                    + "solicitado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, "
-                    + "iniciado_em TIMESTAMP, "
-                    + "finalizado_em TIMESTAMP, "
-                    + "erro TEXT, "
-                    + "request_payload JSONB, "
-                    + "response_payload JSONB)");
+            stmt.execute(
+                    """
+                    INSERT INTO configuracoes (chave, valor, descricao) VALUES (
+                    'cobertura_bbox', '-43.9600,-16.8200,-43.7800,-16.6200',
+                    'Cobertura operacional de atendimento em bbox')
+                    ON CONFLICT (chave) DO NOTHING
+                    """);
+            stmt.execute(
+                    """
+                    DO $$ BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'dispatch_event_status')
+                    THEN CREATE TYPE dispatch_event_status AS ENUM ('PENDENTE', 'PROCESSADO');
+                    END IF;
+                    END $$;
+                    """);
+            stmt.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS dispatch_events (
+                    id BIGSERIAL PRIMARY KEY,
+                    event_type VARCHAR(64) NOT NULL,
+                    aggregate_type VARCHAR(32) NOT NULL,
+                    aggregate_id BIGINT,
+                    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    status dispatch_event_status NOT NULL DEFAULT 'PENDENTE',
+                    created_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    available_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    processed_em TIMESTAMP)
+                    """);
+            stmt.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS eventos_operacionais_idempotencia (
+                    external_event_id VARCHAR(128) PRIMARY KEY,
+                    request_hash VARCHAR(64) NOT NULL,
+                    event_type VARCHAR(64) NOT NULL,
+                    scope_type VARCHAR(16) NOT NULL,
+                    scope_id BIGINT NOT NULL,
+                    response_json JSONB NOT NULL,
+                    status_code INTEGER NOT NULL,
+                    created_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)
+                    """);
+            stmt.execute(
+                    """
+                    DO $$ BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'solver_job_status')
+                    THEN CREATE TYPE solver_job_status AS ENUM ('PENDENTE', 'EM_EXECUCAO', 'CONCLUIDO', 'CANCELADO', 'FALHOU');
+                    END IF;
+                    END $$;
+                    """);
+            stmt.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS solver_jobs (
+                    job_id VARCHAR(64) PRIMARY KEY,
+                    plan_version BIGINT NOT NULL,
+                    status solver_job_status NOT NULL DEFAULT 'PENDENTE',
+                    cancel_requested BOOLEAN NOT NULL DEFAULT FALSE,
+                    solicitado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    iniciado_em TIMESTAMP,
+                    finalizado_em TIMESTAMP,
+                    erro TEXT,
+                    request_payload JSONB,
+                    response_payload JSONB)
+                    """);
         }
     }
 
@@ -3125,8 +3146,10 @@ class ApiServerTest {
     void deveRetornarFeedOperacionalOrdenadoELimitadoViaHttp() throws Exception {
         try (Connection conn = factory.getConnection()) {
             try (PreparedStatement stmt = conn.prepareStatement(
-                    "INSERT INTO dispatch_events (event_type, aggregate_type, aggregate_id, payload, status, created_em, available_em) "
-                            + "VALUES (?, 'PEDIDO', 1, '{}'::jsonb, ?, ?, ?)")) {
+                    """
+                    INSERT INTO dispatch_events (event_type, aggregate_type, aggregate_id, payload, status, created_em, available_em)
+                    VALUES (?, 'PEDIDO', 1, '{}'::jsonb, ?, ?, ?)
+                    """)) {
                 stmt.setString(1, "PEDIDO_CANCELADO");
                 stmt.setObject(2, "PENDENTE", java.sql.Types.OTHER);
                 stmt.setTimestamp(3, Timestamp.valueOf(LocalDateTime.of(2026, 2, 16, 10, 0)));
@@ -4042,18 +4065,6 @@ class ApiServerTest {
         }
     }
 
-    private int contarDispatchPorStatus(String status) throws Exception {
-        try (Connection conn = factory.getConnection();
-                PreparedStatement stmt =
-                        conn.prepareStatement("SELECT COUNT(*) FROM dispatch_events WHERE status::text = ?")) {
-            stmt.setString(1, status);
-            try (ResultSet rs = stmt.executeQuery()) {
-                rs.next();
-                return rs.getInt(1);
-            }
-        }
-    }
-
     private int contarEventosPorTipo(String eventType) throws Exception {
         try (Connection conn = factory.getConnection();
                 PreparedStatement stmt =
@@ -4231,14 +4242,16 @@ class ApiServerTest {
     }
 
     private int contarPedidosComMaisDeUmaEntregaAberta() throws Exception {
-        String sql = "SELECT COUNT(*) "
-                + "FROM ("
-                + "  SELECT e.pedido_id "
-                + "  FROM entregas e "
-                + "  WHERE e.status::text IN ('PENDENTE', 'EM_EXECUCAO') "
-                + "  GROUP BY e.pedido_id "
-                + "  HAVING COUNT(*) > 1"
-                + ") duplicados";
+        String sql = """
+                SELECT COUNT(*)
+                FROM (
+                  SELECT e.pedido_id
+                  FROM entregas e
+                  WHERE e.status::text IN ('PENDENTE', 'EM_EXECUCAO')
+                  GROUP BY e.pedido_id
+                  HAVING COUNT(*) > 1
+                ) duplicados
+                """;
         try (Connection conn = factory.getConnection();
                 PreparedStatement stmt = conn.prepareStatement(sql);
                 ResultSet rs = stmt.executeQuery()) {
@@ -4257,9 +4270,11 @@ class ApiServerTest {
             String erro,
             LocalDateTime solicitadoEm)
             throws Exception {
-        String sql = "INSERT INTO solver_jobs "
-                + "(job_id, plan_version, status, cancel_requested, solicitado_em, iniciado_em, finalizado_em, erro, request_payload, response_payload) "
-                + "VALUES (?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), CASE WHEN ? IS NULL THEN NULL ELSE CAST(? AS jsonb) END)";
+        String sql = """
+                INSERT INTO solver_jobs
+                (job_id, plan_version, status, cancel_requested, solicitado_em, iniciado_em, finalizado_em, erro, request_payload, response_payload)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, CAST(? AS jsonb), CASE WHEN ? IS NULL THEN NULL ELSE CAST(? AS jsonb) END)
+                """;
         try (Connection conn = factory.getConnection();
                 PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, jobId);
@@ -4296,8 +4311,10 @@ class ApiServerTest {
             throws Exception {
         try (Connection conn = factory.getConnection();
                 PreparedStatement stmt = conn.prepareStatement(
-                        "INSERT INTO pedidos (cliente_id, quantidade_galoes, janela_tipo, status, criado_por) "
-                                + "VALUES (?, ?, 'ASAP', ?, ?) RETURNING id")) {
+                        """
+                        INSERT INTO pedidos (cliente_id, quantidade_galoes, janela_tipo, status, criado_por)
+                        VALUES (?, ?, 'ASAP', ?, ?) RETURNING id
+                        """)) {
             stmt.setInt(1, clienteId);
             stmt.setInt(2, quantidadeGaloes);
             stmt.setObject(3, status, java.sql.Types.OTHER);

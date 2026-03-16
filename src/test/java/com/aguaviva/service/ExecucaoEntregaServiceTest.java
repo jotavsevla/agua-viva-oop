@@ -79,21 +79,27 @@ class ExecucaoEntregaServiceTest {
                 Statement stmt = conn.createStatement()) {
             stmt.execute("ALTER TYPE entrega_status ADD VALUE IF NOT EXISTS 'EM_EXECUCAO'");
             stmt.execute("ALTER TYPE entrega_status ADD VALUE IF NOT EXISTS 'CANCELADA'");
-            stmt.execute("DO $$ BEGIN "
-                    + "IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'dispatch_event_status') "
-                    + "THEN CREATE TYPE dispatch_event_status AS ENUM ('PENDENTE', 'PROCESSADO'); "
-                    + "END IF; "
-                    + "END $$;");
-            stmt.execute("CREATE TABLE IF NOT EXISTS dispatch_events ("
-                    + "id BIGSERIAL PRIMARY KEY, "
-                    + "event_type VARCHAR(64) NOT NULL, "
-                    + "aggregate_type VARCHAR(32) NOT NULL, "
-                    + "aggregate_id BIGINT, "
-                    + "payload JSONB NOT NULL DEFAULT '{}'::jsonb, "
-                    + "status dispatch_event_status NOT NULL DEFAULT 'PENDENTE', "
-                    + "created_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, "
-                    + "available_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, "
-                    + "processed_em TIMESTAMP)");
+            stmt.execute(
+                    """
+                    DO $$ BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'dispatch_event_status')
+                    THEN CREATE TYPE dispatch_event_status AS ENUM ('PENDENTE', 'PROCESSADO');
+                    END IF;
+                    END $$;
+                    """);
+            stmt.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS dispatch_events (
+                    id BIGSERIAL PRIMARY KEY,
+                    event_type VARCHAR(64) NOT NULL,
+                    aggregate_type VARCHAR(32) NOT NULL,
+                    aggregate_id BIGINT,
+                    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    status dispatch_event_status NOT NULL DEFAULT 'PENDENTE',
+                    created_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    available_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    processed_em TIMESTAMP)
+                    """);
         }
     }
 
@@ -624,9 +630,11 @@ class ExecucaoEntregaServiceTest {
     }
 
     private String payloadUltimoEventoPorPedido(String eventType, int pedidoId) throws Exception {
-        String sql = "SELECT payload::text FROM dispatch_events "
-                + "WHERE event_type = ? AND aggregate_type = 'PEDIDO' AND aggregate_id = ? "
-                + "ORDER BY id DESC LIMIT 1";
+        String sql = """
+                SELECT payload::text FROM dispatch_events
+                WHERE event_type = ? AND aggregate_type = 'PEDIDO' AND aggregate_id = ?
+                ORDER BY id DESC LIMIT 1
+                """;
         try (Connection conn = factory.getConnection();
                 PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, eventType);
@@ -654,8 +662,10 @@ class ExecucaoEntregaServiceTest {
     private void inserirSaldoVale(int clienteId, int quantidade) throws Exception {
         try (Connection conn = factory.getConnection();
                 PreparedStatement stmt = conn.prepareStatement(
-                        "INSERT INTO saldo_vales (cliente_id, quantidade) VALUES (?, ?) "
-                                + "ON CONFLICT (cliente_id) DO UPDATE SET quantidade = EXCLUDED.quantidade, atualizado_em = CURRENT_TIMESTAMP")) {
+                        """
+                        INSERT INTO saldo_vales (cliente_id, quantidade) VALUES (?, ?)
+                        ON CONFLICT (cliente_id) DO UPDATE SET quantidade = EXCLUDED.quantidade, atualizado_em = CURRENT_TIMESTAMP
+                        """)) {
             stmt.setInt(1, clienteId);
             stmt.setInt(2, quantidade);
             stmt.executeUpdate();

@@ -99,21 +99,27 @@ class OperacaoEventosServiceTest {
     private static void garantirSchemaDispatch() throws Exception {
         try (Connection conn = factory.getConnection();
                 Statement stmt = conn.createStatement()) {
-            stmt.execute("DO $$ BEGIN "
-                    + "IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'dispatch_event_status') "
-                    + "THEN CREATE TYPE dispatch_event_status AS ENUM ('PENDENTE', 'PROCESSADO'); "
-                    + "END IF; "
-                    + "END $$;");
-            stmt.execute("CREATE TABLE IF NOT EXISTS dispatch_events ("
-                    + "id BIGSERIAL PRIMARY KEY, "
-                    + "event_type VARCHAR(64) NOT NULL, "
-                    + "aggregate_type VARCHAR(32) NOT NULL, "
-                    + "aggregate_id BIGINT, "
-                    + "payload JSONB NOT NULL DEFAULT '{}'::jsonb, "
-                    + "status dispatch_event_status NOT NULL DEFAULT 'PENDENTE', "
-                    + "created_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, "
-                    + "available_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, "
-                    + "processed_em TIMESTAMP)");
+            stmt.execute(
+                    """
+                    DO $$ BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'dispatch_event_status')
+                    THEN CREATE TYPE dispatch_event_status AS ENUM ('PENDENTE', 'PROCESSADO');
+                    END IF;
+                    END $$;
+                    """);
+            stmt.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS dispatch_events (
+                    id BIGSERIAL PRIMARY KEY,
+                    event_type VARCHAR(64) NOT NULL,
+                    aggregate_type VARCHAR(32) NOT NULL,
+                    aggregate_id BIGINT,
+                    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    status dispatch_event_status NOT NULL DEFAULT 'PENDENTE',
+                    created_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    available_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    processed_em TIMESTAMP)
+                    """);
         }
     }
 
@@ -133,9 +139,10 @@ class OperacaoEventosServiceTest {
             LocalDateTime createdEm,
             LocalDateTime processedEm)
             throws Exception {
-        String sql =
-                "INSERT INTO dispatch_events (event_type, status, aggregate_type, aggregate_id, payload, created_em, available_em, processed_em) "
-                        + "VALUES (?, ?, ?, ?, CAST(? AS jsonb), ?, ?, ?) RETURNING id";
+        String sql = """
+                INSERT INTO dispatch_events (event_type, status, aggregate_type, aggregate_id, payload, created_em, available_em, processed_em)
+                VALUES (?, ?, ?, ?, CAST(? AS jsonb), ?, ?, ?) RETURNING id
+                """;
         try (Connection conn = factory.getConnection();
                 PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, eventType);

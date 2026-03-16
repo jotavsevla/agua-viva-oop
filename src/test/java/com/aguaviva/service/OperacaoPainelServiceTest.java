@@ -182,8 +182,10 @@ class OperacaoPainelServiceTest {
     }
 
     private int criarRota(int entregadorId, String status, int numeroNoDia) throws Exception {
-        String sql = "INSERT INTO rotas (entregador_id, data, numero_no_dia, status) "
-                + "VALUES (?, CURRENT_DATE, ?, ?) RETURNING id";
+        String sql = """
+                INSERT INTO rotas (entregador_id, data, numero_no_dia, status)
+                VALUES (?, CURRENT_DATE, ?, ?) RETURNING id
+                """;
         try (Connection conn = factory.getConnection();
                 PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, entregadorId);

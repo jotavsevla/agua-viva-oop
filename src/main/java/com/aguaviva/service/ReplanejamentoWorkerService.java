@@ -201,13 +201,15 @@ public class ReplanejamentoWorkerService {
 
     private List<DispatchEventRef> buscarEventosPendentesComDebounce(
             Connection conn, int debounceSegundos, int limiteEventos) throws SQLException {
-        String sql = "SELECT id, event_type "
-                + "FROM dispatch_events "
-                + "WHERE status = 'PENDENTE' "
-                + "AND available_em <= (CURRENT_TIMESTAMP - (? * INTERVAL '1 second')) "
-                + "ORDER BY created_em, id "
-                + "LIMIT ? "
-                + "FOR UPDATE SKIP LOCKED";
+        String sql = """
+                SELECT id, event_type
+                FROM dispatch_events
+                WHERE status = 'PENDENTE'
+                AND available_em <= (CURRENT_TIMESTAMP - (? * INTERVAL '1 second'))
+                ORDER BY created_em, id
+                LIMIT ?
+                FOR UPDATE SKIP LOCKED
+                """;
 
         List<DispatchEventRef> result = new ArrayList<>();
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -253,18 +255,20 @@ public class ReplanejamentoWorkerService {
             return false;
         }
 
-        String sql = "SELECT 1 "
-                + "FROM pedidos p "
-                + "WHERE p.status::text IN ('PENDENTE', 'CONFIRMADO') "
-                + "AND p.janela_tipo::text = 'HARD' "
-                + "AND p.janela_fim IS NOT NULL "
-                + "AND MOD((EXTRACT(EPOCH FROM p.janela_fim) - EXTRACT(EPOCH FROM CAST(? AS TIME)) + 86400), 86400) <= (? * 60) "
-                + "AND NOT EXISTS ("
-                + "    SELECT 1 FROM entregas e "
-                + "    WHERE e.pedido_id = p.id "
-                + "    AND e.status::text IN ('PENDENTE', 'EM_EXECUCAO')"
-                + ") "
-                + "LIMIT 1";
+        String sql = """
+                SELECT 1
+                FROM pedidos p
+                WHERE p.status::text IN ('PENDENTE', 'CONFIRMADO')
+                AND p.janela_tipo::text = 'HARD'
+                AND p.janela_fim IS NOT NULL
+                AND MOD((EXTRACT(EPOCH FROM p.janela_fim) - EXTRACT(EPOCH FROM CAST(? AS TIME)) + 86400), 86400) <= (? * 60)
+                AND NOT EXISTS (
+                    SELECT 1 FROM entregas e
+                    WHERE e.pedido_id = p.id
+                    AND e.status::text IN ('PENDENTE', 'EM_EXECUCAO')
+                )
+                LIMIT 1
+                """;
 
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setTime(1, Time.valueOf(referencia));

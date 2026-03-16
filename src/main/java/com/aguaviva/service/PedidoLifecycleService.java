@@ -78,14 +78,16 @@ public class PedidoLifecycleService {
             throws SQLException {
         CobrancaCancelamento cobranca = CobrancaCancelamento.from(transition, context);
 
-        String sql = "UPDATE pedidos SET "
-                + "status = ?, "
-                + "atualizado_em = CURRENT_TIMESTAMP, "
-                + "cancelado_em = CURRENT_TIMESTAMP, "
-                + "motivo_cancelamento = ?, "
-                + "cobranca_cancelamento_centavos = ?, "
-                + "cobranca_status = ? "
-                + "WHERE id = ?";
+        String sql = """
+                UPDATE pedidos SET
+                status = ?,
+                atualizado_em = CURRENT_TIMESTAMP,
+                cancelado_em = CURRENT_TIMESTAMP,
+                motivo_cancelamento = ?,
+                cobranca_cancelamento_centavos = ?,
+                cobranca_status = ?
+                WHERE id = ?
+                """;
 
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setObject(1, statusDestino.name(), Types.OTHER);

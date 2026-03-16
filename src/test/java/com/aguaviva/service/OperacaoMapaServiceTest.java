@@ -132,8 +132,10 @@ class OperacaoMapaServiceTest {
     }
 
     private void upsertConfiguracao(Connection conn, String chave, String valor, String descricao) throws Exception {
-        String sql = "INSERT INTO configuracoes (chave, valor, descricao) VALUES (?, ?, ?) "
-                + "ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor, descricao = EXCLUDED.descricao";
+        String sql = """
+                INSERT INTO configuracoes (chave, valor, descricao) VALUES (?, ?, ?)
+                ON CONFLICT (chave) DO UPDATE SET valor = EXCLUDED.valor, descricao = EXCLUDED.descricao
+                """;
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, chave);
             stmt.setString(2, valor);
@@ -159,8 +161,10 @@ class OperacaoMapaServiceTest {
     }
 
     private int criarRota(int entregadorId, String status) throws Exception {
-        String sql = "INSERT INTO rotas (entregador_id, data, numero_no_dia, status) "
-                + "VALUES (?, CURRENT_DATE, 1, ?) RETURNING id";
+        String sql = """
+                INSERT INTO rotas (entregador_id, data, numero_no_dia, status)
+                VALUES (?, CURRENT_DATE, 1, ?) RETURNING id
+                """;
         try (Connection conn = factory.getConnection();
                 PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, entregadorId);
@@ -173,8 +177,10 @@ class OperacaoMapaServiceTest {
     }
 
     private int criarEntrega(int pedidoId, int rotaId, int ordemNaRota, String status) throws Exception {
-        String sql = "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, status) "
-                + "VALUES (?, ?, ?, ?) RETURNING id";
+        String sql = """
+                INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, status)
+                VALUES (?, ?, ?, ?) RETURNING id
+                """;
         try (Connection conn = factory.getConnection();
                 PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, pedidoId);

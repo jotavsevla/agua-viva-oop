@@ -75,13 +75,15 @@ public class OperacaoPainelService {
     }
 
     private PedidosPorStatus consultarPedidosPorStatus(Connection conn) throws SQLException {
-        String sql = "SELECT "
-                + "SUM(CASE WHEN status::text = 'PENDENTE' THEN 1 ELSE 0 END) AS pendente, "
-                + "SUM(CASE WHEN status::text = 'CONFIRMADO' THEN 1 ELSE 0 END) AS confirmado, "
-                + "SUM(CASE WHEN status::text = 'EM_ROTA' THEN 1 ELSE 0 END) AS em_rota, "
-                + "SUM(CASE WHEN status::text = 'ENTREGUE' THEN 1 ELSE 0 END) AS entregue, "
-                + "SUM(CASE WHEN status::text = 'CANCELADO' THEN 1 ELSE 0 END) AS cancelado "
-                + "FROM pedidos";
+        String sql = """
+                SELECT
+                SUM(CASE WHEN status::text = 'PENDENTE' THEN 1 ELSE 0 END) AS pendente,
+                SUM(CASE WHEN status::text = 'CONFIRMADO' THEN 1 ELSE 0 END) AS confirmado,
+                SUM(CASE WHEN status::text = 'EM_ROTA' THEN 1 ELSE 0 END) AS em_rota,
+                SUM(CASE WHEN status::text = 'ENTREGUE' THEN 1 ELSE 0 END) AS entregue,
+                SUM(CASE WHEN status::text = 'CANCELADO' THEN 1 ELSE 0 END) AS cancelado
+                FROM pedidos
+                """;
         try (PreparedStatement stmt = conn.prepareStatement(sql);
                 ResultSet rs = stmt.executeQuery()) {
             rs.next();
@@ -95,16 +97,18 @@ public class OperacaoPainelService {
     }
 
     private List<RotaEmAndamentoResumo> consultarRotasEmAndamento(Connection conn) throws SQLException {
-        String sql = "SELECT r.id AS rota_id, "
-                + "r.entregador_id, "
-                + "COALESCE(SUM(CASE WHEN e.status::text = 'PENDENTE' THEN 1 ELSE 0 END), 0) AS pendentes, "
-                + "COALESCE(SUM(CASE WHEN e.status::text = 'EM_EXECUCAO' THEN 1 ELSE 0 END), 0) AS em_execucao "
-                + "FROM rotas r "
-                + "LEFT JOIN entregas e ON e.rota_id = r.id "
-                + "WHERE r.data = CURRENT_DATE "
-                + "AND r.status::text = 'EM_ANDAMENTO' "
-                + "GROUP BY r.id, r.entregador_id "
-                + "ORDER BY r.id";
+        String sql = """
+                SELECT r.id AS rota_id,
+                r.entregador_id,
+                COALESCE(SUM(CASE WHEN e.status::text = 'PENDENTE' THEN 1 ELSE 0 END), 0) AS pendentes,
+                COALESCE(SUM(CASE WHEN e.status::text = 'EM_EXECUCAO' THEN 1 ELSE 0 END), 0) AS em_execucao
+                FROM rotas r
+                LEFT JOIN entregas e ON e.rota_id = r.id
+                WHERE r.data = CURRENT_DATE
+                AND r.status::text = 'EM_ANDAMENTO'
+                GROUP BY r.id, r.entregador_id
+                ORDER BY r.id
+                """;
         List<RotaEmAndamentoResumo> result = new ArrayList<>();
         try (PreparedStatement stmt = conn.prepareStatement(sql);
                 ResultSet rs = stmt.executeQuery()) {
@@ -120,15 +124,17 @@ public class OperacaoPainelService {
     }
 
     private List<RotaPlanejadaResumo> consultarRotasPlanejadas(Connection conn) throws SQLException {
-        String sql = "SELECT r.id AS rota_id, "
-                + "r.entregador_id, "
-                + "COALESCE(SUM(CASE WHEN e.status::text = 'PENDENTE' THEN 1 ELSE 0 END), 0) AS pendentes "
-                + "FROM rotas r "
-                + "LEFT JOIN entregas e ON e.rota_id = r.id "
-                + "WHERE r.data = CURRENT_DATE "
-                + "AND r.status::text = 'PLANEJADA' "
-                + "GROUP BY r.id, r.entregador_id "
-                + "ORDER BY r.id";
+        String sql = """
+                SELECT r.id AS rota_id,
+                r.entregador_id,
+                COALESCE(SUM(CASE WHEN e.status::text = 'PENDENTE' THEN 1 ELSE 0 END), 0) AS pendentes
+                FROM rotas r
+                LEFT JOIN entregas e ON e.rota_id = r.id
+                WHERE r.data = CURRENT_DATE
+                AND r.status::text = 'PLANEJADA'
+                GROUP BY r.id, r.entregador_id
+                ORDER BY r.id
+                """;
         List<RotaPlanejadaResumo> result = new ArrayList<>();
         try (PreparedStatement stmt = conn.prepareStatement(sql);
                 ResultSet rs = stmt.executeQuery()) {
@@ -141,19 +147,21 @@ public class OperacaoPainelService {
     }
 
     private List<PendenteElegivelResumo> consultarPendentesElegiveis(Connection conn) throws SQLException {
-        String sql = "SELECT p.id AS pedido_id, p.criado_em, p.quantidade_galoes, p.janela_tipo::text AS janela_tipo "
-                + "FROM pedidos p "
-                + "JOIN clientes c ON c.id = p.cliente_id "
-                + "LEFT JOIN saldo_vales sv ON sv.cliente_id = c.id "
-                + "WHERE p.status::text = 'PENDENTE' "
-                + "AND (p.metodo_pagamento::text <> 'VALE' OR COALESCE(sv.quantidade, 0) >= p.quantidade_galoes) "
-                + "AND NOT EXISTS ("
-                + "    SELECT 1 FROM entregas e2 "
-                + "    WHERE e2.pedido_id = p.id "
-                + "    AND e2.status::text IN ('PENDENTE', 'EM_EXECUCAO')"
-                + ") "
-                + "ORDER BY p.criado_em, p.id "
-                + "LIMIT ?";
+        String sql = """
+                SELECT p.id AS pedido_id, p.criado_em, p.quantidade_galoes, p.janela_tipo::text AS janela_tipo
+                FROM pedidos p
+                JOIN clientes c ON c.id = p.cliente_id
+                LEFT JOIN saldo_vales sv ON sv.cliente_id = c.id
+                WHERE p.status::text = 'PENDENTE'
+                AND (p.metodo_pagamento::text <> 'VALE' OR COALESCE(sv.quantidade, 0) >= p.quantidade_galoes)
+                AND NOT EXISTS (
+                    SELECT 1 FROM entregas e2
+                    WHERE e2.pedido_id = p.id
+                    AND e2.status::text IN ('PENDENTE', 'EM_EXECUCAO')
+                )
+                ORDER BY p.criado_em, p.id
+                LIMIT ?
+                """;
         List<PendenteElegivelResumo> result = new ArrayList<>();
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, LIMITE_LISTAS);
@@ -171,15 +179,17 @@ public class OperacaoPainelService {
     }
 
     private List<ConfirmadoSecundariaResumo> consultarConfirmadosSecundaria(Connection conn) throws SQLException {
-        String sql = "SELECT p.id AS pedido_id, r.id AS rota_id, e.ordem_na_rota, r.entregador_id, p.quantidade_galoes "
-                + "FROM pedidos p "
-                + "JOIN entregas e ON e.pedido_id = p.id "
-                + "JOIN rotas r ON r.id = e.rota_id "
-                + "WHERE p.status::text = 'CONFIRMADO' "
-                + "AND r.status::text = 'PLANEJADA' "
-                + "AND e.status::text = 'PENDENTE' "
-                + "ORDER BY p.criado_em, p.id, e.ordem_na_rota "
-                + "LIMIT ?";
+        String sql = """
+                SELECT p.id AS pedido_id, r.id AS rota_id, e.ordem_na_rota, r.entregador_id, p.quantidade_galoes
+                FROM pedidos p
+                JOIN entregas e ON e.pedido_id = p.id
+                JOIN rotas r ON r.id = e.rota_id
+                WHERE p.status::text = 'CONFIRMADO'
+                AND r.status::text = 'PLANEJADA'
+                AND e.status::text = 'PENDENTE'
+                ORDER BY p.criado_em, p.id, e.ordem_na_rota
+                LIMIT ?
+                """;
         List<ConfirmadoSecundariaResumo> result = new ArrayList<>();
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, LIMITE_LISTAS);
@@ -198,20 +208,22 @@ public class OperacaoPainelService {
     }
 
     private List<EmRotaPrimariaResumo> consultarEmRotaPrimaria(Connection conn) throws SQLException {
-        String sql = "SELECT p.id AS pedido_id, "
-                + "r.id AS rota_id, "
-                + "e.id AS entrega_id, "
-                + "r.entregador_id, "
-                + "p.quantidade_galoes, "
-                + "e.status::text AS status_entrega "
-                + "FROM pedidos p "
-                + "JOIN entregas e ON e.pedido_id = p.id "
-                + "JOIN rotas r ON r.id = e.rota_id "
-                + "WHERE p.status::text = 'EM_ROTA' "
-                + "AND r.status::text = 'EM_ANDAMENTO' "
-                + "AND e.status::text IN ('PENDENTE', 'EM_EXECUCAO') "
-                + "ORDER BY r.id, e.ordem_na_rota, e.id "
-                + "LIMIT ?";
+        String sql = """
+                SELECT p.id AS pedido_id,
+                r.id AS rota_id,
+                e.id AS entrega_id,
+                r.entregador_id,
+                p.quantidade_galoes,
+                e.status::text AS status_entrega
+                FROM pedidos p
+                JOIN entregas e ON e.pedido_id = p.id
+                JOIN rotas r ON r.id = e.rota_id
+                WHERE p.status::text = 'EM_ROTA'
+                AND r.status::text = 'EM_ANDAMENTO'
+                AND e.status::text IN ('PENDENTE', 'EM_EXECUCAO')
+                ORDER BY r.id, e.ordem_na_rota, e.id
+                LIMIT ?
+                """;
         List<EmRotaPrimariaResumo> result = new ArrayList<>();
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, LIMITE_LISTAS);

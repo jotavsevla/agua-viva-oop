@@ -73,27 +73,29 @@ public class OperacaoMapaService {
 
     private List<RotaMapaResumo> consultarRotasComParadas(Connection conn, DepositoResumo deposito)
             throws SQLException {
-        String sql = "SELECT r.id AS rota_id, "
-                + "r.entregador_id, "
-                + "r.status::text AS rota_status, "
-                + "e.id AS entrega_id, "
-                + "e.ordem_na_rota, "
-                + "e.status::text AS status_entrega, "
-                + "p.id AS pedido_id, "
-                + "p.quantidade_galoes, "
-                + "c.latitude, "
-                + "c.longitude "
-                + "FROM rotas r "
-                + "JOIN entregas e ON e.rota_id = r.id "
-                + "JOIN pedidos p ON p.id = e.pedido_id "
-                + "JOIN clientes c ON c.id = p.cliente_id "
-                + "WHERE r.data = CURRENT_DATE "
-                + "AND r.status::text IN ('EM_ANDAMENTO', 'PLANEJADA') "
-                + "ORDER BY "
-                + "CASE WHEN r.status::text = 'EM_ANDAMENTO' THEN 0 ELSE 1 END, "
-                + "r.id, "
-                + "e.ordem_na_rota, "
-                + "e.id";
+        String sql = """
+                SELECT r.id AS rota_id,
+                r.entregador_id,
+                r.status::text AS rota_status,
+                e.id AS entrega_id,
+                e.ordem_na_rota,
+                e.status::text AS status_entrega,
+                p.id AS pedido_id,
+                p.quantidade_galoes,
+                c.latitude,
+                c.longitude
+                FROM rotas r
+                JOIN entregas e ON e.rota_id = r.id
+                JOIN pedidos p ON p.id = e.pedido_id
+                JOIN clientes c ON c.id = p.cliente_id
+                WHERE r.data = CURRENT_DATE
+                AND r.status::text IN ('EM_ANDAMENTO', 'PLANEJADA')
+                ORDER BY
+                CASE WHEN r.status::text = 'EM_ANDAMENTO' THEN 0 ELSE 1 END,
+                r.id,
+                e.ordem_na_rota,
+                e.id
+                """;
 
         Map<Integer, RotaAccumulator> rotas = new LinkedHashMap<>();
 

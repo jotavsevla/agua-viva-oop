@@ -57,26 +57,28 @@ public class PedidoExecucaoService {
     }
 
     private ExecucaoRef buscarExecucaoAtual(Connection conn, int pedidoId) throws SQLException {
-        String sql = "SELECT e.id AS entrega_id, "
-                + "e.status::text AS entrega_status, "
-                + "r.id AS rota_id, "
-                + "r.status::text AS rota_status "
-                + "FROM entregas e "
-                + "JOIN rotas r ON r.id = e.rota_id "
-                + "WHERE e.pedido_id = ? "
-                + "ORDER BY "
-                + "CASE "
-                + "WHEN e.status::text = 'EM_EXECUCAO' THEN 0 "
-                + "WHEN e.status::text = 'PENDENTE' THEN 1 "
-                + "ELSE 2 "
-                + "END, "
-                + "CASE "
-                + "WHEN r.status::text = 'EM_ANDAMENTO' THEN 0 "
-                + "WHEN r.status::text = 'PLANEJADA' THEN 1 "
-                + "ELSE 2 "
-                + "END, "
-                + "e.id DESC "
-                + "LIMIT 1";
+        String sql = """
+                SELECT e.id AS entrega_id,
+                e.status::text AS entrega_status,
+                r.id AS rota_id,
+                r.status::text AS rota_status
+                FROM entregas e
+                JOIN rotas r ON r.id = e.rota_id
+                WHERE e.pedido_id = ?
+                ORDER BY
+                CASE
+                WHEN e.status::text = 'EM_EXECUCAO' THEN 0
+                WHEN e.status::text = 'PENDENTE' THEN 1
+                ELSE 2
+                END,
+                CASE
+                WHEN r.status::text = 'EM_ANDAMENTO' THEN 0
+                WHEN r.status::text = 'PLANEJADA' THEN 1
+                ELSE 2
+                END,
+                e.id DESC
+                LIMIT 1
+                """;
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, pedidoId);
             try (ResultSet rs = stmt.executeQuery()) {

@@ -70,34 +70,46 @@ class AtendimentoTelefonicoServiceTest {
             stmt.execute("ALTER TABLE pedidos DROP CONSTRAINT IF EXISTS uk_pedidos_external_call_id");
             stmt.execute("DROP INDEX IF EXISTS uk_pedidos_external_call_id");
             stmt.execute("ALTER TABLE pedidos ADD CONSTRAINT uk_pedidos_external_call_id UNIQUE (external_call_id)");
-            stmt.execute("CREATE TABLE IF NOT EXISTS atendimentos_idempotencia ("
-                    + "origem_canal VARCHAR(32) NOT NULL, "
-                    + "source_event_id VARCHAR(128) NOT NULL, "
-                    + "pedido_id INTEGER NOT NULL, "
-                    + "cliente_id INTEGER NOT NULL, "
-                    + "telefone_normalizado VARCHAR(15) NOT NULL, "
-                    + "criado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, "
-                    + "PRIMARY KEY (origem_canal, source_event_id))");
+            stmt.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS atendimentos_idempotencia (
+                    origem_canal VARCHAR(32) NOT NULL,
+                    source_event_id VARCHAR(128) NOT NULL,
+                    pedido_id INTEGER NOT NULL,
+                    cliente_id INTEGER NOT NULL,
+                    telefone_normalizado VARCHAR(15) NOT NULL,
+                    criado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (origem_canal, source_event_id))
+                    """);
             stmt.execute("ALTER TABLE atendimentos_idempotencia ADD COLUMN IF NOT EXISTS request_hash VARCHAR(64)");
-            stmt.execute("INSERT INTO configuracoes (chave, valor, descricao) VALUES ("
-                    + "'cobertura_bbox', '-43.9600,-16.8200,-43.7800,-16.6200', "
-                    + "'Cobertura operacional de atendimento em bbox') "
-                    + "ON CONFLICT (chave) DO NOTHING");
-            stmt.execute("DO $$ BEGIN "
-                    + "IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'dispatch_event_status') "
-                    + "THEN CREATE TYPE dispatch_event_status AS ENUM ('PENDENTE', 'PROCESSADO'); "
-                    + "END IF; "
-                    + "END $$;");
-            stmt.execute("CREATE TABLE IF NOT EXISTS dispatch_events ("
-                    + "id BIGSERIAL PRIMARY KEY, "
-                    + "event_type VARCHAR(64) NOT NULL, "
-                    + "aggregate_type VARCHAR(32) NOT NULL, "
-                    + "aggregate_id BIGINT, "
-                    + "payload JSONB NOT NULL DEFAULT '{}'::jsonb, "
-                    + "status dispatch_event_status NOT NULL DEFAULT 'PENDENTE', "
-                    + "created_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, "
-                    + "available_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, "
-                    + "processed_em TIMESTAMP)");
+            stmt.execute(
+                    """
+                    INSERT INTO configuracoes (chave, valor, descricao) VALUES (
+                    'cobertura_bbox', '-43.9600,-16.8200,-43.7800,-16.6200',
+                    'Cobertura operacional de atendimento em bbox')
+                    ON CONFLICT (chave) DO NOTHING
+                    """);
+            stmt.execute(
+                    """
+                    DO $$ BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'dispatch_event_status')
+                    THEN CREATE TYPE dispatch_event_status AS ENUM ('PENDENTE', 'PROCESSADO');
+                    END IF;
+                    END $$;
+                    """);
+            stmt.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS dispatch_events (
+                    id BIGSERIAL PRIMARY KEY,
+                    event_type VARCHAR(64) NOT NULL,
+                    aggregate_type VARCHAR(32) NOT NULL,
+                    aggregate_id BIGINT,
+                    payload JSONB NOT NULL DEFAULT '{}'::jsonb,
+                    status dispatch_event_status NOT NULL DEFAULT 'PENDENTE',
+                    created_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    available_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    processed_em TIMESTAMP)
+                    """);
         }
     }
 
@@ -666,8 +678,10 @@ class AtendimentoTelefonicoServiceTest {
     private void inserirSaldoVale(int clienteId, int quantidade) throws Exception {
         try (Connection conn = factory.getConnection();
                 PreparedStatement stmt = conn.prepareStatement(
-                        "INSERT INTO saldo_vales (cliente_id, quantidade) VALUES (?, ?) "
-                                + "ON CONFLICT (cliente_id) DO UPDATE SET quantidade = EXCLUDED.quantidade, atualizado_em = CURRENT_TIMESTAMP")) {
+                        """
+                        INSERT INTO saldo_vales (cliente_id, quantidade) VALUES (?, ?)
+                        ON CONFLICT (cliente_id) DO UPDATE SET quantidade = EXCLUDED.quantidade, atualizado_em = CURRENT_TIMESTAMP
+                        """)) {
             stmt.setInt(1, clienteId);
             stmt.setInt(2, quantidade);
             stmt.executeUpdate();
@@ -677,8 +691,10 @@ class AtendimentoTelefonicoServiceTest {
     private int inserirPedido(int clienteId, int atendenteId, String status, String externalCallId) throws Exception {
         try (Connection conn = factory.getConnection();
                 PreparedStatement stmt = conn.prepareStatement(
-                        "INSERT INTO pedidos (cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por, external_call_id) "
-                                + "VALUES (?, 1, 'ASAP', NULL, NULL, ?, ?, ?) RETURNING id")) {
+                        """
+                        INSERT INTO pedidos (cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por, external_call_id)
+                        VALUES (?, 1, 'ASAP', NULL, NULL, ?, ?, ?) RETURNING id
+                        """)) {
             stmt.setInt(1, clienteId);
             stmt.setObject(2, status, java.sql.Types.OTHER);
             stmt.setInt(3, atendenteId);

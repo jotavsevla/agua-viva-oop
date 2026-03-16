@@ -27,9 +27,10 @@ public class PedidoRepository {
     // ========================================================================
 
     public Pedido save(Pedido pedido) throws SQLException {
-        String sql =
-                "INSERT INTO pedidos (cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por) "
-                        + "VALUES (?, ?, ?, ?, ?, ?, ?)";
+        String sql = """
+                INSERT INTO pedidos (cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """;
 
         try (Connection conn = connectionFactory.getConnection();
                 PreparedStatement stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
@@ -68,10 +69,12 @@ public class PedidoRepository {
     }
 
     public void update(Pedido pedido) throws SQLException {
-        String sql = "UPDATE pedidos "
-                + "SET cliente_id = ?, quantidade_galoes = ?, janela_tipo = ?, janela_inicio = ?, janela_fim = ?, status = ?, criado_por = ?, "
-                + "atualizado_em = CURRENT_TIMESTAMP "
-                + "WHERE id = ?";
+        String sql = """
+                UPDATE pedidos
+                SET cliente_id = ?, quantidade_galoes = ?, janela_tipo = ?, janela_inicio = ?, janela_fim = ?, status = ?, criado_por = ?,
+                atualizado_em = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """;
 
         try (Connection conn = connectionFactory.getConnection();
                 PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -102,9 +105,10 @@ public class PedidoRepository {
     // ========================================================================
 
     public Optional<Pedido> findById(int id) throws SQLException {
-        String sql =
-                "SELECT id, cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por "
-                        + "FROM pedidos WHERE id = ?";
+        String sql = """
+                SELECT id, cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por
+                FROM pedidos WHERE id = ?
+                """;
 
         try (Connection conn = connectionFactory.getConnection();
                 PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -121,9 +125,10 @@ public class PedidoRepository {
     }
 
     public List<Pedido> findByCliente(int clienteId) throws SQLException {
-        String sql =
-                "SELECT id, cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por "
-                        + "FROM pedidos WHERE cliente_id = ? ORDER BY criado_em DESC, id DESC";
+        String sql = """
+                SELECT id, cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por
+                FROM pedidos WHERE cliente_id = ? ORDER BY criado_em DESC, id DESC
+                """;
         List<Pedido> pedidos = new ArrayList<>();
 
         try (Connection conn = connectionFactory.getConnection();
@@ -141,9 +146,10 @@ public class PedidoRepository {
     }
 
     public List<Pedido> findPendentes() throws SQLException {
-        String sql =
-                "SELECT id, cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por "
-                        + "FROM pedidos WHERE status = 'PENDENTE' ORDER BY criado_em, id";
+        String sql = """
+                SELECT id, cliente_id, quantidade_galoes, janela_tipo, janela_inicio, janela_fim, status, criado_por
+                FROM pedidos WHERE status = 'PENDENTE' ORDER BY criado_em, id
+                """;
         List<Pedido> pedidos = new ArrayList<>();
 
         try (Connection conn = connectionFactory.getConnection();

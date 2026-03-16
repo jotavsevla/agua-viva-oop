@@ -68,11 +68,13 @@ final class RotaSolverJobSupport {
     }
 
     static List<String> marcarCancelamentoSolicitadoEmJobsAtivos(Connection conn, int limite) throws SQLException {
-        String selectSql = "SELECT job_id FROM solver_jobs "
-                + "WHERE status::text IN ('PENDENTE', 'EM_EXECUCAO') "
-                + "AND cancel_requested = false "
-                + "ORDER BY solicitado_em DESC "
-                + "LIMIT ?";
+        String selectSql = """
+                SELECT job_id FROM solver_jobs
+                WHERE status::text IN ('PENDENTE', 'EM_EXECUCAO')
+                AND cancel_requested = false
+                ORDER BY solicitado_em DESC
+                LIMIT ?
+                """;
 
         List<String> jobIds = new ArrayList<>();
         try (PreparedStatement stmt = conn.prepareStatement(selectSql)) {
@@ -88,9 +90,11 @@ final class RotaSolverJobSupport {
             return jobIds;
         }
 
-        String updateSql = "UPDATE solver_jobs "
-                + "SET cancel_requested = true, status = ?, finalizado_em = CURRENT_TIMESTAMP "
-                + "WHERE job_id = ?";
+        String updateSql = """
+                UPDATE solver_jobs
+                SET cancel_requested = true, status = ?, finalizado_em = CURRENT_TIMESTAMP
+                WHERE job_id = ?
+                """;
         try (PreparedStatement stmt = conn.prepareStatement(updateSql)) {
             for (String jobId : jobIds) {
                 stmt.setObject(1, "CANCELADO", Types.OTHER);
@@ -112,30 +116,32 @@ final class RotaSolverJobSupport {
             }
             boolean hasRequestPayload = hasColumn(conn, "solver_jobs", "request_payload");
             String requestPayload = gson.toJson(request);
-            String sql =
-                    "INSERT INTO solver_jobs (job_id, plan_version, status, cancel_requested, solicitado_em, iniciado_em, finalizado_em, erro) "
-                            + "VALUES (?, ?, ?, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, NULL) "
-                            + "ON CONFLICT (job_id) DO UPDATE SET "
-                            + "plan_version = EXCLUDED.plan_version, "
-                            + "status = EXCLUDED.status, "
-                            + "cancel_requested = false, "
-                            + "solicitado_em = CURRENT_TIMESTAMP, "
-                            + "iniciado_em = CURRENT_TIMESTAMP, "
-                            + "finalizado_em = NULL, "
-                            + "erro = NULL";
+            String sql = """
+                    INSERT INTO solver_jobs (job_id, plan_version, status, cancel_requested, solicitado_em, iniciado_em, finalizado_em, erro)
+                    VALUES (?, ?, ?, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, NULL)
+                    ON CONFLICT (job_id) DO UPDATE SET
+                    plan_version = EXCLUDED.plan_version,
+                    status = EXCLUDED.status,
+                    cancel_requested = false,
+                    solicitado_em = CURRENT_TIMESTAMP,
+                    iniciado_em = CURRENT_TIMESTAMP,
+                    finalizado_em = NULL,
+                    erro = NULL
+                    """;
             if (hasRequestPayload) {
-                sql =
-                        "INSERT INTO solver_jobs (job_id, plan_version, status, cancel_requested, solicitado_em, iniciado_em, finalizado_em, erro, request_payload) "
-                                + "VALUES (?, ?, ?, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, NULL, CAST(? AS jsonb)) "
-                                + "ON CONFLICT (job_id) DO UPDATE SET "
-                                + "plan_version = EXCLUDED.plan_version, "
-                                + "status = EXCLUDED.status, "
-                                + "cancel_requested = false, "
-                                + "solicitado_em = CURRENT_TIMESTAMP, "
-                                + "iniciado_em = CURRENT_TIMESTAMP, "
-                                + "finalizado_em = NULL, "
-                                + "erro = NULL, "
-                                + "request_payload = EXCLUDED.request_payload";
+                sql = """
+                        INSERT INTO solver_jobs (job_id, plan_version, status, cancel_requested, solicitado_em, iniciado_em, finalizado_em, erro, request_payload)
+                        VALUES (?, ?, ?, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, NULL, CAST(? AS jsonb))
+                        ON CONFLICT (job_id) DO UPDATE SET
+                        plan_version = EXCLUDED.plan_version,
+                        status = EXCLUDED.status,
+                        cancel_requested = false,
+                        solicitado_em = CURRENT_TIMESTAMP,
+                        iniciado_em = CURRENT_TIMESTAMP,
+                        finalizado_em = NULL,
+                        erro = NULL,
+                        request_payload = EXCLUDED.request_payload
+                        """;
             }
             try (PreparedStatement stmt = conn.prepareStatement(sql)) {
                 stmt.setString(1, jobId);
@@ -162,16 +168,20 @@ final class RotaSolverJobSupport {
             }
             boolean hasResponsePayload = hasColumn(conn, "solver_jobs", "response_payload");
             String responsePayload = response == null ? null : gson.toJson(response);
-            String sql = "UPDATE solver_jobs "
-                    + "SET status = ?, finalizado_em = CURRENT_TIMESTAMP, erro = ?, "
-                    + "cancel_requested = CASE WHEN ? = 'CANCELADO' THEN true ELSE cancel_requested END "
-                    + "WHERE job_id = ?";
+            String sql = """
+                    UPDATE solver_jobs
+                    SET status = ?, finalizado_em = CURRENT_TIMESTAMP, erro = ?,
+                    cancel_requested = CASE WHEN ? = 'CANCELADO' THEN true ELSE cancel_requested END
+                    WHERE job_id = ?
+                    """;
             if (hasResponsePayload) {
-                sql = "UPDATE solver_jobs "
-                        + "SET status = ?, finalizado_em = CURRENT_TIMESTAMP, erro = ?, "
-                        + "cancel_requested = CASE WHEN ? = 'CANCELADO' THEN true ELSE cancel_requested END, "
-                        + "response_payload = CASE WHEN ? IS NULL THEN NULL ELSE CAST(? AS jsonb) END "
-                        + "WHERE job_id = ?";
+                sql = """
+                        UPDATE solver_jobs
+                        SET status = ?, finalizado_em = CURRENT_TIMESTAMP, erro = ?,
+                        cancel_requested = CASE WHEN ? = 'CANCELADO' THEN true ELSE cancel_requested END,
+                        response_payload = CASE WHEN ? IS NULL THEN NULL ELSE CAST(? AS jsonb) END
+                        WHERE job_id = ?
+                        """;
             }
             try (PreparedStatement stmt = conn.prepareStatement(sql)) {
                 stmt.setObject(1, status, Types.OTHER);

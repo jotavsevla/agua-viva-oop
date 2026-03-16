@@ -91,11 +91,13 @@ public class PedidoTimelineService {
     }
 
     private List<EventoDispatch> buscarEventosPedido(Connection conn, int pedidoId) throws SQLException {
-        String sql = "SELECT event_type, created_em, payload ->> 'motivo' AS motivo "
-                + "FROM dispatch_events "
-                + "WHERE aggregate_type = 'PEDIDO' "
-                + "AND aggregate_id = ? "
-                + "ORDER BY created_em, id";
+        String sql = """
+                SELECT event_type, created_em, payload ->> 'motivo' AS motivo
+                FROM dispatch_events
+                WHERE aggregate_type = 'PEDIDO'
+                AND aggregate_id = ?
+                ORDER BY created_em, id
+                """;
 
         List<EventoDispatch> eventos = new ArrayList<>();
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -126,11 +128,13 @@ public class PedidoTimelineService {
     }
 
     private LocalDateTime buscarRotaIniciada(Connection conn, int rotaId) throws SQLException {
-        String sql = "SELECT created_em FROM dispatch_events "
-                + "WHERE aggregate_type = 'ROTA' "
-                + "AND aggregate_id = ? "
-                + "AND event_type = ? "
-                + "ORDER BY created_em, id LIMIT 1";
+        String sql = """
+                SELECT created_em FROM dispatch_events
+                WHERE aggregate_type = 'ROTA'
+                AND aggregate_id = ?
+                AND event_type = ?
+                ORDER BY created_em, id LIMIT 1
+                """;
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setLong(1, rotaId);
             stmt.setString(2, DispatchEventTypes.ROTA_INICIADA);

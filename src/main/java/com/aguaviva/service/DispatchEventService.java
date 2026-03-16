@@ -21,8 +21,10 @@ public class DispatchEventService {
 
         String payloadJson = payload == null ? "{}" : gson.toJson(payload);
 
-        String sql = "INSERT INTO dispatch_events (event_type, aggregate_type, aggregate_id, payload) "
-                + "VALUES (?, ?, ?, CAST(? AS jsonb)) RETURNING id";
+        String sql = """
+                INSERT INTO dispatch_events (event_type, aggregate_type, aggregate_id, payload)
+                VALUES (?, ?, ?, CAST(? AS jsonb)) RETURNING id
+                """;
 
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, eventType);

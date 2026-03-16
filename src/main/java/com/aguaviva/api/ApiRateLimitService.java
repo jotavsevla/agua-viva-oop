@@ -39,13 +39,15 @@ public final class ApiRateLimitService {
         if (!enabled) {
             return;
         }
-        String sql = "CREATE TABLE IF NOT EXISTS api_rate_limit_counters ("
-                + "rate_key VARCHAR(255) NOT NULL, "
-                + "window_start TIMESTAMP NOT NULL, "
-                + "request_count INTEGER NOT NULL, "
-                + "updated_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, "
-                + "PRIMARY KEY (rate_key, window_start)"
-                + ")";
+        String sql = """
+                CREATE TABLE IF NOT EXISTS api_rate_limit_counters (
+                rate_key VARCHAR(255) NOT NULL,
+                window_start TIMESTAMP NOT NULL,
+                request_count INTEGER NOT NULL,
+                updated_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (rate_key, window_start)
+                )
+                """;
         try (Connection conn = connectionFactory.getConnection();
                 PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.execute();
@@ -100,15 +102,17 @@ public final class ApiRateLimitService {
     }
 
     private int incrementAndReadCount(String rateKey, int windowSeconds) {
-        String upsert = "WITH win AS ("
-                + "  SELECT to_timestamp(floor(extract(epoch FROM CURRENT_TIMESTAMP) / ?) * ?) AS window_start"
-                + "), upsert AS ("
-                + "  INSERT INTO api_rate_limit_counters(rate_key, window_start, request_count, updated_em) "
-                + "  SELECT ?, window_start, 1, CURRENT_TIMESTAMP FROM win "
-                + "  ON CONFLICT (rate_key, window_start) "
-                + "  DO UPDATE SET request_count = api_rate_limit_counters.request_count + 1, updated_em = CURRENT_TIMESTAMP "
-                + "  RETURNING request_count"
-                + ") SELECT request_count FROM upsert";
+        String upsert = """
+                WITH win AS (
+                  SELECT to_timestamp(floor(extract(epoch FROM CURRENT_TIMESTAMP) / ?) * ?) AS window_start
+                ), upsert AS (
+                  INSERT INTO api_rate_limit_counters(rate_key, window_start, request_count, updated_em)
+                  SELECT ?, window_start, 1, CURRENT_TIMESTAMP FROM win
+                  ON CONFLICT (rate_key, window_start)
+                  DO UPDATE SET request_count = api_rate_limit_counters.request_count + 1, updated_em = CURRENT_TIMESTAMP
+                  RETURNING request_count
+                ) SELECT request_count FROM upsert
+                """;
         String cleanup =
                 "DELETE FROM api_rate_limit_counters WHERE updated_em < (CURRENT_TIMESTAMP - INTERVAL '2 days')";
         try (Connection conn = connectionFactory.getConnection()) {

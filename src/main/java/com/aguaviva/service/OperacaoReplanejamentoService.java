@@ -38,17 +38,21 @@ public class OperacaoReplanejamentoService {
 
             boolean hasRequestPayload = hasColumn(conn, "solver_jobs", "request_payload");
             boolean hasResponsePayload = hasColumn(conn, "solver_jobs", "response_payload");
-            String sql = "SELECT job_id, plan_version, status::text AS status, cancel_requested, "
-                    + "solicitado_em, iniciado_em, finalizado_em, erro, "
+            String sql = """
+                    SELECT job_id, plan_version, status::text AS status, cancel_requested,
+                    solicitado_em, iniciado_em, finalizado_em, erro,
+                    """
                     + (hasRequestPayload
                             ? "CASE WHEN request_payload IS NOT NULL THEN true ELSE false END AS has_request_payload, "
                             : "false AS has_request_payload, ")
                     + (hasResponsePayload
                             ? "CASE WHEN response_payload IS NOT NULL THEN true ELSE false END AS has_response_payload "
                             : "false AS has_response_payload ")
-                    + "FROM solver_jobs "
-                    + "ORDER BY solicitado_em DESC, job_id DESC "
-                    + "LIMIT ?";
+                    + """
+                    FROM solver_jobs
+                    ORDER BY solicitado_em DESC, job_id DESC
+                    LIMIT ?
+                    """;
 
             List<SolverJobResumo> jobs = new ArrayList<>();
             try (PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -104,15 +108,19 @@ public class OperacaoReplanejamentoService {
     private SolverJobDetalhe buscarJobDetalhado(
             Connection conn, String jobIdSolicitado, boolean hasRequestPayload, boolean hasResponsePayload)
             throws SQLException {
-        String sql = "SELECT job_id, plan_version, status::text AS status, cancel_requested, "
-                + "solicitado_em, iniciado_em, finalizado_em, erro, "
+        String sql = """
+                SELECT job_id, plan_version, status::text AS status, cancel_requested,
+                solicitado_em, iniciado_em, finalizado_em, erro,
+                """
                 + (hasRequestPayload
                         ? "CASE WHEN request_payload IS NOT NULL THEN true ELSE false END AS has_request_payload, "
                         : "false AS has_request_payload, ")
                 + (hasResponsePayload
                         ? "CASE WHEN response_payload IS NOT NULL THEN true ELSE false END AS has_response_payload "
                         : "false AS has_response_payload ")
-                + "FROM solver_jobs WHERE job_id = ?";
+                + """
+                FROM solver_jobs WHERE job_id = ?
+                """;
 
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, jobIdSolicitado);
@@ -155,14 +163,16 @@ public class OperacaoReplanejamentoService {
 
     private List<RotaImpactadaResumo> buscarRotasImpactadasPorPlanVersion(Connection conn, long planVersion)
             throws SQLException {
-        String sql = "SELECT r.id AS rota_id, r.entregador_id, r.status::text AS status_rota, "
-                + "CASE WHEN r.status::text = 'EM_ANDAMENTO' THEN 'PRIMARIA' ELSE 'SECUNDARIA' END AS camada, "
-                + "COUNT(e.id) AS total_entregas "
-                + "FROM rotas r "
-                + "LEFT JOIN entregas e ON e.rota_id = r.id "
-                + "WHERE r.plan_version = ? "
-                + "GROUP BY r.id, r.entregador_id, r.status "
-                + "ORDER BY r.id DESC";
+        String sql = """
+                SELECT r.id AS rota_id, r.entregador_id, r.status::text AS status_rota,
+                CASE WHEN r.status::text = 'EM_ANDAMENTO' THEN 'PRIMARIA' ELSE 'SECUNDARIA' END AS camada,
+                COUNT(e.id) AS total_entregas
+                FROM rotas r
+                LEFT JOIN entregas e ON e.rota_id = r.id
+                WHERE r.plan_version = ?
+                GROUP BY r.id, r.entregador_id, r.status
+                ORDER BY r.id DESC
+                """;
         List<RotaImpactadaResumo> rotas = new ArrayList<>();
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setLong(1, planVersion);
@@ -181,14 +191,16 @@ public class OperacaoReplanejamentoService {
     }
 
     private List<RotaImpactadaResumo> buscarRotasImpactadasPorJobId(Connection conn, String jobId) throws SQLException {
-        String sql = "SELECT r.id AS rota_id, r.entregador_id, r.status::text AS status_rota, "
-                + "CASE WHEN r.status::text = 'EM_ANDAMENTO' THEN 'PRIMARIA' ELSE 'SECUNDARIA' END AS camada, "
-                + "COUNT(e.id) AS total_entregas "
-                + "FROM rotas r "
-                + "LEFT JOIN entregas e ON e.rota_id = r.id "
-                + "WHERE r.job_id = ? "
-                + "GROUP BY r.id, r.entregador_id, r.status "
-                + "ORDER BY r.id DESC";
+        String sql = """
+                SELECT r.id AS rota_id, r.entregador_id, r.status::text AS status_rota,
+                CASE WHEN r.status::text = 'EM_ANDAMENTO' THEN 'PRIMARIA' ELSE 'SECUNDARIA' END AS camada,
+                COUNT(e.id) AS total_entregas
+                FROM rotas r
+                LEFT JOIN entregas e ON e.rota_id = r.id
+                WHERE r.job_id = ?
+                GROUP BY r.id, r.entregador_id, r.status
+                ORDER BY r.id DESC
+                """;
         List<RotaImpactadaResumo> rotas = new ArrayList<>();
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, jobId);
@@ -208,13 +220,15 @@ public class OperacaoReplanejamentoService {
 
     private List<PedidoImpactadoResumo> buscarPedidosImpactadosPorPlanVersion(Connection conn, long planVersion)
             throws SQLException {
-        String sql = "SELECT p.id AS pedido_id, e.id AS entrega_id, r.id AS rota_id, "
-                + "p.status::text AS status_pedido, e.status::text AS status_entrega "
-                + "FROM entregas e "
-                + "JOIN pedidos p ON p.id = e.pedido_id "
-                + "JOIN rotas r ON r.id = e.rota_id "
-                + "WHERE e.plan_version = ? "
-                + "ORDER BY e.id DESC";
+        String sql = """
+                SELECT p.id AS pedido_id, e.id AS entrega_id, r.id AS rota_id,
+                p.status::text AS status_pedido, e.status::text AS status_entrega
+                FROM entregas e
+                JOIN pedidos p ON p.id = e.pedido_id
+                JOIN rotas r ON r.id = e.rota_id
+                WHERE e.plan_version = ?
+                ORDER BY e.id DESC
+                """;
         List<PedidoImpactadoResumo> pedidos = new ArrayList<>();
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setLong(1, planVersion);
@@ -234,13 +248,15 @@ public class OperacaoReplanejamentoService {
 
     private List<PedidoImpactadoResumo> buscarPedidosImpactadosPorJobId(Connection conn, String jobId)
             throws SQLException {
-        String sql = "SELECT p.id AS pedido_id, e.id AS entrega_id, r.id AS rota_id, "
-                + "p.status::text AS status_pedido, e.status::text AS status_entrega "
-                + "FROM entregas e "
-                + "JOIN pedidos p ON p.id = e.pedido_id "
-                + "JOIN rotas r ON r.id = e.rota_id "
-                + "WHERE e.job_id = ? "
-                + "ORDER BY e.id DESC";
+        String sql = """
+                SELECT p.id AS pedido_id, e.id AS entrega_id, r.id AS rota_id,
+                p.status::text AS status_pedido, e.status::text AS status_entrega
+                FROM entregas e
+                JOIN pedidos p ON p.id = e.pedido_id
+                JOIN rotas r ON r.id = e.rota_id
+                WHERE e.job_id = ?
+                ORDER BY e.id DESC
+                """;
         List<PedidoImpactadoResumo> pedidos = new ArrayList<>();
         try (PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, jobId);

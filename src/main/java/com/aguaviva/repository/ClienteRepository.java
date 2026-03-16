@@ -25,8 +25,10 @@ public class ClienteRepository {
     // ========================================================================
 
     public Cliente save(Cliente cliente) throws SQLException {
-        String sql = "INSERT INTO clientes (nome, telefone, tipo, endereco, latitude, longitude, notas) "
-                + "VALUES (?, ?, ?, ?, ?, ?, ?)";
+        String sql = """
+                INSERT INTO clientes (nome, telefone, tipo, endereco, latitude, longitude, notas)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """;
 
         try (Connection conn = connectionFactory.getConnection();
                 PreparedStatement stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
@@ -65,10 +67,12 @@ public class ClienteRepository {
     }
 
     public void update(Cliente cliente) throws SQLException {
-        String sql = "UPDATE clientes "
-                + "SET nome = ?, telefone = ?, tipo = ?, endereco = ?, latitude = ?, longitude = ?, notas = ?, "
-                + "atualizado_em = CURRENT_TIMESTAMP "
-                + "WHERE id = ?";
+        String sql = """
+                UPDATE clientes
+                SET nome = ?, telefone = ?, tipo = ?, endereco = ?, latitude = ?, longitude = ?, notas = ?,
+                atualizado_em = CURRENT_TIMESTAMP
+                WHERE id = ?
+                """;
 
         try (Connection conn = connectionFactory.getConnection();
                 PreparedStatement stmt = conn.prepareStatement(sql)) {
@@ -116,8 +120,10 @@ public class ClienteRepository {
     }
 
     public Optional<Cliente> findByTelefone(String telefone) throws SQLException {
-        String sql = "SELECT id, nome, telefone, tipo, endereco, latitude, longitude, notas "
-                + "FROM clientes WHERE telefone = ?";
+        String sql = """
+                SELECT id, nome, telefone, tipo, endereco, latitude, longitude, notas
+                FROM clientes WHERE telefone = ?
+                """;
 
         try (Connection conn = connectionFactory.getConnection();
                 PreparedStatement stmt = conn.prepareStatement(sql)) {

@@ -115,22 +115,28 @@ class OperacaoReplanejamentoServiceTest {
     private static void garantirSchemaReplanejamento() throws Exception {
         try (Connection conn = factory.getConnection();
                 Statement stmt = conn.createStatement()) {
-            stmt.execute("DO $$ BEGIN "
-                    + "IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'solver_job_status') "
-                    + "THEN CREATE TYPE solver_job_status AS ENUM ('PENDENTE', 'EM_EXECUCAO', 'CONCLUIDO', 'CANCELADO', 'FALHOU'); "
-                    + "END IF; "
-                    + "END $$;");
-            stmt.execute("CREATE TABLE IF NOT EXISTS solver_jobs ("
-                    + "job_id VARCHAR(64) PRIMARY KEY, "
-                    + "plan_version BIGINT NOT NULL, "
-                    + "status solver_job_status NOT NULL DEFAULT 'PENDENTE', "
-                    + "cancel_requested BOOLEAN NOT NULL DEFAULT FALSE, "
-                    + "solicitado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, "
-                    + "iniciado_em TIMESTAMP, "
-                    + "finalizado_em TIMESTAMP, "
-                    + "erro TEXT, "
-                    + "request_payload JSONB, "
-                    + "response_payload JSONB)");
+            stmt.execute(
+                    """
+                    DO $$ BEGIN
+                    IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'solver_job_status')
+                    THEN CREATE TYPE solver_job_status AS ENUM ('PENDENTE', 'EM_EXECUCAO', 'CONCLUIDO', 'CANCELADO', 'FALHOU');
+                    END IF;
+                    END $$;
+                    """);
+            stmt.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS solver_jobs (
+                    job_id VARCHAR(64) PRIMARY KEY,
+                    plan_version BIGINT NOT NULL,
+                    status solver_job_status NOT NULL DEFAULT 'PENDENTE',
+                    cancel_requested BOOLEAN NOT NULL DEFAULT FALSE,
+                    solicitado_em TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    iniciado_em TIMESTAMP,
+                    finalizado_em TIMESTAMP,
+                    erro TEXT,
+                    request_payload JSONB,
+                    response_payload JSONB)
+                    """);
             stmt.execute("ALTER TABLE rotas ADD COLUMN IF NOT EXISTS plan_version BIGINT NOT NULL DEFAULT 1");
             stmt.execute("ALTER TABLE rotas ADD COLUMN IF NOT EXISTS job_id VARCHAR(64)");
             stmt.execute("ALTER TABLE entregas ADD COLUMN IF NOT EXISTS plan_version BIGINT NOT NULL DEFAULT 1");
@@ -171,9 +177,10 @@ class OperacaoReplanejamentoServiceTest {
     private void inserirJobSolver(
             String jobId, long planVersion, String status, String requestPayload, String responsePayload)
             throws Exception {
-        String sql =
-                "INSERT INTO solver_jobs (job_id, plan_version, status, cancel_requested, request_payload, response_payload) "
-                        + "VALUES (?, ?, ?, false, CAST(? AS jsonb), CAST(? AS jsonb))";
+        String sql = """
+                INSERT INTO solver_jobs (job_id, plan_version, status, cancel_requested, request_payload, response_payload)
+                VALUES (?, ?, ?, false, CAST(? AS jsonb), CAST(? AS jsonb))
+                """;
         try (Connection conn = factory.getConnection();
                 PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, jobId);
@@ -186,8 +193,10 @@ class OperacaoReplanejamentoServiceTest {
     }
 
     private int criarRota(int entregadorId, long planVersion, String jobId) throws Exception {
-        String sql = "INSERT INTO rotas (entregador_id, data, numero_no_dia, status, plan_version, job_id) "
-                + "VALUES (?, CURRENT_DATE, 1, ?, ?, ?) RETURNING id";
+        String sql = """
+                INSERT INTO rotas (entregador_id, data, numero_no_dia, status, plan_version, job_id)
+                VALUES (?, CURRENT_DATE, 1, ?, ?, ?) RETURNING id
+                """;
         try (Connection conn = factory.getConnection();
                 PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, entregadorId);
@@ -202,8 +211,10 @@ class OperacaoReplanejamentoServiceTest {
     }
 
     private int criarEntrega(int pedidoId, int rotaId, long planVersion, String jobId) throws Exception {
-        String sql = "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, status, plan_version, job_id) "
-                + "VALUES (?, ?, 1, ?, ?, ?) RETURNING id";
+        String sql = """
+                INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, status, plan_version, job_id)
+                VALUES (?, ?, 1, ?, ?, ?) RETURNING id
+                """;
         try (Connection conn = factory.getConnection();
                 PreparedStatement stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, pedidoId);
