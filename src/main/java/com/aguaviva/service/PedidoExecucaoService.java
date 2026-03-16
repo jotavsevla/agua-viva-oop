@@ -2,8 +2,6 @@ package com.aguaviva.service;
 
 import com.aguaviva.repository.ConnectionFactory;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Objects;
 
@@ -20,7 +18,7 @@ public class PedidoExecucaoService {
             throw new IllegalArgumentException("pedidoId deve ser maior que zero");
         }
 
-        try (Connection conn = connectionFactory.getConnection()) {
+        try (var conn = connectionFactory.getConnection()) {
             String statusPedido = buscarStatusPedido(conn, pedidoId);
             ExecucaoRef execucao = buscarExecucaoAtual(conn, pedidoId);
             if (execucao == null) {
@@ -45,9 +43,9 @@ public class PedidoExecucaoService {
 
     private String buscarStatusPedido(Connection conn, int pedidoId) throws SQLException {
         String sql = "SELECT status::text FROM pedidos WHERE id = ?";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, pedidoId);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 if (!rs.next()) {
                     throw new IllegalArgumentException("Pedido nao encontrado com id: " + pedidoId);
                 }
@@ -79,9 +77,9 @@ public class PedidoExecucaoService {
                 e.id DESC
                 LIMIT 1
                 """;
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, pedidoId);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 if (!rs.next()) {
                     return null;
                 }

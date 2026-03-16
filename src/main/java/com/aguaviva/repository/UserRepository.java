@@ -3,7 +3,6 @@ package com.aguaviva.repository;
 import com.aguaviva.domain.user.Password;
 import com.aguaviva.domain.user.User;
 import com.aguaviva.domain.user.UserPapel;
-import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -28,9 +27,8 @@ public class UserRepository {
     public User save(User user) throws SQLException {
         String sql = "INSERT INTO users (nome, email, senha_hash, papel, telefone, ativo) VALUES (?, ?, ?, ?, ?, ?)";
 
-        try (Connection conn = connectionFactory.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-
+        try (var conn = connectionFactory.getConnection();
+                var stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             stmt.setString(1, user.getNome());
             stmt.setString(2, user.getEmail());
             stmt.setString(3, user.toSenhaHash());
@@ -40,7 +38,7 @@ public class UserRepository {
 
             stmt.executeUpdate();
 
-            try (ResultSet generatedKeys = stmt.getGeneratedKeys()) {
+            try (var generatedKeys = stmt.getGeneratedKeys()) {
                 if (generatedKeys.next()) {
                     int generatedId = generatedKeys.getInt(1);
                     return new User(
@@ -66,9 +64,8 @@ public class UserRepository {
         String sql =
                 "UPDATE users SET nome = ?, email = ?, senha_hash = ?, papel = ?, telefone = ?, ativo = ?, atualizado_em = CURRENT_TIMESTAMP WHERE id = ?";
 
-        try (Connection conn = connectionFactory.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(sql)) {
-
+        try (var conn = connectionFactory.getConnection();
+                var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, user.getNome());
             stmt.setString(2, user.getEmail());
             stmt.setString(3, user.toSenhaHash());
@@ -92,9 +89,8 @@ public class UserRepository {
     public boolean desativar(int id) throws SQLException {
         String sql = "UPDATE users SET ativo = false, atualizado_em = CURRENT_TIMESTAMP WHERE id = ? AND ativo = true";
 
-        try (Connection conn = connectionFactory.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(sql)) {
-
+        try (var conn = connectionFactory.getConnection();
+                var stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, id);
             return stmt.executeUpdate() > 0;
         }
@@ -107,12 +103,11 @@ public class UserRepository {
     public Optional<User> findById(int id) throws SQLException {
         String sql = "SELECT id, nome, email, senha_hash, papel, telefone, ativo FROM users WHERE id = ?";
 
-        try (Connection conn = connectionFactory.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(sql)) {
-
+        try (var conn = connectionFactory.getConnection();
+                var stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, id);
 
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 if (rs.next()) {
                     return Optional.of(toUser(rs));
                 }
@@ -124,12 +119,11 @@ public class UserRepository {
     public Optional<User> findByEmail(String email) throws SQLException {
         String sql = "SELECT id, nome, email, senha_hash, papel, telefone, ativo FROM users WHERE email = ?";
 
-        try (Connection conn = connectionFactory.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(sql)) {
-
+        try (var conn = connectionFactory.getConnection();
+                var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, email.trim().toLowerCase());
 
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 if (rs.next()) {
                     return Optional.of(toUser(rs));
                 }
@@ -142,10 +136,9 @@ public class UserRepository {
         String sql = "SELECT id, nome, email, senha_hash, papel, telefone, ativo FROM users ORDER BY id";
         List<User> users = new ArrayList<>();
 
-        try (Connection conn = connectionFactory.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(sql);
-                ResultSet rs = stmt.executeQuery()) {
-
+        try (var conn = connectionFactory.getConnection();
+                var stmt = conn.prepareStatement(sql);
+                var rs = stmt.executeQuery()) {
             while (rs.next()) {
                 users.add(toUser(rs));
             }

@@ -4,8 +4,6 @@ import com.aguaviva.domain.pedido.PedidoStateMachine;
 import com.aguaviva.domain.pedido.PedidoStatus;
 import com.aguaviva.domain.pedido.PedidoTransitionResult;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
 import java.util.Objects;
@@ -46,9 +44,9 @@ public class PedidoLifecycleService {
 
     private PedidoStatus buscarStatusAtualComLock(Connection conn, int pedidoId) throws SQLException {
         String sql = "SELECT status::text FROM pedidos WHERE id = ? FOR UPDATE";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, pedidoId);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 if (!rs.next()) {
                     throw new IllegalArgumentException("Pedido nao encontrado com id: " + pedidoId);
                 }
@@ -59,7 +57,7 @@ public class PedidoLifecycleService {
 
     private void persistirStatus(Connection conn, int pedidoId, PedidoStatus statusDestino) throws SQLException {
         String sql = "UPDATE pedidos SET status = ?, atualizado_em = CURRENT_TIMESTAMP WHERE id = ?";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setObject(1, statusDestino.name(), Types.OTHER);
             stmt.setInt(2, pedidoId);
             int updated = stmt.executeUpdate();
@@ -89,7 +87,7 @@ public class PedidoLifecycleService {
                 WHERE id = ?
                 """;
 
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setObject(1, statusDestino.name(), Types.OTHER);
             stmt.setString(2, context.motivoCancelamento());
             stmt.setInt(3, cobranca.valorCentavos());
@@ -111,10 +109,10 @@ public class PedidoLifecycleService {
 
     private boolean hasColumn(Connection conn, String table, String column) throws SQLException {
         String sql = "SELECT 1 FROM information_schema.columns WHERE table_name = ? AND column_name = ?";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, table);
             stmt.setString(2, column);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 return rs.next();
             }
         }

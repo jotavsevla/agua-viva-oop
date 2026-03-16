@@ -3,7 +3,6 @@ package com.aguaviva.repository;
 import com.aguaviva.domain.pedido.JanelaTipo;
 import com.aguaviva.domain.pedido.Pedido;
 import com.aguaviva.domain.pedido.PedidoStatus;
-import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -32,9 +31,8 @@ public class PedidoRepository {
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """;
 
-        try (Connection conn = connectionFactory.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-
+        try (var conn = connectionFactory.getConnection();
+                var stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             stmt.setInt(1, pedido.getClienteId());
             stmt.setInt(2, pedido.getQuantidadeGaloes());
             setJanelaTipoParameter(stmt, 3, pedido.getJanelaTipo());
@@ -45,7 +43,7 @@ public class PedidoRepository {
 
             stmt.executeUpdate();
 
-            try (ResultSet generatedKeys = stmt.getGeneratedKeys()) {
+            try (var generatedKeys = stmt.getGeneratedKeys()) {
                 if (generatedKeys.next()) {
                     int generatedId = generatedKeys.getInt(1);
                     return new Pedido(
@@ -76,9 +74,8 @@ public class PedidoRepository {
                 WHERE id = ?
                 """;
 
-        try (Connection conn = connectionFactory.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(sql)) {
-
+        try (var conn = connectionFactory.getConnection();
+                var stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, pedido.getClienteId());
             stmt.setInt(2, pedido.getQuantidadeGaloes());
             setJanelaTipoParameter(stmt, 3, pedido.getJanelaTipo());
@@ -110,12 +107,11 @@ public class PedidoRepository {
                 FROM pedidos WHERE id = ?
                 """;
 
-        try (Connection conn = connectionFactory.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(sql)) {
-
+        try (var conn = connectionFactory.getConnection();
+                var stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, id);
 
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 if (rs.next()) {
                     return Optional.of(toPedido(rs));
                 }
@@ -131,12 +127,11 @@ public class PedidoRepository {
                 """;
         List<Pedido> pedidos = new ArrayList<>();
 
-        try (Connection conn = connectionFactory.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(sql)) {
-
+        try (var conn = connectionFactory.getConnection();
+                var stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, clienteId);
 
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 while (rs.next()) {
                     pedidos.add(toPedido(rs));
                 }
@@ -152,10 +147,9 @@ public class PedidoRepository {
                 """;
         List<Pedido> pedidos = new ArrayList<>();
 
-        try (Connection conn = connectionFactory.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(sql);
-                ResultSet rs = stmt.executeQuery()) {
-
+        try (var conn = connectionFactory.getConnection();
+                var stmt = conn.prepareStatement(sql);
+                var rs = stmt.executeQuery()) {
             while (rs.next()) {
                 pedidos.add(toPedido(rs));
             }

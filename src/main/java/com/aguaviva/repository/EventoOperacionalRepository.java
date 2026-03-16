@@ -1,8 +1,6 @@
 package com.aguaviva.repository;
 
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Objects;
 import java.util.Optional;
@@ -15,7 +13,7 @@ public final class EventoOperacionalRepository {
 
     public void lockPorExternalEventId(Connection conn, String externalEventId) throws SQLException {
         String sql = "SELECT pg_advisory_xact_lock(hashtext(?))";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, externalEventId);
             stmt.executeQuery();
         }
@@ -28,9 +26,9 @@ public final class EventoOperacionalRepository {
                 FROM eventos_operacionais_idempotencia
                 WHERE external_event_id = ?
                 """;
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, externalEventId);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 if (rs.next()) {
                     return Optional.of(new RegistroExistente(
                             rs.getString("request_hash"), rs.getString("response_json"), rs.getInt("status_code")));
@@ -55,7 +53,7 @@ public final class EventoOperacionalRepository {
                 external_event_id, request_hash, event_type, scope_type, scope_id, response_json, status_code)
                 VALUES (?, ?, ?, ?, ?, CAST(? AS jsonb), ?)
                 """;
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, externalEventId);
             stmt.setString(2, requestHash);
             stmt.setString(3, eventType);
@@ -69,9 +67,9 @@ public final class EventoOperacionalRepository {
 
     public boolean hasTable(Connection conn, String table) throws SQLException {
         String sql = "SELECT 1 FROM information_schema.tables WHERE table_name = ?";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, table);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 return rs.next();
             }
         }
@@ -79,10 +77,10 @@ public final class EventoOperacionalRepository {
 
     public boolean hasColumn(Connection conn, String table, String column) throws SQLException {
         String sql = "SELECT 1 FROM information_schema.columns WHERE table_name = ? AND column_name = ?";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, table);
             stmt.setString(2, column);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 return rs.next();
             }
         }

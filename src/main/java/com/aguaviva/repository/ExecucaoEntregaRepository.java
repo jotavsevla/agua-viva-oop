@@ -1,8 +1,6 @@
 package com.aguaviva.repository;
 
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
 import java.util.ArrayList;
@@ -19,9 +17,9 @@ public final class ExecucaoEntregaRepository {
 
     public RotaStatus buscarRotaComLock(Connection conn, int rotaId) throws SQLException {
         String sql = "SELECT id, status::text, entregador_id FROM rotas WHERE id = ? FOR UPDATE";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, rotaId);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 if (!rs.next()) {
                     throw new IllegalArgumentException("Rota nao encontrada com id: " + rotaId);
                 }
@@ -38,9 +36,9 @@ public final class ExecucaoEntregaRepository {
                 AND status::text = 'EM_ANDAMENTO'
                 LIMIT 1 FOR UPDATE
                 """;
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, entregadorId);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 return rs.next();
             }
         }
@@ -55,9 +53,9 @@ public final class ExecucaoEntregaRepository {
                 ORDER BY numero_no_dia, id
                 LIMIT 1 FOR UPDATE SKIP LOCKED
                 """;
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, entregadorId);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 if (!rs.next()) {
                     return null;
                 }
@@ -68,7 +66,7 @@ public final class ExecucaoEntregaRepository {
 
     public void atualizarRotaParaEmAndamento(Connection conn, int rotaId) throws SQLException {
         String sql = "UPDATE rotas SET status = ?, inicio = COALESCE(inicio, CURRENT_TIMESTAMP) WHERE id = ?";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setObject(1, "EM_ANDAMENTO", Types.OTHER);
             stmt.setInt(2, rotaId);
             stmt.executeUpdate();
@@ -79,9 +77,9 @@ public final class ExecucaoEntregaRepository {
         String sql =
                 "SELECT id, pedido_id FROM entregas WHERE rota_id = ? AND status::text = 'PENDENTE' ORDER BY ordem_na_rota";
         List<EntregaPedidoRef> result = new ArrayList<>();
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, rotaId);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 while (rs.next()) {
                     result.add(new EntregaPedidoRef(rs.getInt("id"), rs.getInt("pedido_id")));
                 }
@@ -106,9 +104,9 @@ public final class ExecucaoEntregaRepository {
                 WHERE e.id = ?
                 FOR UPDATE OF e, p, r
                 """;
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, entregaId);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 if (!rs.next()) {
                     throw new IllegalArgumentException("Entrega nao encontrada com id: " + entregaId);
                 }
@@ -130,7 +128,7 @@ public final class ExecucaoEntregaRepository {
         String sql = setHoraReal
                 ? "UPDATE entregas SET status = ?, hora_real = CURRENT_TIMESTAMP, atualizado_em = CURRENT_TIMESTAMP WHERE id = ?"
                 : "UPDATE entregas SET status = ?, atualizado_em = CURRENT_TIMESTAMP WHERE id = ?";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setObject(1, status, Types.OTHER);
             stmt.setInt(2, entregaId);
             stmt.executeUpdate();
@@ -143,9 +141,9 @@ public final class ExecucaoEntregaRepository {
                 FROM entregas WHERE rota_id = ?
                 """;
         int abertas;
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, rotaId);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 rs.next();
                 abertas = rs.getInt("abertas");
             }
@@ -155,7 +153,7 @@ public final class ExecucaoEntregaRepository {
             return false;
         }
 
-        try (PreparedStatement stmt = conn.prepareStatement(
+        try (var stmt = conn.prepareStatement(
                 "UPDATE rotas SET status = ?, fim = COALESCE(fim, CURRENT_TIMESTAMP) WHERE id = ?")) {
             stmt.setObject(1, "CONCLUIDA", Types.OTHER);
             stmt.setInt(2, rotaId);
@@ -172,14 +170,14 @@ public final class ExecucaoEntregaRepository {
                 ON CONFLICT DO NOTHING
                 RETURNING id
                 """;
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, entrega.clienteId());
             stmt.setObject(2, TIPO_MOVIMENTACAO_DEBITO, Types.OTHER);
             stmt.setInt(3, entrega.quantidadeGaloes());
             stmt.setInt(4, entrega.pedidoId());
             stmt.setInt(5, entrega.entregadorId());
             stmt.setString(6, "Debito automatico na entrega do pedido " + entrega.pedidoId());
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 return rs.next();
             }
         }
@@ -191,7 +189,7 @@ public final class ExecucaoEntregaRepository {
                 SET quantidade = quantidade - ?, atualizado_em = CURRENT_TIMESTAMP
                 WHERE cliente_id = ? AND quantidade >= ?
                 """;
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, quantidade);
             stmt.setInt(2, clienteId);
             stmt.setInt(3, quantidade);
@@ -206,10 +204,10 @@ public final class ExecucaoEntregaRepository {
                 JOIN pg_enum e ON e.enumtypid = t.oid
                 WHERE t.typname = ? AND e.enumlabel = ?
                 """;
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, typeName);
             stmt.setString(2, enumLabel);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 return rs.next();
             }
         }

@@ -74,7 +74,7 @@ public class RotaService {
             jobIds.add(jobAtivoLocal);
         }
 
-        try (Connection conn = connectionFactory.getConnection()) {
+        try (var conn = connectionFactory.getConnection()) {
             if (RotaSolverJobSupport.hasSolverJobsSchema(conn)) {
                 jobIds.addAll(RotaSolverJobSupport.marcarCancelamentoSolicitadoEmJobsAtivos(
                         conn, MAX_SOLVER_JOBS_CANCELAMENTO));
@@ -102,7 +102,7 @@ public class RotaService {
         String currentJobId = null;
         boolean solverJobsEnabled = false;
 
-        try (Connection conn = connectionFactory.getConnection()) {
+        try (var conn = connectionFactory.getConnection()) {
             conn.setAutoCommit(false);
             try {
                 if (!repository.tentarAdquirirLockPlanejamento(conn)) {
@@ -361,5 +361,4 @@ public class RotaService {
     private static final class PlanejamentoPreemptadoException extends RuntimeException {
         private static final long serialVersionUID = 1L;
     }
-
 }

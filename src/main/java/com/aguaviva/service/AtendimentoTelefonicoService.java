@@ -159,7 +159,7 @@ public class AtendimentoTelefonicoService {
         AtendimentoRequestNormalizer.validateQuantidade(quantidadeGaloes);
         AtendimentoRequestNormalizer.validateAtendenteId(atendenteId);
 
-        try (Connection conn = connectionFactory.getConnection()) {
+        try (var conn = connectionFactory.getConnection()) {
             conn.setAutoCommit(false);
             boolean transacaoFinalizada = false;
             try {
@@ -243,12 +243,7 @@ public class AtendimentoTelefonicoService {
                             new AtendimentoTelefonicoRepository.JanelaPedidoInput(
                                     janelaPedido.tipo(), janelaPedido.inicio(), janelaPedido.fim());
                     insert = repository.inserirPedidoPendente(
-                            conn,
-                            clienteId,
-                            quantidadeGaloes,
-                            atendenteId,
-                            metodoPagamentoNormalizado,
-                            repoJanela);
+                            conn, clienteId, quantidadeGaloes, atendenteId, metodoPagamentoNormalizado, repoJanela);
                 }
 
                 if (!insert.idempotente()) {
@@ -379,7 +374,8 @@ public class AtendimentoTelefonicoService {
             String telefoneNormalizado,
             AtendimentoRequestNormalizer.CadastroClienteInput cadastroClienteInput)
             throws SQLException {
-        Optional<ClienteCadastro> clienteExistente = repository.buscarClientePorTelefoneNormalizado(conn, telefoneNormalizado);
+        Optional<ClienteCadastro> clienteExistente =
+                repository.buscarClientePorTelefoneNormalizado(conn, telefoneNormalizado);
         AtendimentoTelefonicoRepository.CadastroClienteInput repoCadastro =
                 new AtendimentoTelefonicoRepository.CadastroClienteInput(
                         cadastroClienteInput.nomeCliente(),

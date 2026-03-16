@@ -42,7 +42,7 @@ public class EventoOperacionalIdempotenciaService {
         }
         Objects.requireNonNull(processamento, "Processamento nao pode ser nulo");
 
-        try (Connection conn = connectionFactory.getConnection()) {
+        try (var conn = connectionFactory.getConnection()) {
             conn.setAutoCommit(false);
             try {
                 assertSchema(conn);
@@ -65,14 +65,7 @@ public class EventoOperacionalIdempotenciaService {
 
                 ExecucaoEntregaResultado resposta = processamento.get();
                 repository.inserirRegistro(
-                        conn,
-                        externalEventId,
-                        requestHash,
-                        eventType,
-                        scopeType,
-                        scopeId,
-                        gson.toJson(resposta),
-                        200);
+                        conn, externalEventId, requestHash, eventType, scopeType, scopeId, gson.toJson(resposta), 200);
                 conn.commit();
                 return Resultado.sucesso(resposta);
             } catch (RuntimeException | SQLException e) {

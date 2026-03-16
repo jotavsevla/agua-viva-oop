@@ -1,6 +1,5 @@
 package com.aguaviva.repository;
 
-import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -32,10 +31,10 @@ public final class Database {
         Objects.requireNonNull(binder, "binder nao pode ser nulo");
         Objects.requireNonNull(mapper, "mapper nao pode ser nulo");
 
-        try (Connection conn = connectionFactory.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var conn = connectionFactory.getConnection();
+                var stmt = conn.prepareStatement(sql)) {
             binder.bind(stmt);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 return mapper.map(rs);
             }
         }
@@ -49,8 +48,8 @@ public final class Database {
         Objects.requireNonNull(sql, "sql nao pode ser nulo");
         Objects.requireNonNull(binder, "binder nao pode ser nulo");
 
-        try (Connection conn = connectionFactory.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var conn = connectionFactory.getConnection();
+                var stmt = conn.prepareStatement(sql)) {
             binder.bind(stmt);
             return stmt.executeUpdate();
         }

@@ -5,8 +5,6 @@ import com.aguaviva.solver.SolverRequest;
 import com.aguaviva.solver.SolverResponse;
 import com.google.gson.Gson;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
 import java.sql.Types;
@@ -36,8 +34,8 @@ final class RotaSolverJobSupport {
             stmt.execute("CREATE SEQUENCE IF NOT EXISTS solver_plan_version_seq START WITH 1 INCREMENT BY 1");
         }
 
-        try (PreparedStatement stmt = conn.prepareStatement("SELECT nextval('solver_plan_version_seq')");
-                ResultSet rs = stmt.executeQuery()) {
+        try (var stmt = conn.prepareStatement("SELECT nextval('solver_plan_version_seq')");
+                var rs = stmt.executeQuery()) {
             if (!rs.next()) {
                 throw new SQLException("Falha ao obter nextval de solver_plan_version_seq");
             }
@@ -54,9 +52,9 @@ final class RotaSolverJobSupport {
 
     static boolean isCancelamentoSolicitadoNoBanco(Connection conn, String jobId) throws SQLException {
         String sql = "SELECT cancel_requested, status::text FROM solver_jobs WHERE job_id = ?";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, jobId);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 if (!rs.next()) {
                     return false;
                 }
@@ -77,9 +75,9 @@ final class RotaSolverJobSupport {
                 """;
 
         List<String> jobIds = new ArrayList<>();
-        try (PreparedStatement stmt = conn.prepareStatement(selectSql)) {
+        try (var stmt = conn.prepareStatement(selectSql)) {
             stmt.setInt(1, Math.max(1, limite));
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 while (rs.next()) {
                     jobIds.add(rs.getString("job_id"));
                 }
@@ -95,7 +93,7 @@ final class RotaSolverJobSupport {
                 SET cancel_requested = true, status = ?, finalizado_em = CURRENT_TIMESTAMP
                 WHERE job_id = ?
                 """;
-        try (PreparedStatement stmt = conn.prepareStatement(updateSql)) {
+        try (var stmt = conn.prepareStatement(updateSql)) {
             for (String jobId : jobIds) {
                 stmt.setObject(1, "CANCELADO", Types.OTHER);
                 stmt.setString(2, jobId);
@@ -110,15 +108,28 @@ final class RotaSolverJobSupport {
     static void registrarSolverJobEmExecucao(
             ConnectionFactory connectionFactory, Gson gson, String jobId, long planVersion, SolverRequest request)
             throws SQLException {
-        try (Connection conn = connectionFactory.getConnection()) {
+        try (var conn = connectionFactory.getConnection()) {
             if (!hasSolverJobsSchema(conn)) {
                 return;
             }
             boolean hasRequestPayload = hasColumn(conn, "solver_jobs", "request_payload");
             String requestPayload = gson.toJson(request);
             String sql = """
-                    INSERT INTO solver_jobs (job_id, plan_version, status, cancel_requested, solicitado_em, iniciado_em, finalizado_em, erro)
-                    VALUES (?, ?, ?, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, NULL)
+                INSERT INTO solver_jobs (job_id, plan_version, status, cancel_requested, solicitado_em, iniciado_em, finalizado_em, erro)
+                VALUES (?, ?, ?, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, NULL)
+                ON CONFLICT (job_id) DO UPDATE SET
+                plan_version = EXCLUDED.plan_version,
+                status = EXCLUDED.status,
+                cancel_requested = false,
+                solicitado_em = CURRENT_TIMESTAMP,
+                iniciado_em = CURRENT_TIMESTAMP,
+                finalizado_em = NULL,
+                erro = NULL
+                """;
+            if (hasRequestPayload) {
+                sql = """
+                    INSERT INTO solver_jobs (job_id, plan_version, status, cancel_requested, solicitado_em, iniciado_em, finalizado_em, erro, request_payload)
+                    VALUES (?, ?, ?, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, NULL, CAST(? AS jsonb))
                     ON CONFLICT (job_id) DO UPDATE SET
                     plan_version = EXCLUDED.plan_version,
                     status = EXCLUDED.status,
@@ -126,24 +137,11 @@ final class RotaSolverJobSupport {
                     solicitado_em = CURRENT_TIMESTAMP,
                     iniciado_em = CURRENT_TIMESTAMP,
                     finalizado_em = NULL,
-                    erro = NULL
+                    erro = NULL,
+                    request_payload = EXCLUDED.request_payload
                     """;
-            if (hasRequestPayload) {
-                sql = """
-                        INSERT INTO solver_jobs (job_id, plan_version, status, cancel_requested, solicitado_em, iniciado_em, finalizado_em, erro, request_payload)
-                        VALUES (?, ?, ?, false, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP, NULL, NULL, CAST(? AS jsonb))
-                        ON CONFLICT (job_id) DO UPDATE SET
-                        plan_version = EXCLUDED.plan_version,
-                        status = EXCLUDED.status,
-                        cancel_requested = false,
-                        solicitado_em = CURRENT_TIMESTAMP,
-                        iniciado_em = CURRENT_TIMESTAMP,
-                        finalizado_em = NULL,
-                        erro = NULL,
-                        request_payload = EXCLUDED.request_payload
-                        """;
             }
-            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            try (var stmt = conn.prepareStatement(sql)) {
                 stmt.setString(1, jobId);
                 stmt.setLong(2, planVersion);
                 stmt.setObject(3, "EM_EXECUCAO", Types.OTHER);
@@ -162,28 +160,28 @@ final class RotaSolverJobSupport {
             String status,
             String erro,
             SolverResponse response) {
-        try (Connection conn = connectionFactory.getConnection()) {
+        try (var conn = connectionFactory.getConnection()) {
             if (!hasSolverJobsSchema(conn)) {
                 return;
             }
             boolean hasResponsePayload = hasColumn(conn, "solver_jobs", "response_payload");
             String responsePayload = response == null ? null : gson.toJson(response);
             String sql = """
-                    UPDATE solver_jobs
-                    SET status = ?, finalizado_em = CURRENT_TIMESTAMP, erro = ?,
-                    cancel_requested = CASE WHEN ? = 'CANCELADO' THEN true ELSE cancel_requested END
-                    WHERE job_id = ?
-                    """;
+                UPDATE solver_jobs
+                SET status = ?, finalizado_em = CURRENT_TIMESTAMP, erro = ?,
+                cancel_requested = CASE WHEN ? = 'CANCELADO' THEN true ELSE cancel_requested END
+                WHERE job_id = ?
+                """;
             if (hasResponsePayload) {
                 sql = """
-                        UPDATE solver_jobs
-                        SET status = ?, finalizado_em = CURRENT_TIMESTAMP, erro = ?,
-                        cancel_requested = CASE WHEN ? = 'CANCELADO' THEN true ELSE cancel_requested END,
-                        response_payload = CASE WHEN ? IS NULL THEN NULL ELSE CAST(? AS jsonb) END
-                        WHERE job_id = ?
-                        """;
+                    UPDATE solver_jobs
+                    SET status = ?, finalizado_em = CURRENT_TIMESTAMP, erro = ?,
+                    cancel_requested = CASE WHEN ? = 'CANCELADO' THEN true ELSE cancel_requested END,
+                    response_payload = CASE WHEN ? IS NULL THEN NULL ELSE CAST(? AS jsonb) END
+                    WHERE job_id = ?
+                    """;
             }
-            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            try (var stmt = conn.prepareStatement(sql)) {
                 stmt.setObject(1, status, Types.OTHER);
                 stmt.setString(2, erro);
                 stmt.setString(3, status);
@@ -207,9 +205,9 @@ final class RotaSolverJobSupport {
 
     private static boolean hasTable(Connection conn, String tabela) throws SQLException {
         String sql = "SELECT 1 FROM information_schema.tables WHERE table_name = ?";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, tabela);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 return rs.next();
             }
         }
@@ -217,10 +215,10 @@ final class RotaSolverJobSupport {
 
     private static boolean hasColumn(Connection conn, String tabela, String coluna) throws SQLException {
         String sql = "SELECT 1 FROM information_schema.columns WHERE table_name = ? AND column_name = ?";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, tabela);
             stmt.setString(2, coluna);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 return rs.next();
             }
         }

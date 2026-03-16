@@ -4,7 +4,6 @@ import com.aguaviva.service.CapacidadePolicy;
 import com.aguaviva.solver.Parada;
 import com.aguaviva.solver.PedidoSolver;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
@@ -40,8 +39,7 @@ public final class RotaRepository {
         Map<String, String> configs = new HashMap<>();
 
         try (Statement stmt = conn.createStatement();
-                ResultSet rs = stmt.executeQuery(sql)) {
-
+                var rs = stmt.executeQuery(sql)) {
             while (rs.next()) {
                 configs.put(rs.getString("chave"), rs.getString("valor"));
             }
@@ -60,9 +58,8 @@ public final class RotaRepository {
         String sql = "SELECT id FROM users WHERE papel = 'entregador' AND ativo = true ORDER BY id";
         List<Integer> ids = new ArrayList<>();
 
-        try (PreparedStatement stmt = conn.prepareStatement(sql);
-                ResultSet rs = stmt.executeQuery()) {
-
+        try (var stmt = conn.prepareStatement(sql);
+                var rs = stmt.executeQuery()) {
             while (rs.next()) {
                 ids.add(rs.getInt("id"));
             }
@@ -99,9 +96,8 @@ public final class RotaRepository {
 
         List<PedidoPlanejavel> elegiveis = new ArrayList<>();
 
-        try (PreparedStatement stmt = conn.prepareStatement(sql);
-                ResultSet rs = stmt.executeQuery()) {
-
+        try (var stmt = conn.prepareStatement(sql);
+                var rs = stmt.executeQuery()) {
             while (rs.next()) {
                 Double lat = toNullableDouble(rs, "latitude");
                 Double lon = toNullableDouble(rs, "longitude");
@@ -144,8 +140,8 @@ public final class RotaRepository {
                 )
                 LIMIT 1
                 """;
-        try (PreparedStatement stmt = conn.prepareStatement(sql);
-                ResultSet rs = stmt.executeQuery()) {
+        try (var stmt = conn.prepareStatement(sql);
+                var rs = stmt.executeQuery()) {
             return rs.next();
         }
     }
@@ -158,12 +154,12 @@ public final class RotaRepository {
                 AND r.data = CURRENT_DATE
                 AND r.status::text = 'PLANEJADA'
                 """;
-        try (PreparedStatement stmt = conn.prepareStatement(deleteEntregas)) {
+        try (var stmt = conn.prepareStatement(deleteEntregas)) {
             stmt.executeUpdate();
         }
 
         String deleteRotas = "DELETE FROM rotas WHERE data = CURRENT_DATE AND status::text = 'PLANEJADA'";
-        try (PreparedStatement stmt = conn.prepareStatement(deleteRotas)) {
+        try (var stmt = conn.prepareStatement(deleteRotas)) {
             stmt.executeUpdate();
         }
     }
@@ -194,7 +190,7 @@ public final class RotaRepository {
         for (int tentativa = 1; tentativa <= 5; tentativa++) {
             int numeroNoDia = reservarNumeroNoDia(conn, entregadorId, numeroNoDiaSugerido);
 
-            try (PreparedStatement stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
+            try (var stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
                 stmt.setInt(1, entregadorId);
                 stmt.setInt(2, numeroNoDia);
                 stmt.setObject(3, "PLANEJADA", Types.OTHER);
@@ -208,7 +204,7 @@ public final class RotaRepository {
                 }
                 stmt.executeUpdate();
 
-                try (ResultSet rs = stmt.getGeneratedKeys()) {
+                try (var rs = stmt.getGeneratedKeys()) {
                     if (rs.next()) {
                         return rs.getInt(1);
                     }
@@ -224,8 +220,7 @@ public final class RotaRepository {
         throw new SQLException("Falha ao inserir rota apos tentativas");
     }
 
-    private int reservarNumeroNoDia(Connection conn, int entregadorId, int numeroNoDiaSugerido)
-            throws SQLException {
+    private int reservarNumeroNoDia(Connection conn, int entregadorId, int numeroNoDiaSugerido) throws SQLException {
         String sql = """
                 SELECT numero_no_dia FROM rotas
                 WHERE entregador_id = ? AND data = CURRENT_DATE AND numero_no_dia >= ?
@@ -234,11 +229,11 @@ public final class RotaRepository {
 
         int candidato = Math.max(1, numeroNoDiaSugerido);
 
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, entregadorId);
             stmt.setInt(2, candidato);
 
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 while (rs.next()) {
                     int existente = rs.getInt("numero_no_dia");
                     if (existente == candidato) {
@@ -277,7 +272,7 @@ public final class RotaRepository {
                     "INSERT INTO entregas (pedido_id, rota_id, ordem_na_rota, hora_prevista, status) VALUES (?, ?, ?, ?, ?)";
         }
 
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, parada.pedidoId());
             stmt.setInt(2, rotaId);
             stmt.setInt(3, parada.ordem());
@@ -323,8 +318,8 @@ public final class RotaRepository {
                 """;
 
         Map<Integer, Integer> cargaComprometidaPorEntregador = new HashMap<>();
-        try (PreparedStatement stmt = conn.prepareStatement(sql);
-                ResultSet rs = stmt.executeQuery()) {
+        try (var stmt = conn.prepareStatement(sql);
+                var rs = stmt.executeQuery()) {
             while (rs.next()) {
                 cargaComprometidaPorEntregador.put(rs.getInt("entregador_id"), rs.getInt("carga_comprometida"));
             }
@@ -339,9 +334,9 @@ public final class RotaRepository {
     }
 
     public boolean tentarAdquirirLockPlanejamento(Connection conn) throws SQLException {
-        try (PreparedStatement stmt = conn.prepareStatement("SELECT pg_try_advisory_xact_lock(?)")) {
+        try (var stmt = conn.prepareStatement("SELECT pg_try_advisory_xact_lock(?)")) {
             stmt.setLong(1, PLANEJAMENTO_LOCK_KEY);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 if (!rs.next()) {
                     return false;
                 }
@@ -421,12 +416,14 @@ public final class RotaRepository {
 
         String perfilNormalizado = perfil.trim().toUpperCase(Locale.ROOT);
         return switch (perfilNormalizado) {
-            case "MOTO" -> parseCapacidadePositiva(
-                    configs.getOrDefault("capacidade_frota_moto", Integer.toString(capacidadePadrao)),
-                    "capacidade_frota_moto");
-            case "CARRO" -> parseCapacidadePositiva(
-                    configs.getOrDefault("capacidade_frota_carro", Integer.toString(capacidadePadrao)),
-                    "capacidade_frota_carro");
+            case "MOTO" ->
+                parseCapacidadePositiva(
+                        configs.getOrDefault("capacidade_frota_moto", Integer.toString(capacidadePadrao)),
+                        "capacidade_frota_moto");
+            case "CARRO" ->
+                parseCapacidadePositiva(
+                        configs.getOrDefault("capacidade_frota_carro", Integer.toString(capacidadePadrao)),
+                        "capacidade_frota_carro");
             case "", "PADRAO", "DEFAULT", "OFF" -> capacidadePadrao;
             default -> capacidadePadrao;
         };

@@ -1,7 +1,6 @@
 package com.aguaviva.repository;
 
 import java.sql.Connection;
-import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
@@ -19,7 +18,7 @@ public final class AtendimentoTelefonicoRepository {
 
     public void lockPorTelefone(Connection conn, String telefoneNormalizado) throws SQLException {
         String sql = "SELECT pg_advisory_xact_lock(hashtext(?))";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, telefoneNormalizado);
             stmt.executeQuery();
         }
@@ -27,9 +26,9 @@ public final class AtendimentoTelefonicoRepository {
 
     public void assertAtendenteExiste(Connection conn, int atendenteId) throws SQLException {
         String sql = "SELECT 1 FROM users WHERE id = ? LIMIT 1";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, atendenteId);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 if (!rs.next()) {
                     throw new IllegalArgumentException("Atendente informado nao existe");
                 }
@@ -42,7 +41,8 @@ public final class AtendimentoTelefonicoRepository {
             throw new IllegalStateException("Schema desatualizado: tabela atendimentos_idempotencia ausente");
         }
         if (!hasColumn(conn, "atendimentos_idempotencia", "origem_canal")) {
-            throw new IllegalStateException("Schema desatualizado: coluna atendimentos_idempotencia.origem_canal ausente");
+            throw new IllegalStateException(
+                    "Schema desatualizado: coluna atendimentos_idempotencia.origem_canal ausente");
         }
         if (!hasColumn(conn, "atendimentos_idempotencia", "source_event_id")) {
             throw new IllegalStateException(
@@ -60,7 +60,7 @@ public final class AtendimentoTelefonicoRepository {
     public void lockPorIdempotenciaAtendimento(Connection conn, String origemCanal, String dedupeKey)
             throws SQLException {
         String sql = "SELECT pg_advisory_xact_lock(hashtext(?))";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, origemCanal + "|" + dedupeKey);
             stmt.executeQuery();
         }
@@ -73,10 +73,10 @@ public final class AtendimentoTelefonicoRepository {
                 FROM atendimentos_idempotencia
                 WHERE origem_canal = ? AND source_event_id = ?
                 """;
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, origemCanal);
             stmt.setString(2, dedupeKey);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 if (rs.next()) {
                     return Optional.of(new AtendimentoIdempotenteExistente(
                             rs.getInt("pedido_id"),
@@ -108,7 +108,7 @@ public final class AtendimentoTelefonicoRepository {
                 VALUES (?, ?, ?, ?, ?, ?)
                 ON CONFLICT (origem_canal, source_event_id) DO NOTHING
                 """;
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, origemCanal);
             stmt.setString(2, dedupeKey);
             stmt.setInt(3, pedidoId);
@@ -122,10 +122,12 @@ public final class AtendimentoTelefonicoRepository {
         }
 
         AtendimentoIdempotenteExistente existente = buscarAtendimentoIdempotente(conn, origemCanal, dedupeKey)
-                .orElseThrow(() -> new SQLException("Registro idempotente de atendimento nao encontrado apos conflito"));
+                .orElseThrow(
+                        () -> new SQLException("Registro idempotente de atendimento nao encontrado apos conflito"));
         validarHashIdempotenciaCompativel(existente.requestHash(), requestHash);
         if (existente.pedidoId() != pedidoId || existente.clienteId() != clienteId) {
-            throw new IllegalStateException("source_event_id/manual_request_id reutilizado com pedido diferente para o mesmo canal");
+            throw new IllegalStateException(
+                    "source_event_id/manual_request_id reutilizado com pedido diferente para o mesmo canal");
         }
     }
 
@@ -144,9 +146,9 @@ public final class AtendimentoTelefonicoRepository {
                 id DESC
                 LIMIT 1
                 """;
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, telefoneNormalizado);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 if (rs.next()) {
                     return Optional.of(new ClienteCadastro(
                             rs.getInt("id"),
@@ -161,9 +163,7 @@ public final class AtendimentoTelefonicoRepository {
     }
 
     public ClienteCadastro criarClienteInicial(
-            Connection conn,
-            String telefoneNormalizado,
-            CadastroClienteInput cadastroClienteInput)
+            Connection conn, String telefoneNormalizado, CadastroClienteInput cadastroClienteInput)
             throws SQLException {
         String nome = cadastroClienteInput.nomeCliente();
         if (nome == null) {
@@ -182,7 +182,7 @@ public final class AtendimentoTelefonicoRepository {
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 RETURNING id, nome, endereco, latitude, longitude
                 """;
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, nome);
             stmt.setString(2, telefoneNormalizado);
             stmt.setObject(3, "PF", Types.OTHER);
@@ -199,7 +199,7 @@ public final class AtendimentoTelefonicoRepository {
             }
             stmt.setNull(7, Types.VARCHAR);
 
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 if (rs.next()) {
                     return new ClienteCadastro(
                             rs.getInt("id"),
@@ -214,9 +214,7 @@ public final class AtendimentoTelefonicoRepository {
     }
 
     public ClienteCadastro atualizarCadastroClienteSeInformado(
-            Connection conn,
-            ClienteCadastro clienteAtual,
-            CadastroClienteInput cadastroClienteInput)
+            Connection conn, ClienteCadastro clienteAtual, CadastroClienteInput cadastroClienteInput)
             throws SQLException {
         boolean temNome = cadastroClienteInput.nomeCliente() != null;
         boolean temEndereco = cadastroClienteInput.endereco() != null;
@@ -237,7 +235,7 @@ public final class AtendimentoTelefonicoRepository {
                 SET nome = ?, endereco = ?, latitude = ?, longitude = ?, atualizado_em = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """;
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, novoNome);
             stmt.setString(2, novoEndereco);
             if (novaLatitude == null) {
@@ -265,9 +263,9 @@ public final class AtendimentoTelefonicoRepository {
                 AND status::text IN ('PENDENTE', 'CONFIRMADO', 'EM_ROTA')
                 ORDER BY id DESC LIMIT 1
                 """;
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, clienteId);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 if (rs.next()) {
                     return Optional.of(new PedidoExistente(rs.getInt("id"), rs.getInt("cliente_id")));
                 }
@@ -279,9 +277,9 @@ public final class AtendimentoTelefonicoRepository {
     public Optional<PedidoExistente> buscarPedidoPorExternalCallId(Connection conn, String externalCallId)
             throws SQLException {
         String sql = "SELECT id, cliente_id FROM pedidos WHERE external_call_id = ?";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, externalCallId);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 if (rs.next()) {
                     return Optional.of(new PedidoExistente(rs.getInt("id"), rs.getInt("cliente_id")));
                 }
@@ -307,7 +305,7 @@ public final class AtendimentoTelefonicoRepository {
                 RETURNING id, cliente_id
                 """;
 
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, clienteId);
             stmt.setInt(2, quantidadeGaloes);
             stmt.setObject(3, janelaPedido.tipo(), Types.OTHER);
@@ -326,7 +324,7 @@ public final class AtendimentoTelefonicoRepository {
             stmt.setString(8, externalCallId);
             stmt.setObject(9, metodoPagamento, Types.OTHER);
 
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 if (rs.next()) {
                     return new InsertPedidoResult(rs.getInt("id"), rs.getInt("cliente_id"), false);
                 }
@@ -353,7 +351,7 @@ public final class AtendimentoTelefonicoRepository {
                 RETURNING id, cliente_id
                 """;
 
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, clienteId);
             stmt.setInt(2, quantidadeGaloes);
             stmt.setObject(3, janelaPedido.tipo(), Types.OTHER);
@@ -371,7 +369,7 @@ public final class AtendimentoTelefonicoRepository {
             stmt.setInt(7, atendenteId);
             stmt.setObject(8, metodoPagamento, Types.OTHER);
 
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 if (rs.next()) {
                     return new InsertPedidoResult(rs.getInt("id"), rs.getInt("cliente_id"), false);
                 }
@@ -385,15 +383,16 @@ public final class AtendimentoTelefonicoRepository {
             throw new IllegalStateException("Schema desatualizado: coluna pedidos.external_call_id ausente");
         }
         if (!hasUniqueConstraint(conn, "uk_pedidos_external_call_id")) {
-            throw new IllegalStateException("Schema desatualizado: constraint unica uk_pedidos_external_call_id ausente");
+            throw new IllegalStateException(
+                    "Schema desatualizado: constraint unica uk_pedidos_external_call_id ausente");
         }
     }
 
     public boolean hasTable(Connection conn, String tableName) throws SQLException {
         String sql = "SELECT 1 FROM information_schema.tables WHERE table_name = ?";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, tableName);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 return rs.next();
             }
         }
@@ -401,10 +400,10 @@ public final class AtendimentoTelefonicoRepository {
 
     public boolean hasColumn(Connection conn, String tableName, String columnName) throws SQLException {
         String sql = "SELECT 1 FROM information_schema.columns WHERE table_name = ? AND column_name = ?";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, tableName);
             stmt.setString(2, columnName);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 return rs.next();
             }
         }
@@ -412,9 +411,9 @@ public final class AtendimentoTelefonicoRepository {
 
     public boolean hasUniqueConstraint(Connection conn, String constraintName) throws SQLException {
         String sql = "SELECT 1 FROM pg_constraint WHERE conname = ? AND contype = 'u'";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, constraintName);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 return rs.next();
             }
         }
@@ -423,8 +422,8 @@ public final class AtendimentoTelefonicoRepository {
     public CoberturaBbox carregarCoberturaBbox(Connection conn) throws SQLException {
         String valor = null;
         String sql = "SELECT valor FROM configuracoes WHERE chave = 'cobertura_bbox' LIMIT 1";
-        try (PreparedStatement stmt = conn.prepareStatement(sql);
-                ResultSet rs = stmt.executeQuery()) {
+        try (var stmt = conn.prepareStatement(sql);
+                var rs = stmt.executeQuery()) {
             if (rs.next()) {
                 valor = rs.getString("valor");
             }
@@ -437,9 +436,9 @@ public final class AtendimentoTelefonicoRepository {
 
     public int buscarSaldoValeComLock(Connection conn, int clienteId) throws SQLException {
         String sql = "SELECT quantidade FROM saldo_vales WHERE cliente_id = ? FOR UPDATE";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, clienteId);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 if (!rs.next()) {
                     return 0;
                 }
@@ -453,7 +452,8 @@ public final class AtendimentoTelefonicoRepository {
             return;
         }
         if (!requestHashPersistido.equals(requestHashAtual)) {
-            throw new IllegalStateException("source_event_id/manual_request_id reutilizado com payload divergente para o mesmo canal");
+            throw new IllegalStateException(
+                    "source_event_id/manual_request_id reutilizado com payload divergente para o mesmo canal");
         }
     }
 
@@ -486,7 +486,8 @@ public final class AtendimentoTelefonicoRepository {
         return rs.getDouble(column);
     }
 
-    public record AtendimentoIdempotenteExistente(int pedidoId, int clienteId, String telefoneNormalizado, String requestHash) {}
+    public record AtendimentoIdempotenteExistente(
+            int pedidoId, int clienteId, String telefoneNormalizado, String requestHash) {}
 
     public record PedidoExistente(int pedidoId, int clienteId) {}
 

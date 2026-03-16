@@ -20,7 +20,7 @@ public final class TransactionRunner {
     public <T> T inTransaction(TransactionalFunction<T> work) {
         Objects.requireNonNull(work, "work nao pode ser nulo");
 
-        try (Connection conn = connectionSupplier.getConnection()) {
+        try (var conn = connectionSupplier.getConnection()) {
             conn.setAutoCommit(false);
             try {
                 T result = work.apply(conn);

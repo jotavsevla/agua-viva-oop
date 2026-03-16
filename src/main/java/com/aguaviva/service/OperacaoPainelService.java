@@ -4,8 +4,6 @@ import com.aguaviva.repository.ConnectionFactory;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -23,7 +21,7 @@ public class OperacaoPainelService {
     }
 
     public OperacaoPainelResultado consultarPainel() {
-        try (Connection conn = connectionFactory.getConnection()) {
+        try (var conn = connectionFactory.getConnection()) {
             String ambiente = resolverAmbiente(conn);
             PedidosPorStatus pedidosPorStatus = consultarPedidosPorStatus(conn);
             IndicadoresEntrega indicadoresEntrega = construirIndicadoresEntrega(pedidosPorStatus);
@@ -60,8 +58,8 @@ public class OperacaoPainelService {
 
     private String resolverAmbiente(Connection conn) throws SQLException {
         String sql = "SELECT current_database()";
-        try (PreparedStatement stmt = conn.prepareStatement(sql);
-                ResultSet rs = stmt.executeQuery()) {
+        try (var stmt = conn.prepareStatement(sql);
+                var rs = stmt.executeQuery()) {
             rs.next();
             String db = rs.getString(1);
             if (db != null && db.contains("_test")) {
@@ -84,8 +82,8 @@ public class OperacaoPainelService {
                 SUM(CASE WHEN status::text = 'CANCELADO' THEN 1 ELSE 0 END) AS cancelado
                 FROM pedidos
                 """;
-        try (PreparedStatement stmt = conn.prepareStatement(sql);
-                ResultSet rs = stmt.executeQuery()) {
+        try (var stmt = conn.prepareStatement(sql);
+                var rs = stmt.executeQuery()) {
             rs.next();
             return new PedidosPorStatus(
                     rs.getInt("pendente"),
@@ -110,8 +108,8 @@ public class OperacaoPainelService {
                 ORDER BY r.id
                 """;
         List<RotaEmAndamentoResumo> result = new ArrayList<>();
-        try (PreparedStatement stmt = conn.prepareStatement(sql);
-                ResultSet rs = stmt.executeQuery()) {
+        try (var stmt = conn.prepareStatement(sql);
+                var rs = stmt.executeQuery()) {
             while (rs.next()) {
                 result.add(new RotaEmAndamentoResumo(
                         rs.getInt("rota_id"),
@@ -136,8 +134,8 @@ public class OperacaoPainelService {
                 ORDER BY r.id
                 """;
         List<RotaPlanejadaResumo> result = new ArrayList<>();
-        try (PreparedStatement stmt = conn.prepareStatement(sql);
-                ResultSet rs = stmt.executeQuery()) {
+        try (var stmt = conn.prepareStatement(sql);
+                var rs = stmt.executeQuery()) {
             while (rs.next()) {
                 result.add(new RotaPlanejadaResumo(
                         rs.getInt("rota_id"), rs.getInt("entregador_id"), rs.getInt("pendentes")));
@@ -163,9 +161,9 @@ public class OperacaoPainelService {
                 LIMIT ?
                 """;
         List<PendenteElegivelResumo> result = new ArrayList<>();
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, LIMITE_LISTAS);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 while (rs.next()) {
                     result.add(new PendenteElegivelResumo(
                             rs.getInt("pedido_id"),
@@ -191,9 +189,9 @@ public class OperacaoPainelService {
                 LIMIT ?
                 """;
         List<ConfirmadoSecundariaResumo> result = new ArrayList<>();
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, LIMITE_LISTAS);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 while (rs.next()) {
                     result.add(new ConfirmadoSecundariaResumo(
                             rs.getInt("pedido_id"),
@@ -225,9 +223,9 @@ public class OperacaoPainelService {
                 LIMIT ?
                 """;
         List<EmRotaPrimariaResumo> result = new ArrayList<>();
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, LIMITE_LISTAS);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 while (rs.next()) {
                     result.add(new EmRotaPrimariaResumo(
                             rs.getInt("pedido_id"),

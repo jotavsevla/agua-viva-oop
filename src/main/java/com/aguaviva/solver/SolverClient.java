@@ -48,13 +48,13 @@ public final class SolverClient implements SolverGateway {
     public SolverResponse solve(SolverRequest request) throws IOException, InterruptedException {
         String body = gson.toJson(request);
 
-        HttpRequest httpReq = HttpRequest.newBuilder()
+        var httpReq = HttpRequest.newBuilder()
                 .uri(URI.create(solverUrl + "/solve"))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build();
 
-        HttpResponse<String> httpResp = httpClient.send(httpReq, HttpResponse.BodyHandlers.ofString());
+        var httpResp = httpClient.send(httpReq, HttpResponse.BodyHandlers.ofString());
 
         if (httpResp.statusCode() != 200) {
             throw new IOException("Solver retornou status " + httpResp.statusCode() + ": " + httpResp.body());
@@ -66,13 +66,13 @@ public final class SolverClient implements SolverGateway {
     public SolverAsyncAccepted submitAsync(SolverRequest request) throws IOException, InterruptedException {
         String body = gson.toJson(request);
 
-        HttpRequest httpReq = HttpRequest.newBuilder()
+        var httpReq = HttpRequest.newBuilder()
                 .uri(URI.create(solverUrl + "/solve/async"))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(body))
                 .build();
 
-        HttpResponse<String> httpResp = httpClient.send(httpReq, HttpResponse.BodyHandlers.ofString());
+        var httpResp = httpClient.send(httpReq, HttpResponse.BodyHandlers.ofString());
         if (httpResp.statusCode() != 200 && httpResp.statusCode() != 202) {
             throw new IOException("Solver async retornou status " + httpResp.statusCode() + ": " + httpResp.body());
         }
@@ -87,12 +87,12 @@ public final class SolverClient implements SolverGateway {
         }
 
         String encoded = URLEncoder.encode(jobId, StandardCharsets.UTF_8);
-        HttpRequest httpReq = HttpRequest.newBuilder()
+        var httpReq = HttpRequest.newBuilder()
                 .uri(URI.create(solverUrl + "/cancel/" + encoded))
                 .POST(HttpRequest.BodyPublishers.noBody())
                 .build();
 
-        HttpResponse<String> httpResp = httpClient.send(httpReq, HttpResponse.BodyHandlers.ofString());
+        var httpResp = httpClient.send(httpReq, HttpResponse.BodyHandlers.ofString());
         if (httpResp.statusCode() == 404) {
             return false;
         }
@@ -109,12 +109,12 @@ public final class SolverClient implements SolverGateway {
         }
 
         String encoded = URLEncoder.encode(jobId, StandardCharsets.UTF_8);
-        HttpRequest httpReq = HttpRequest.newBuilder()
+        var httpReq = HttpRequest.newBuilder()
                 .uri(URI.create(solverUrl + "/result/" + encoded))
                 .GET()
                 .build();
 
-        HttpResponse<String> httpResp = httpClient.send(httpReq, HttpResponse.BodyHandlers.ofString());
+        var httpResp = httpClient.send(httpReq, HttpResponse.BodyHandlers.ofString());
         if (httpResp.statusCode() == 404) {
             return null;
         }

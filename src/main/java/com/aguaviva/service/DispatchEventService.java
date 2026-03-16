@@ -2,8 +2,6 @@ package com.aguaviva.service;
 
 import com.google.gson.Gson;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Types;
 import java.util.Objects;
@@ -26,7 +24,7 @@ public class DispatchEventService {
                 VALUES (?, ?, ?, CAST(? AS jsonb)) RETURNING id
                 """;
 
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, eventType);
             stmt.setString(2, aggregateType);
             if (aggregateId == null) {
@@ -36,7 +34,7 @@ public class DispatchEventService {
             }
             stmt.setString(4, payloadJson);
 
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 if (rs.next()) {
                     return rs.getLong(1);
                 }
@@ -57,9 +55,9 @@ public class DispatchEventService {
 
     private boolean hasTable(Connection conn, String table) throws SQLException {
         String sql = "SELECT 1 FROM information_schema.tables WHERE table_name = ?";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, table);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 return rs.next();
             }
         }
@@ -67,10 +65,10 @@ public class DispatchEventService {
 
     private boolean hasColumn(Connection conn, String table, String column) throws SQLException {
         String sql = "SELECT 1 FROM information_schema.columns WHERE table_name = ? AND column_name = ?";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, table);
             stmt.setString(2, column);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 return rs.next();
             }
         }

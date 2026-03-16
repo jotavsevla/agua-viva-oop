@@ -3,8 +3,6 @@ package com.aguaviva.api;
 import com.aguaviva.config.ApiRuntimeConfig;
 import com.aguaviva.repository.ConnectionFactory;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Locale;
 import java.util.Map;
@@ -48,8 +46,8 @@ public final class ApiRateLimitService {
                 PRIMARY KEY (rate_key, window_start)
                 )
                 """;
-        try (Connection conn = connectionFactory.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var conn = connectionFactory.getConnection();
+                var stmt = conn.prepareStatement(sql)) {
             stmt.execute();
         } catch (SQLException e) {
             throw new IllegalStateException("Falha ao preparar schema de rate limit", e);
@@ -115,12 +113,12 @@ public final class ApiRateLimitService {
                 """;
         String cleanup =
                 "DELETE FROM api_rate_limit_counters WHERE updated_em < (CURRENT_TIMESTAMP - INTERVAL '2 days')";
-        try (Connection conn = connectionFactory.getConnection()) {
-            try (PreparedStatement stmt = conn.prepareStatement(upsert)) {
+        try (var conn = connectionFactory.getConnection()) {
+            try (var stmt = conn.prepareStatement(upsert)) {
                 stmt.setInt(1, windowSeconds);
                 stmt.setInt(2, windowSeconds);
                 stmt.setString(3, rateKey);
-                try (ResultSet rs = stmt.executeQuery()) {
+                try (var rs = stmt.executeQuery()) {
                     if (!rs.next()) {
                         throw new IllegalStateException("Falha ao ler contador de rate limit");
                     }
@@ -135,7 +133,7 @@ public final class ApiRateLimitService {
     }
 
     private void bestEffortCleanup(Connection conn, String cleanupSql, String rateKey) {
-        try (PreparedStatement cleanupStmt = conn.prepareStatement(cleanupSql)) {
+        try (var cleanupStmt = conn.prepareStatement(cleanupSql)) {
             cleanupStmt.executeUpdate();
         } catch (SQLException e) {
             CLEANUP_FAILURES.increment();

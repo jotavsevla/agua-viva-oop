@@ -2,8 +2,6 @@ package com.aguaviva.service;
 
 import com.aguaviva.repository.ConnectionFactory;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
@@ -22,7 +20,7 @@ public class RoteiroEntregadorService {
             throw new IllegalArgumentException("entregadorId deve ser maior que zero");
         }
 
-        try (Connection conn = connectionFactory.getConnection()) {
+        try (var conn = connectionFactory.getConnection()) {
             RotaResumo rota = buscarRotaAtivaOuPlanejada(conn, entregadorId);
             if (rota == null) {
                 return new RoteiroEntregadorResultado(entregadorId, null, 0, List.of(), List.of());
@@ -33,21 +31,21 @@ public class RoteiroEntregadorService {
             int cargaRemanescente = 0;
 
             String sqlParadas = """
-                    SELECT e.id AS entrega_id,
-                    e.pedido_id,
-                    e.ordem_na_rota,
-                    e.status::text AS entrega_status,
-                    p.quantidade_galoes,
-                    COALESCE(c.nome, '') AS cliente_nome
-                    FROM entregas e
-                    JOIN pedidos p ON p.id = e.pedido_id
-                    LEFT JOIN clientes c ON c.id = p.cliente_id
-                    WHERE e.rota_id = ?
-                    ORDER BY e.ordem_na_rota, e.id
-                    """;
-            try (PreparedStatement stmt = conn.prepareStatement(sqlParadas)) {
+                SELECT e.id AS entrega_id,
+                e.pedido_id,
+                e.ordem_na_rota,
+                e.status::text AS entrega_status,
+                p.quantidade_galoes,
+                COALESCE(c.nome, '') AS cliente_nome
+                FROM entregas e
+                JOIN pedidos p ON p.id = e.pedido_id
+                LEFT JOIN clientes c ON c.id = p.cliente_id
+                WHERE e.rota_id = ?
+                ORDER BY e.ordem_na_rota, e.id
+                """;
+            try (var stmt = conn.prepareStatement(sqlParadas)) {
                 stmt.setInt(1, rota.rotaId());
-                try (ResultSet rs = stmt.executeQuery()) {
+                try (var rs = stmt.executeQuery()) {
                     while (rs.next()) {
                         ParadaResumo parada = new ParadaResumo(
                                 rs.getInt("entrega_id"),
@@ -89,9 +87,9 @@ public class RoteiroEntregadorService {
                 LIMIT 1
                 """;
 
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, entregadorId);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 if (!rs.next()) {
                     return null;
                 }

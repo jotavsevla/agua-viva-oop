@@ -44,7 +44,7 @@ public class ExecucaoEntregaService {
             throw new IllegalArgumentException("actorEntregadorId deve ser maior que zero");
         }
 
-        try (Connection conn = connectionFactory.getConnection()) {
+        try (var conn = connectionFactory.getConnection()) {
             conn.setAutoCommit(false);
             try {
                 assertOperationalSchema(conn);
@@ -67,7 +67,7 @@ public class ExecucaoEntregaService {
             throw new IllegalArgumentException("entregadorId deve ser maior que zero");
         }
 
-        try (Connection conn = connectionFactory.getConnection()) {
+        try (var conn = connectionFactory.getConnection()) {
             conn.setAutoCommit(false);
             try {
                 assertOperationalSchema(conn);
@@ -146,7 +146,7 @@ public class ExecucaoEntregaService {
             throw new IllegalArgumentException("actorEntregadorId deve ser maior que zero");
         }
 
-        try (Connection conn = connectionFactory.getConnection()) {
+        try (var conn = connectionFactory.getConnection()) {
             conn.setAutoCommit(false);
             try {
                 assertOperationalSchema(conn);
@@ -236,7 +236,8 @@ public class ExecucaoEntregaService {
             repository.atualizarRotaParaEmAndamento(conn, rotaId);
         }
 
-        List<ExecucaoEntregaRepository.EntregaPedidoRef> entregas = repository.buscarEntregasPendentesDaRota(conn, rotaId);
+        List<ExecucaoEntregaRepository.EntregaPedidoRef> entregas =
+                repository.buscarEntregasPendentesDaRota(conn, rotaId);
         int pedidoIdReferencia = 0;
         int entregaIdReferencia = 0;
         for (ExecucaoEntregaRepository.EntregaPedidoRef ref : entregas) {

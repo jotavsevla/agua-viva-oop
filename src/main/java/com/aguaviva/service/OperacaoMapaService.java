@@ -2,8 +2,6 @@ package com.aguaviva.service;
 
 import com.aguaviva.repository.ConnectionFactory;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -21,7 +19,7 @@ public class OperacaoMapaService {
     }
 
     public OperacaoMapaResultado consultarMapa() {
-        try (Connection conn = connectionFactory.getConnection()) {
+        try (var conn = connectionFactory.getConnection()) {
             String ambiente = resolverAmbiente(conn);
             DepositoResumo deposito = consultarDeposito(conn);
             List<RotaMapaResumo> rotas = consultarRotasComParadas(conn, deposito);
@@ -33,8 +31,8 @@ public class OperacaoMapaService {
 
     private String resolverAmbiente(Connection conn) throws SQLException {
         String sql = "SELECT current_database()";
-        try (PreparedStatement stmt = conn.prepareStatement(sql);
-                ResultSet rs = stmt.executeQuery()) {
+        try (var stmt = conn.prepareStatement(sql);
+                var rs = stmt.executeQuery()) {
             rs.next();
             String db = rs.getString(1);
             if (db != null && db.contains("_test")) {
@@ -51,8 +49,8 @@ public class OperacaoMapaService {
         String sql =
                 "SELECT chave, valor FROM configuracoes WHERE chave IN ('deposito_latitude', 'deposito_longitude')";
         Map<String, String> valores = new LinkedHashMap<>();
-        try (PreparedStatement stmt = conn.prepareStatement(sql);
-                ResultSet rs = stmt.executeQuery()) {
+        try (var stmt = conn.prepareStatement(sql);
+                var rs = stmt.executeQuery()) {
             while (rs.next()) {
                 valores.put(rs.getString("chave"), rs.getString("valor"));
             }
@@ -99,8 +97,8 @@ public class OperacaoMapaService {
 
         Map<Integer, RotaAccumulator> rotas = new LinkedHashMap<>();
 
-        try (PreparedStatement stmt = conn.prepareStatement(sql);
-                ResultSet rs = stmt.executeQuery()) {
+        try (var stmt = conn.prepareStatement(sql);
+                var rs = stmt.executeQuery()) {
             while (rs.next()) {
                 int rotaId = rs.getInt("rota_id");
                 int entregadorId = rs.getInt("entregador_id");

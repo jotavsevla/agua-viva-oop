@@ -2,8 +2,6 @@ package com.aguaviva.service;
 
 import com.aguaviva.repository.ConnectionFactory;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -27,7 +25,7 @@ public class PedidoTimelineService {
             throw new IllegalArgumentException("pedidoId deve ser maior que zero");
         }
 
-        try (Connection conn = connectionFactory.getConnection()) {
+        try (var conn = connectionFactory.getConnection()) {
             PedidoAtual pedido = buscarPedido(conn, pedidoId);
             List<TimelineEvent> eventos = new ArrayList<>();
             boolean encontrouEventoCriacao = false;
@@ -79,9 +77,9 @@ public class PedidoTimelineService {
 
     private PedidoAtual buscarPedido(Connection conn, int pedidoId) throws SQLException {
         String sql = "SELECT status::text, criado_em FROM pedidos WHERE id = ?";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, pedidoId);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 if (!rs.next()) {
                     throw new IllegalArgumentException("Pedido nao encontrado com id: " + pedidoId);
                 }
@@ -100,9 +98,9 @@ public class PedidoTimelineService {
                 """;
 
         List<EventoDispatch> eventos = new ArrayList<>();
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setLong(1, pedidoId);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 while (rs.next()) {
                     eventos.add(new EventoDispatch(
                             rs.getString("event_type"),
@@ -116,9 +114,9 @@ public class PedidoTimelineService {
 
     private Integer buscarRotaDoPedido(Connection conn, int pedidoId) throws SQLException {
         String sql = "SELECT rota_id FROM entregas WHERE pedido_id = ? ORDER BY id DESC LIMIT 1";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, pedidoId);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 if (rs.next()) {
                     return rs.getInt("rota_id");
                 }
@@ -135,10 +133,10 @@ public class PedidoTimelineService {
                 AND event_type = ?
                 ORDER BY created_em, id LIMIT 1
                 """;
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setLong(1, rotaId);
             stmt.setString(2, DispatchEventTypes.ROTA_INICIADA);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 if (rs.next()) {
                     return rs.getObject("created_em", LocalDateTime.class);
                 }

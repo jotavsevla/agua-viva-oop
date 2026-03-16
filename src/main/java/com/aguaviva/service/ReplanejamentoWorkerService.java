@@ -3,8 +3,6 @@ package com.aguaviva.service;
 import com.aguaviva.repository.ConnectionFactory;
 import java.sql.Array;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Time;
 import java.time.LocalTime;
@@ -106,7 +104,7 @@ public class ReplanejamentoWorkerService {
     }
 
     public boolean existePedidoHardEmRisco() {
-        try (Connection conn = connectionFactory.getConnection()) {
+        try (var conn = connectionFactory.getConnection()) {
             LocalTime referencia = obterHorarioAtualDoBanco(conn);
             return existePedidoHardEmRisco(conn, referencia, HARD_WINDOW_RISCO_HORIZONTE_MINUTOS);
         } catch (SQLException e) {
@@ -116,7 +114,7 @@ public class ReplanejamentoWorkerService {
 
     boolean existePedidoHardEmRisco(LocalTime referencia, int horizonteMinutos) {
         Objects.requireNonNull(referencia, "referencia nao pode ser nula");
-        try (Connection conn = connectionFactory.getConnection()) {
+        try (var conn = connectionFactory.getConnection()) {
             return existePedidoHardEmRisco(conn, referencia, horizonteMinutos);
         } catch (SQLException e) {
             throw new IllegalStateException("Falha ao consultar risco de janela HARD", e);
@@ -124,7 +122,7 @@ public class ReplanejamentoWorkerService {
     }
 
     private WorkerAttempt processarUmaTentativa(int debounceSegundos, int limiteEventos) {
-        try (Connection conn = connectionFactory.getConnection()) {
+        try (var conn = connectionFactory.getConnection()) {
             conn.setAutoCommit(false);
             try {
                 dispatchEventService.assertSchema(conn);
@@ -190,9 +188,9 @@ public class ReplanejamentoWorkerService {
 
     private boolean tryAcquireWorkerLock(Connection conn) throws SQLException {
         String sql = "SELECT pg_try_advisory_xact_lock(?)";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setLong(1, ADVISORY_LOCK_KEY);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 rs.next();
                 return rs.getBoolean(1);
             }
@@ -212,10 +210,10 @@ public class ReplanejamentoWorkerService {
                 """;
 
         List<DispatchEventRef> result = new ArrayList<>();
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, debounceSegundos);
             stmt.setInt(2, limiteEventos);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 while (rs.next()) {
                     result.add(new DispatchEventRef(rs.getLong("id"), rs.getString("event_type")));
                 }
@@ -231,7 +229,7 @@ public class ReplanejamentoWorkerService {
 
         String sql =
                 "UPDATE dispatch_events SET status = 'PROCESSADO', processed_em = CURRENT_TIMESTAMP WHERE id = ANY (?)";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             Object[] ids = eventos.stream().map(DispatchEventRef::id).toArray();
             Array sqlArray = conn.createArrayOf("bigint", ids);
             stmt.setArray(1, sqlArray);
@@ -270,18 +268,18 @@ public class ReplanejamentoWorkerService {
                 LIMIT 1
                 """;
 
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setTime(1, Time.valueOf(referencia));
             stmt.setInt(2, horizonteMinutos);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 return rs.next();
             }
         }
     }
 
     private LocalTime obterHorarioAtualDoBanco(Connection conn) throws SQLException {
-        try (PreparedStatement stmt = conn.prepareStatement("SELECT CURRENT_TIME");
-                ResultSet rs = stmt.executeQuery()) {
+        try (var stmt = conn.prepareStatement("SELECT CURRENT_TIME");
+                var rs = stmt.executeQuery()) {
             if (!rs.next()) {
                 throw new IllegalStateException("Falha ao obter horario atual do banco");
             }
@@ -291,9 +289,9 @@ public class ReplanejamentoWorkerService {
 
     private boolean hasTable(Connection conn, String table) throws SQLException {
         String sql = "SELECT 1 FROM information_schema.tables WHERE table_name = ?";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, table);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 return rs.next();
             }
         }
@@ -301,10 +299,10 @@ public class ReplanejamentoWorkerService {
 
     private boolean hasColumn(Connection conn, String table, String column) throws SQLException {
         String sql = "SELECT 1 FROM information_schema.columns WHERE table_name = ? AND column_name = ?";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, table);
             stmt.setString(2, column);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 return rs.next();
             }
         }

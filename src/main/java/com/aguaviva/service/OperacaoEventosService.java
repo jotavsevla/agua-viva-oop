@@ -2,9 +2,6 @@ package com.aguaviva.service;
 
 import com.aguaviva.repository.ConnectionFactory;
 import com.google.gson.Gson;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -32,17 +29,17 @@ public class OperacaoEventosService {
             throw new IllegalArgumentException("limite maximo permitido e 200");
         }
 
-        try (Connection conn = connectionFactory.getConnection()) {
+        try (var conn = connectionFactory.getConnection()) {
             String sql = """
-                    SELECT id, event_type, status::text AS status, aggregate_type, aggregate_id, payload, created_em, processed_em
-                    FROM dispatch_events
-                    ORDER BY created_em DESC, id DESC
-                    LIMIT ?
-                    """;
+                SELECT id, event_type, status::text AS status, aggregate_type, aggregate_id, payload, created_em, processed_em
+                FROM dispatch_events
+                ORDER BY created_em DESC, id DESC
+                LIMIT ?
+                """;
             List<EventoOperacional> eventos = new ArrayList<>();
-            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            try (var stmt = conn.prepareStatement(sql)) {
                 stmt.setInt(1, limite);
-                try (ResultSet rs = stmt.executeQuery()) {
+                try (var rs = stmt.executeQuery()) {
                     while (rs.next()) {
                         Object payload = gson.fromJson(rs.getString("payload"), Object.class);
                         LocalDateTime processedEm = rs.getObject("processed_em", LocalDateTime.class);

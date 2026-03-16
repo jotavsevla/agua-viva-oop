@@ -2,7 +2,6 @@ package com.aguaviva.repository;
 
 import com.aguaviva.domain.cliente.Cliente;
 import com.aguaviva.domain.cliente.ClienteTipo;
-import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -30,9 +29,8 @@ public class ClienteRepository {
                 VALUES (?, ?, ?, ?, ?, ?, ?)
                 """;
 
-        try (Connection conn = connectionFactory.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
-
+        try (var conn = connectionFactory.getConnection();
+                var stmt = conn.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             stmt.setString(1, cliente.getNome());
             stmt.setString(2, cliente.getTelefone());
             setTipoParameter(stmt, 3, cliente.getTipo());
@@ -43,7 +41,7 @@ public class ClienteRepository {
 
             stmt.executeUpdate();
 
-            try (ResultSet generatedKeys = stmt.getGeneratedKeys()) {
+            try (var generatedKeys = stmt.getGeneratedKeys()) {
                 if (generatedKeys.next()) {
                     int generatedId = generatedKeys.getInt(1);
                     return new Cliente(
@@ -74,9 +72,8 @@ public class ClienteRepository {
                 WHERE id = ?
                 """;
 
-        try (Connection conn = connectionFactory.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(sql)) {
-
+        try (var conn = connectionFactory.getConnection();
+                var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, cliente.getNome());
             stmt.setString(2, cliente.getTelefone());
             setTipoParameter(stmt, 3, cliente.getTipo());
@@ -105,12 +102,11 @@ public class ClienteRepository {
     public Optional<Cliente> findById(int id) throws SQLException {
         String sql = "SELECT id, nome, telefone, tipo, endereco, latitude, longitude, notas FROM clientes WHERE id = ?";
 
-        try (Connection conn = connectionFactory.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(sql)) {
-
+        try (var conn = connectionFactory.getConnection();
+                var stmt = conn.prepareStatement(sql)) {
             stmt.setInt(1, id);
 
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 if (rs.next()) {
                     return Optional.of(toCliente(rs));
                 }
@@ -125,12 +121,11 @@ public class ClienteRepository {
                 FROM clientes WHERE telefone = ?
                 """;
 
-        try (Connection conn = connectionFactory.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(sql)) {
-
+        try (var conn = connectionFactory.getConnection();
+                var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, telefone.trim());
 
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 if (rs.next()) {
                     return Optional.of(toCliente(rs));
                 }
@@ -143,10 +138,9 @@ public class ClienteRepository {
         String sql = "SELECT id, nome, telefone, tipo, endereco, latitude, longitude, notas FROM clientes ORDER BY id";
         List<Cliente> clientes = new ArrayList<>();
 
-        try (Connection conn = connectionFactory.getConnection();
-                PreparedStatement stmt = conn.prepareStatement(sql);
-                ResultSet rs = stmt.executeQuery()) {
-
+        try (var conn = connectionFactory.getConnection();
+                var stmt = conn.prepareStatement(sql);
+                var rs = stmt.executeQuery()) {
             while (rs.next()) {
                 clientes.add(toCliente(rs));
             }

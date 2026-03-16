@@ -2,8 +2,6 @@ package com.aguaviva.service;
 
 import com.aguaviva.repository.ConnectionFactory;
 import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -30,7 +28,7 @@ public class OperacaoReplanejamentoService {
             throw new IllegalArgumentException("limite maximo permitido e 200");
         }
 
-        try (Connection conn = connectionFactory.getConnection()) {
+        try (var conn = connectionFactory.getConnection()) {
             String ambiente = resolverAmbiente(conn);
             if (!hasSolverJobsSchema(conn)) {
                 return new OperacaoReplanejamentoResultado(LocalDateTime.now().toString(), ambiente, false, List.of());
@@ -39,9 +37,9 @@ public class OperacaoReplanejamentoService {
             boolean hasRequestPayload = hasColumn(conn, "solver_jobs", "request_payload");
             boolean hasResponsePayload = hasColumn(conn, "solver_jobs", "response_payload");
             String sql = """
-                    SELECT job_id, plan_version, status::text AS status, cancel_requested,
-                    solicitado_em, iniciado_em, finalizado_em, erro,
-                    """
+                SELECT job_id, plan_version, status::text AS status, cancel_requested,
+                solicitado_em, iniciado_em, finalizado_em, erro,
+                """
                     + (hasRequestPayload
                             ? "CASE WHEN request_payload IS NOT NULL THEN true ELSE false END AS has_request_payload, "
                             : "false AS has_request_payload, ")
@@ -49,15 +47,15 @@ public class OperacaoReplanejamentoService {
                             ? "CASE WHEN response_payload IS NOT NULL THEN true ELSE false END AS has_response_payload "
                             : "false AS has_response_payload ")
                     + """
-                    FROM solver_jobs
-                    ORDER BY solicitado_em DESC, job_id DESC
-                    LIMIT ?
-                    """;
+                FROM solver_jobs
+                ORDER BY solicitado_em DESC, job_id DESC
+                LIMIT ?
+                """;
 
             List<SolverJobResumo> jobs = new ArrayList<>();
-            try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+            try (var stmt = conn.prepareStatement(sql)) {
                 stmt.setInt(1, limite);
-                try (ResultSet rs = stmt.executeQuery()) {
+                try (var rs = stmt.executeQuery()) {
                     while (rs.next()) {
                         LocalDateTime iniciadoEm = rs.getObject("iniciado_em", LocalDateTime.class);
                         LocalDateTime finalizadoEm = rs.getObject("finalizado_em", LocalDateTime.class);
@@ -88,7 +86,7 @@ public class OperacaoReplanejamentoService {
             throw new IllegalArgumentException("jobId obrigatorio");
         }
 
-        try (Connection conn = connectionFactory.getConnection()) {
+        try (var conn = connectionFactory.getConnection()) {
             String ambiente = resolverAmbiente(conn);
             if (!hasSolverJobsSchema(conn)) {
                 throw new IllegalArgumentException("feed de replanejamento indisponivel no schema atual");
@@ -122,9 +120,9 @@ public class OperacaoReplanejamentoService {
                 FROM solver_jobs WHERE job_id = ?
                 """;
 
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, jobIdSolicitado);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 if (!rs.next()) {
                     throw new IllegalArgumentException("jobId nao encontrado: " + jobIdSolicitado);
                 }
@@ -174,9 +172,9 @@ public class OperacaoReplanejamentoService {
                 ORDER BY r.id DESC
                 """;
         List<RotaImpactadaResumo> rotas = new ArrayList<>();
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setLong(1, planVersion);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 while (rs.next()) {
                     rotas.add(new RotaImpactadaResumo(
                             rs.getInt("rota_id"),
@@ -202,9 +200,9 @@ public class OperacaoReplanejamentoService {
                 ORDER BY r.id DESC
                 """;
         List<RotaImpactadaResumo> rotas = new ArrayList<>();
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, jobId);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 while (rs.next()) {
                     rotas.add(new RotaImpactadaResumo(
                             rs.getInt("rota_id"),
@@ -230,9 +228,9 @@ public class OperacaoReplanejamentoService {
                 ORDER BY e.id DESC
                 """;
         List<PedidoImpactadoResumo> pedidos = new ArrayList<>();
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setLong(1, planVersion);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 while (rs.next()) {
                     pedidos.add(new PedidoImpactadoResumo(
                             rs.getInt("pedido_id"),
@@ -258,9 +256,9 @@ public class OperacaoReplanejamentoService {
                 ORDER BY e.id DESC
                 """;
         List<PedidoImpactadoResumo> pedidos = new ArrayList<>();
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, jobId);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 while (rs.next()) {
                     pedidos.add(new PedidoImpactadoResumo(
                             rs.getInt("pedido_id"),
@@ -276,8 +274,8 @@ public class OperacaoReplanejamentoService {
 
     private String resolverAmbiente(Connection conn) throws SQLException {
         String sql = "SELECT current_database()";
-        try (PreparedStatement stmt = conn.prepareStatement(sql);
-                ResultSet rs = stmt.executeQuery()) {
+        try (var stmt = conn.prepareStatement(sql);
+                var rs = stmt.executeQuery()) {
             rs.next();
             String db = rs.getString(1);
             if (db != null && db.contains("_test")) {
@@ -308,9 +306,9 @@ public class OperacaoReplanejamentoService {
 
     private boolean hasTable(Connection conn, String tableName) throws SQLException {
         String sql = "SELECT 1 FROM information_schema.tables WHERE table_name = ?";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, tableName);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 return rs.next();
             }
         }
@@ -318,10 +316,10 @@ public class OperacaoReplanejamentoService {
 
     private boolean hasColumn(Connection conn, String tableName, String columnName) throws SQLException {
         String sql = "SELECT 1 FROM information_schema.columns WHERE table_name = ? AND column_name = ?";
-        try (PreparedStatement stmt = conn.prepareStatement(sql)) {
+        try (var stmt = conn.prepareStatement(sql)) {
             stmt.setString(1, tableName);
             stmt.setString(2, columnName);
-            try (ResultSet rs = stmt.executeQuery()) {
+            try (var rs = stmt.executeQuery()) {
                 return rs.next();
             }
         }
