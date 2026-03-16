@@ -42,9 +42,12 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.Executors;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 public final class ApiServer {
 
+    private static final Logger LOGGER = Logger.getLogger(ApiServer.class.getName());
     private static final String CORS_ALLOW_ORIGIN = "*";
     private static final String CORS_ALLOW_HEADERS = "Content-Type,Idempotency-Key,X-Idempotency-Key";
     private static final String CORS_ALLOW_METHODS = "GET,POST,OPTIONS";
@@ -144,8 +147,8 @@ public final class ApiServer {
                 rateLimitService,
                 database,
                 runtimeConfig.startupLogsEnabled());
-        if (runtimeConfig.startupLogsEnabled()) {
-            System.out.println("Runtime config: APP_ENV="
+         if (runtimeConfig.startupLogsEnabled()) {
+            LOGGER.info("Runtime config: APP_ENV="
                     + runtimeConfig.appEnv()
                     + ", API_CONFIG_FILE="
                     + runtimeConfig.structuredConfig().sourcePath()
@@ -155,7 +158,7 @@ public final class ApiServer {
                     + rateLimitEnabled
                     + ", mockSolverEnabled="
                     + mockSolverEnabled);
-        }
+         }
         app.start(port);
     }
 
@@ -173,15 +176,15 @@ public final class ApiServer {
         server.start();
 
         int resolvedPort = server.getAddress().getPort();
-        if (startupLogsEnabled) {
-            System.out.println("API online na porta " + resolvedPort);
-            System.out.println("Endpoints: /health, /api/atendimento/pedidos, /api/eventos, /api/replanejamento/run, "
+         if (startupLogsEnabled) {
+            LOGGER.info("API online na porta " + resolvedPort);
+            LOGGER.info("Endpoints: /health, /api/atendimento/pedidos, /api/eventos, /api/replanejamento/run, "
                     + "/api/pedidos/{pedidoId}/timeline, /api/pedidos/{pedidoId}/execucao, "
                     + "/api/entregadores/{entregadorId}/roteiro, "
                     + "/api/operacao/painel, /api/operacao/eventos, /api/operacao/mapa, "
                     + "/api/operacao/replanejamento/jobs, /api/operacao/replanejamento/jobs/{jobId}, "
                     + "/api/operacao/rotas/prontas/iniciar");
-        }
+         }
         return new RunningServer(server, resolvedPort);
     }
 
@@ -699,7 +702,7 @@ public final class ApiServer {
             try {
                 replanejaPorRiscoJanelaHard = replanejamentoWorkerService.existePedidoHardEmRisco();
             } catch (Exception e) {
-                System.err.println("Falha ao avaliar risco de janela HARD: " + e.getMessage());
+                LOGGER.log(Level.SEVERE, "Falha ao avaliar risco de janela HARD", e);
             }
         }
 
@@ -711,7 +714,7 @@ public final class ApiServer {
             try {
                 replanejamentoWorkerService.processarPendentes(0, 100);
             } catch (Exception e) {
-                System.err.println("Falha no worker imediato de replanejamento: " + e.getMessage());
+                LOGGER.log(Level.SEVERE, "Falha no worker imediato de replanejamento", e);
             }
         });
     }
