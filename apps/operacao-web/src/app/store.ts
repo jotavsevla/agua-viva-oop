@@ -7,6 +7,7 @@ import type {
   OperationalSnapshot,
   RoteiroEntregadorResponse
 } from "../types";
+import { createEntregadorState } from "../entregador/model";
 
 type Listener = (state: AppState) => void;
 type StateUpdater = (state: AppState) => AppState;
@@ -118,21 +119,7 @@ export function createAppStore(initialState: AppState): AppStore {
     setEntregadorId(entregadorId: number): void {
       setState((currentState) => ({
         ...currentState,
-        entregador: {
-          ...currentState.entregador,
-          entregadorId,
-          roteiro: null,
-          fetchedAt: null,
-          sync: {
-            status: "idle",
-            lastError: null
-          },
-          action: {
-            status: "idle",
-            lastError: null
-          },
-          lastAction: null
-        }
+        entregador: createEntregadorState(entregadorId)
       }));
     },
     startSync(): void {
