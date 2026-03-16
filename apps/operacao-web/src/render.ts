@@ -66,9 +66,71 @@ function renderActiveModule(state: AppState): string {
   return renderCockpit(buildCockpitViewModel(state));
 }
 
+interface FocusSnapshot {
+  elementTag: "input" | "select" | "textarea";
+  id: string | null;
+  name: string | null;
+  selectionStart: number | null;
+  selectionEnd: number | null;
+}
+
+function captureFocusSnapshot(root: HTMLElement): FocusSnapshot | null {
+  const activeElement = document.activeElement;
+
+  if (
+    !(activeElement instanceof HTMLInputElement || activeElement instanceof HTMLSelectElement || activeElement instanceof HTMLTextAreaElement) ||
+    !root.contains(activeElement)
+  ) {
+    return null;
+  }
+
+  return {
+    elementTag: activeElement.tagName.toLowerCase() as FocusSnapshot["elementTag"],
+    id: activeElement.id || null,
+    name: activeElement.getAttribute("name"),
+    selectionStart: "selectionStart" in activeElement ? activeElement.selectionStart : null,
+    selectionEnd: "selectionEnd" in activeElement ? activeElement.selectionEnd : null
+  };
+}
+
+function restoreFocusSnapshot(root: HTMLElement, snapshot: FocusSnapshot | null): void {
+  if (!snapshot) {
+    return;
+  }
+
+  const selector =
+    snapshot.id !== null
+      ? `#${CSS.escape(snapshot.id)}`
+      : snapshot.name !== null
+        ? `${snapshot.elementTag}[name="${CSS.escape(snapshot.name)}"]`
+        : null;
+
+  if (!selector) {
+    return;
+  }
+
+  const nextElement = root.querySelector<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>(selector);
+
+  if (!nextElement) {
+    return;
+  }
+
+  nextElement.focus({ preventScroll: true });
+
+  if (
+    nextElement instanceof HTMLInputElement ||
+    nextElement instanceof HTMLTextAreaElement
+  ) {
+    if (snapshot.selectionStart !== null && snapshot.selectionEnd !== null) {
+      nextElement.setSelectionRange(snapshot.selectionStart, snapshot.selectionEnd);
+    }
+  }
+}
+
 export function renderApp(root: HTMLElement, state: AppState): void {
   const activeModule = getModuleById(state.activeModule);
   const partialErrors = state.snapshot?.partialErrors.length ?? 0;
+  const focusSnapshot = captureFocusSnapshot(root);
 
   root.innerHTML = `
     <div class="app-shell">
@@ -132,4 +194,6 @@ export function renderApp(root: HTMLElement, state: AppState): void {
       ${renderActiveModule(state)}
     </div>
   `;
+
+  restoreFocusSnapshot(root, focusSnapshot);
 }
