@@ -78,8 +78,7 @@ function renderOpsSnapshot(state: AppState): string {
   `;
 }
 
-function renderDraftNotices(state: AppState): string {
-  const blockers = buildDraftBlockers(state.atendimento.draft, state.atendimento.sessionCases);
+function renderDraftNotices(state: AppState, blockers: string[]): string {
   const warnings = buildDraftWarnings(state.atendimento.draft);
   const notices: string[] = [];
 
@@ -126,9 +125,8 @@ function renderDraftNotices(state: AppState): string {
   return notices.join("");
 }
 
-function renderAtendimentoForm(state: AppState): string {
+function renderAtendimentoForm(state: AppState, blockers: string[]): string {
   const draft = state.atendimento.draft;
-  const blockers = buildDraftBlockers(draft, state.atendimento.sessionCases);
   const isHard = draft.janelaTipo === "HARD";
   const isManual = draft.origemCanal === "MANUAL";
   const isAuto = draft.origemCanal === "WHATSAPP" || draft.origemCanal === "BINA_FIXO" || draft.origemCanal === "TELEFONIA_FIXO";
@@ -461,12 +459,14 @@ function renderSessionCase(
 }
 
 export function renderAtendimentoWorkspace(state: AppState): string {
+  const blockers = buildDraftBlockers(state.atendimento.draft, state.atendimento.sessionCases);
+
   return `
     <section class="atendimento-workspace">
       ${renderOpsSnapshot(state)}
-      ${renderDraftNotices(state)}
+      ${renderDraftNotices(state, blockers)}
       <div class="atendimento-grid">
-        ${renderAtendimentoForm(state)}
+        ${renderAtendimentoForm(state, blockers)}
         ${renderContextPanel(state)}
       </div>
     </section>
